@@ -27,12 +27,20 @@ pub const park_js = @embedFile("park.js");
 /// The longest `POST /scene` body: a request is under 200 bytes.
 pub const longest_body = 1024;
 
+/// Every route's cap on a body (webbox's body.zig reads it from the head,
+/// metal-vmm QUEUE 167.2): the scene request is the only one with a body,
+/// so every path takes at most its cap, and every body is read before the
+/// turn.
+pub fn bodyLimit(_: []const u8) u64 {
+    return longest_body;
+}
+
 /// The most other dogs one scene sends: enough for a screen of them.
 pub const most_others = 2000;
 
 /// **THE DEVICE'S IDENTITY**: a signed cookie naming the human's id, digits
 /// only, canonical, for a year.
-pub const device_cookie: signed_cookie.Cookie = .{ .name = "dogpark_human", .kind = .{
+pub const device_cookie: signed_cookie.Cookie = .{ .name = webbox.http.host_prefix ++ "dogpark_human", .legacy_name = "dogpark_human", .kind = .{
     .label = "dogpark_human\n",
     .lifetime_secs = 365 * 24 * 60 * 60,
     .skew_secs = 5 * 60,
@@ -286,7 +294,7 @@ test "a first visit is shown a dog and keeps nothing; the next, with its cookie,
     const first = try rig.post("", stay_body);
     try testing.expect(std.mem.startsWith(u8, first.head, "HTTP/1.1 200"));
     const cookie = cookieSet(first.head);
-    try testing.expect(std.mem.startsWith(u8, cookie, "dogpark_human=1."));
+    try testing.expect(std.mem.startsWith(u8, cookie, "__Host-dogpark_human=1."));
     try testing.expectEqual(answering.Holding.holds_none, the_world.holding(.of(1)));
     const shown = (try std.json.parseFromSliceLeaky(std.json.Value, a, first.body, .{})).object.get("scene").?.object.get("own").?.object;
 
@@ -325,7 +333,7 @@ test "a forged cookie is a new device, never the human it names" {
     const cookie = cookieSet(first.head);
     const forged = try std.fmt.allocPrint(rig.arena.allocator(), "{s}x", .{cookie});
     const again = try rig.post(forged, stay_body);
-    try testing.expect(std.mem.startsWith(u8, cookieSet(again.head), "dogpark_human=2."));
+    try testing.expect(std.mem.startsWith(u8, cookieSet(again.head), "__Host-dogpark_human=2."));
 }
 
 test "a request that does not read, is refused, or is too long is a 4xx, and makes no human" {
@@ -343,7 +351,7 @@ test "a request that does not read, is refused, or is too long is a 4xx, and mak
     @memset(long, ' ');
     try testing.expect(std.mem.startsWith(u8, (try rig.post("", long)).head, "HTTP/1.1 413"));
     // None of those made a human: the next one is the first.
-    try testing.expect(std.mem.startsWith(u8, cookieSet((try rig.post("", stay_body)).head), "dogpark_human=1."));
+    try testing.expect(std.mem.startsWith(u8, cookieSet((try rig.post("", stay_body)).head), "__Host-dogpark_human=1."));
 }
 
 test "the page names its script by its bytes, and the script is served" {
@@ -386,14 +394,14 @@ test "a cookie for an id the counter has not handed out (an auth/ restored from 
     const first = cookieSet((try rig.post("", stay_body)).head);
     _ = try rig.post(first, stay_body);
     const second = cookieSet((try rig.post("", stay_body)).head);
-    try testing.expect(std.mem.startsWith(u8, second, "dogpark_human=2."));
+    try testing.expect(std.mem.startsWith(u8, second, "__Host-dogpark_human=2."));
     // auth/next-human back to 2, as an older backup of it had it.
     const root = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &rig.tmp.sub_path });
     try webbox.store.write(rig.threaded.io(), a, try std.fs.path.join(a, &.{ root, "auth", "next-human" }), "2\n", .{});
     // Human 2's cookie comes back: still human 2, and the counter is past 2,
     // so the next new device is 3, never a second human 2.
     try testing.expect(std.mem.indexOf(u8, (try rig.post(second, stay_body)).head, "set-cookie") == null);
-    try testing.expect(std.mem.startsWith(u8, cookieSet((try rig.post("", stay_body)).head), "dogpark_human=3."));
+    try testing.expect(std.mem.startsWith(u8, cookieSet((try rig.post("", stay_body)).head), "__Host-dogpark_human=3."));
     // Human 1, handed out before, is still themselves.
     try testing.expect(std.mem.indexOf(u8, (try rig.post(first, stay_body)).head, "set-cookie") == null);
 }
