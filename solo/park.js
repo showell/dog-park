@@ -1,11 +1,14 @@
 // Dog Park, played: one human, the server keeping the dogs.
 //
 // THE PARK IS A CHECKERBOARD of 800 px tiles, each named by its column and
-// row, 10 by 10 of them: the world, which no dog leaves. The page subscribes to the tiles around its viewport (at most 25;
-// the page chooses which) and knows only the dogs in them. Each time the
-// tiles it wants change, it sends the whole set, each tile marked new or
-// held; the server replaces its set and answers with the dogs in the tiles
-// marked new.
+// row, 10 by 10 of them: the world, which no dog leaves. The page
+// subscribes to the tiles around its viewport (at most 25; the page chooses
+// which), and the server keeps it told about the dogs in them. Each time
+// the tiles it wants change, it sends the whole set, each tile marked new
+// or held; the server replaces its set and answers with the dogs in the
+// tiles marked new. **A SUBSCRIPTION ONLY SAYS WHAT THE SERVER KEEPS YOU
+// TOLD OF**: the page remembers every dog it has seen, where it last saw
+// it, subscribed or not.
 //
 // Any dog you see can be picked up. Pressing a dog leashes it (the server is
 // told, and acks); dragging it sends where it is, never more than one
@@ -173,7 +176,8 @@ async function fetchMe() {
 
 // ── what the page knows ─────────────────────────────────────────────────────
 
-// The dogs in the tiles subscribed, by id.
+// Every dog the page has seen, by id, where it last saw it: live in a tile
+// subscribed, remembered (perhaps stale) in one that is not.
 const known = new Map();
 // The tiles the server has acked as subscribed, by key.
 let subscribed = new Map();
@@ -263,9 +267,10 @@ function sendViewport(viewport) {
 
 // The tiles: when none is waiting and the tiles wanted differ from those
 // subscribed, the whole set wanted is sent, each tile marked new (its dogs
-// wanted) or held (its dogs known). The answer brings the new tiles' dogs;
-// the dogs of tiles left out are forgotten, but for one on your leash or in
-// your hand.
+// wanted) or held (its dogs known). The answer is the truth for each new
+// tile: the dogs remembered there are dropped (one may have wandered off),
+// but for one on your leash or in your hand, and the answer's dogs taken.
+// A dog in a tile left out is remembered where it was.
 const tileSends = { waiting: false };
 
 function syncTiles(viewport, inHand) {
@@ -279,13 +284,14 @@ function syncTiles(viewport, inHand) {
   post("/tiles", { tiles: named }).then(
     (ack) => {
       subscribed = wanted;
-      for (const d of ack.dogs) known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
-      let forgotten = 0;
+      const fresh = new Set(named.filter((t) => t.is === "new").map(tileKey));
+      let replaced = 0;
       for (const [id, d] of known) {
         const kept = (leashed.kind !== "none" && leashed.dogId === id) || inHand() === d;
-        if (!kept && !subscribed.has(tileKey(tileOf(d.parkX, d.parkY)))) { known.delete(id); forgotten++; }
+        if (!kept && fresh.has(tileKey(tileOf(d.parkX, d.parkY)))) { known.delete(id); replaced++; }
       }
-      console.log(`tiles: ${added} new, ${dropped} dropped, ${ack.subscribed} subscribed; ${ack.dogs.length} dogs arrived, ${forgotten} forgotten, ${known.size} known`);
+      for (const d of ack.dogs) known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
+      console.log(`tiles: ${added} new, ${dropped} dropped, ${ack.subscribed} subscribed; ${ack.dogs.length} dogs arrived for ${replaced} remembered, ${known.size} known`);
     },
     (e) => console.error("tiles failed:", e.message),
   ).finally(() => { tileSends.waiting = false; });
@@ -327,8 +333,9 @@ function blit(canvas, width, height, ground, sprites) {
   }
 }
 
-// The overview: each tile a square of its shade, each dog a dot, a ringed
-// dog with a ring, and the view a rectangle. All in viewport points.
+// The overview: each tile a square of its shade, each dog a dot (dark when
+// live, pale when remembered), a ringed dog with a ring, and the view a
+// rectangle. All in viewport points.
 function blitOverview(canvas, width, height, squares, dots, view) {
   const ratio = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d");
@@ -342,7 +349,7 @@ function blitOverview(canvas, width, height, squares, dots, view) {
   for (const d of dots) {
     ctx.beginPath();
     ctx.arc(d.viewportX, d.viewportY, 2.5, 0, 2 * Math.PI);
-    ctx.fillStyle = "#333";
+    ctx.fillStyle = d.freshness === "live" ? "#333" : "#a88";
     ctx.fill();
     if (d.kind === "ringed") {
       ctx.beginPath();
@@ -532,6 +539,7 @@ async function start() {
     }
     const dots = [...known.values()].map((d) => ({
       kind: lastLeashed.kind === "dog" && lastLeashed.dogId === d.id ? "ringed" : "plain",
+      freshness: subscribed.has(tileKey(tileOf(d.parkX, d.parkY))) ? "live" : "remembered",
       ...overviewFromPark(o, d.parkX, d.parkY),
     }));
     const corner = overviewFromPark(o, viewport.parkX, viewport.parkY);
