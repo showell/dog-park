@@ -38,22 +38,17 @@ pub fn bodyLimit(_: []const u8) u64 {
 /// The most other dogs one scene sends: enough for a screen of them.
 pub const most_others = 2000;
 
-/// **THE DEVICE'S IDENTITY**: a signed cookie naming the human's id, digits
-/// only, canonical, for a year.
+/// **THE DEVICE'S IDENTITY**: a signed cookie naming the human's id, 32
+/// lowercase hex digits (128 random bits, humans.zig), for a year.
 pub const device_cookie: signed_cookie.Cookie = .{ .name = webbox.http.host_prefix ++ "dogpark_human", .legacy_name = "dogpark_human", .kind = .{
     .label = "dogpark_human\n",
     .lifetime_secs = 365 * 24 * 60 * 60,
     .skew_secs = 5 * 60,
-    .validId = canonicalDigits,
+    .validId = isHumanName,
 } };
 
-fn canonicalDigits(id: []const u8) bool {
-    return world.canonicalNumber(id) == .number;
-}
-
-/// A human's id as a cookie names it: its digits.
-fn nameOf(h: HumanId, buffer: *[20]u8) []const u8 {
-    return std.fmt.bufPrint(buffer, "{d}", .{h.number()}) catch unreachable;
+fn isHumanName(id: []const u8) bool {
+    return HumanId.parse(id) != null;
 }
 
 /// The world this process serves, opened by `setup`: one handler runs at a
@@ -87,7 +82,7 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
         break :blk .created;
     };
     const now: dogs.Instant = .of(@intCast(@divFloor(Io.Clock.now(.real, io).nanoseconds, std.time.ns_per_s)));
-    switch (try world.World.open(io, base, scratch.allocator(), r.data_dir, r.auth_dir, world.the_park, claiming.dog_count, claiming.dogs_seed, now)) {
+    switch (try world.World.open(io, base, scratch.allocator(), r.data_dir, world.the_park, claiming.dog_count, claiming.dogs_seed, now)) {
         .world => |w| the_world = w,
         .refused => |refused| {
             // **WHAT DOES NOT READ STOPS THE START, NAMED** (fail, never warn).
@@ -147,18 +142,7 @@ fn scene(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
     };
     // A new device becomes a human only once its request reads.
     const who: Who = switch (visitor.visitor) {
-        .known => |h| blk: {
-            // **A COOKIE FOR AN ID NOT YET HANDED OUT KEEPS IT** (164's
-            // adversary): an auth/ restored from an older backup, its secret
-            // the same, takes the counter back, and the ids it would hand out
-            // next are named by cookies already out. The counter is moved past
-            // the one that comes back, so no new device is given it.
-            switch (try the_world.handedOut(io, alloc, h)) {
-                .handed_out => {},
-                .not_yet => try the_world.reserveThrough(io, alloc, h),
-            }
-            break :blk .{ .human = h, .standing = .returning, .set_cookie = visitor.renewal };
-        },
+        .known => |h| .{ .human = h, .standing = .returning, .set_cookie = visitor.renewal },
         .new_device => try newDevice(io, alloc, now),
     };
     const room: answering.Room = .{ .others = try alloc.alloc(dogs.Drawn, most_others), .found = try alloc.alloc(dogs.Dog, most_others) };
@@ -174,9 +158,9 @@ fn scene(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
 
 /// A device new to the park: a human made for it, and the cookie that says so.
 fn newDevice(io: Io, alloc: std.mem.Allocator, now: i64) !Who {
-    const h = try the_world.newHuman(io, alloc);
-    var name: [20]u8 = undefined;
-    const issued = (try signed_cookie.issue(device_cookie, io, alloc, auth_dir, nameOf(h, &name), now)) orelse return error.NoSecret;
+    const h = the_world.newHuman(io);
+    var name: [32]u8 = undefined;
+    const issued = (try signed_cookie.issue(device_cookie, io, alloc, auth_dir, h.name(&name), now)) orelse return error.NoSecret;
     return .{ .human = h, .standing = .first_visit, .set_cookie = .{ .header = issued } };
 }
 
@@ -205,10 +189,8 @@ fn visitorOf(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, no
         .no_secret => error.NoSecret,
         .verified => |v| .{
             .visitor = .{
-                .known = switch (world.canonicalNumber(v.id)) {
-                    .number => |n| .of(n),
-                    .not_a_number => unreachable, // the cookie's kind takes canonical digits only
-                },
+                // The cookie's kind takes a human's name only.
+                .known = HumanId.parse(v.id) orelse unreachable,
             },
             .renewal = if (signed_cookie.needsRenewal(device_cookie, v, now)) .{
                 .header = (try signed_cookie.issue(device_cookie, io, alloc, auth_dir, v.id, now)) orelse return error.NoSecret,
@@ -273,6 +255,13 @@ const Rig = struct {
     }
 };
 
+/// The human a cookie names (`name=<id>.<issued>.<mac>`).
+fn humanOf(cookie: []const u8) HumanId {
+    const eq = std.mem.indexOfScalar(u8, cookie, '=').?;
+    const dot = std.mem.indexOfScalarPos(u8, cookie, eq, '.').?;
+    return HumanId.parse(cookie[eq + 1 .. dot]).?;
+}
+
 /// The cookie a response sets, as a request sends it back: `name=value`.
 fn cookieSet(head: []const u8) []const u8 {
     const at = std.mem.indexOf(u8, head, "set-cookie: ") orelse return "";
@@ -294,13 +283,14 @@ test "a first visit is shown a dog and keeps nothing; the next, with its cookie,
     const first = try rig.post("", stay_body);
     try testing.expect(std.mem.startsWith(u8, first.head, "HTTP/1.1 200"));
     const cookie = cookieSet(first.head);
-    try testing.expect(std.mem.startsWith(u8, cookie, "__Host-dogpark_human=1."));
-    try testing.expectEqual(answering.Holding.holds_none, the_world.holding(.of(1)));
+    try testing.expect(std.mem.startsWith(u8, cookie, "__Host-dogpark_human="));
+    const me = humanOf(cookie);
+    try testing.expectEqual(answering.Holding.holds_none, the_world.holding(me));
     const shown = (try std.json.parseFromSliceLeaky(std.json.Value, a, first.body, .{})).object.get("scene").?.object.get("own").?.object;
 
     const second = try rig.post(cookie, stay_body);
     try testing.expect(std.mem.indexOf(u8, second.head, "set-cookie") == null);
-    const claimed = the_world.holding(.of(1)).holds;
+    const claimed = the_world.holding(me).holds;
     const at = the_world.all[claimed.number()].at.point;
     // The dog the first visit was shown is the one claimed, nobody having
     // claimed it between.
@@ -333,7 +323,8 @@ test "a forged cookie is a new device, never the human it names" {
     const cookie = cookieSet(first.head);
     const forged = try std.fmt.allocPrint(rig.arena.allocator(), "{s}x", .{cookie});
     const again = try rig.post(forged, stay_body);
-    try testing.expect(std.mem.startsWith(u8, cookieSet(again.head), "__Host-dogpark_human=2."));
+    const other = cookieSet(again.head);
+    try testing.expect(humanOf(other) != humanOf(cookie));
 }
 
 test "a request that does not read, is refused, or is too long is a 4xx, and makes no human" {
@@ -350,8 +341,8 @@ test "a request that does not read, is refused, or is too long is a 4xx, and mak
     const long = try rig.arena.allocator().alloc(u8, longest_body + 1);
     @memset(long, ' ');
     try testing.expect(std.mem.startsWith(u8, (try rig.post("", long)).head, "HTTP/1.1 413"));
-    // None of those made a human: the next one is the first.
-    try testing.expect(std.mem.startsWith(u8, cookieSet((try rig.post("", stay_body)).head), "__Host-dogpark_human=1."));
+    // None of those set a cookie: a human is made only once a request reads.
+    try testing.expectEqual(@as(usize, 0), the_world.holders.count());
 }
 
 test "the page names its script by its bytes, and the script is served" {
@@ -372,7 +363,8 @@ test "a second start finds the secret and the dogs" {
     var rig: Rig = undefined;
     try rig.init();
     defer rig.deinit();
-    _ = try rig.post(cookieSet((try rig.post("", stay_body)).head), stay_body);
+    const cookie = cookieSet((try rig.post("", stay_body)).head);
+    _ = try rig.post(cookie, stay_body);
     the_world.close(testing.allocator);
     const a = rig.arena.allocator();
     const root = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &rig.tmp.sub_path });
@@ -383,25 +375,29 @@ test "a second start finds the secret and the dogs" {
     try testing.expectEqual(.found, again.secret);
     try testing.expectEqual(claiming.dog_count, again.dogs);
     try testing.expectEqual(.found, again.made);
-    try testing.expect(the_world.holding(.of(1)) == .holds);
+    try testing.expect(the_world.holding(humanOf(cookie)) == .holds);
 }
 
-test "a cookie for an id the counter has not handed out (an auth/ restored from an older backup) keeps its human, and the counter moves past it" {
+test "a cookie names its human by 32 hex digits, and one of the old counter's numbers names no one (docs/CLAIMS-V1.md)" {
     var rig: Rig = undefined;
     try rig.init();
     defer rig.deinit();
     const a = rig.arena.allocator();
     const first = cookieSet((try rig.post("", stay_body)).head);
-    _ = try rig.post(first, stay_body);
-    const second = cookieSet((try rig.post("", stay_body)).head);
-    try testing.expect(std.mem.startsWith(u8, second, "__Host-dogpark_human=2."));
-    // auth/next-human back to 2, as an older backup of it had it.
-    const root = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &rig.tmp.sub_path });
-    try webbox.store.write(rig.threaded.io(), a, try std.fs.path.join(a, &.{ root, "auth", "next-human" }), "2\n", .{});
-    // Human 2's cookie comes back: still human 2, and the counter is past 2,
-    // so the next new device is 3, never a second human 2.
-    try testing.expect(std.mem.indexOf(u8, (try rig.post(second, stay_body)).head, "set-cookie") == null);
-    try testing.expect(std.mem.startsWith(u8, cookieSet((try rig.post("", stay_body)).head), "__Host-dogpark_human=3."));
-    // Human 1, handed out before, is still themselves.
-    try testing.expect(std.mem.indexOf(u8, (try rig.post(first, stay_body)).head, "set-cookie") == null);
+    const value = first[std.mem.indexOfScalar(u8, first, '=').? + 1 ..];
+    try testing.expectEqual(@as(usize, 32), std.mem.indexOfScalar(u8, value, '.').?);
+    // A cookie the old counter's way, signed with the site's own secret: a
+    // number names no human now, so its device is new.
+    const secret_dir = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &rig.tmp.sub_path, "auth" });
+    var digits = device_cookie;
+    digits.kind.validId = struct {
+        fn any(_: []const u8) bool {
+            return true;
+        }
+    }.any;
+    const numbered = (try signed_cookie.issue(digits, rig.threaded.io(), a, secret_dir, "1", 1_790_000_000)).?;
+    const sent = numbered[0..std.mem.indexOfScalar(u8, numbered, ';').?];
+    const answered = try rig.post(sent, stay_body);
+    try testing.expect(std.mem.startsWith(u8, answered.head, "HTTP/1.1 200"));
+    try testing.expect(cookieSet(answered.head).len > 0);
 }

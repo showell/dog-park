@@ -1,23 +1,18 @@
 //! The world: the park, its dogs, who holds which, and the store under them
-//! (webbox's `store` and `counter`). The only module here that touches a
-//! disk.
+//! (webbox's `store`). The only module here that touches a disk.
 //!
 //!   <data>/dogs/<dog id>   a dog, its `stored.StoredDog` bytes: where it
 //!                          stands, its breed and its claim, written whole
 //!                          by `store.replace`
-//!   <auth>/next-human      the next human's id (webbox.counter)
 //!
 //! **THE DOGS ARE MADE ONCE** (docs/FIXED-DOGS.md): when `dogs/` holds no
 //! dog, the park's dogs are made (claiming.makeDogs) and written; otherwise
 //! every one of them must be there, and readable, or the start stops,
 //! named.
 //!
-//! **THE ID COUNTER LIVES BESIDE THE SECRET** (metal-vmm QUEUE 163.5): a
-//! cookie names a human by id, signed with the secret in `<auth>`, so the
-//! counter that hands out ids is kept there too. `data/` restored from a
-//! backup, or wiped, does not take the counter back with it, so no new
-//! device is handed an id a live cookie already names. Only losing `<auth>`
-//! resets it, and that loses the secret too, and with it every cookie.
+//! **NO ID COUNTER** (docs/CLAIMS-V1.md): a human is 128 random bits
+//! (humans.zig), so nothing is handed out in order and nothing is kept for
+//! it; a restored `data/` or `auth/` cannot hand a live id out again.
 //!
 //! **ONE HANDLER AT A TIME**: webbox's hosts run one route at a time, so the
 //! world needs no lock of its own.
@@ -60,19 +55,16 @@ pub const World = struct {
     /// `touch_written_every_seconds`.
     written: []dogs.Instant,
     data_dir: []const u8,
-    auth_dir: []const u8,
     /// Temporaries a stopped `store.replace` left in `dogs/`, passed over.
     left_over: u32,
     /// Whether this open made the park's dogs.
     made: enum { found, made_now },
 
-    /// The world in `data_dir` (its counter in `auth_dir`), its dogs made if
-    /// there are none, or loaded and checked; or what stops it, named.
-    /// `base` holds what lives as long as the world; `scratch` what opening
-    /// needs.
-    pub fn open(io: Io, base: std.mem.Allocator, scratch: std.mem.Allocator, data_dir: []const u8, auth_dir: []const u8, p: park.Park, count: u32, seed: u64, now: dogs.Instant) !Opened {
+    /// The world in `data_dir`, its dogs made if there are none, or loaded
+    /// and checked; or what stops it, named. `base` holds what lives as long
+    /// as the world; `scratch` what opening needs.
+    pub fn open(io: Io, base: std.mem.Allocator, scratch: std.mem.Allocator, data_dir: []const u8, p: park.Park, count: u32, seed: u64, now: dogs.Instant) !Opened {
         const folder = try std.fs.path.join(scratch, &.{ data_dir, "dogs" });
-        const next_human = try webbox.counter.peek(io, scratch, try std.fs.path.join(scratch, &.{ auth_dir, "next-human" }));
         const all = try base.alloc(dogs.Dog, count);
         var kept_by: enum { this_call, the_world } = .this_call;
         defer if (kept_by == .this_call) base.free(all);
@@ -103,9 +95,10 @@ pub const World = struct {
                 error.StreamTooLong => return refused(entry.name, .wrong_size),
                 else => return e,
             };
-            if (bytes.len != @sizeOf(stored.StoredDog)) return refused(entry.name, .wrong_size);
-            const dog = switch (std.mem.bytesToValue(stored.StoredDog, bytes).read(p)) {
+            const record = stored.readRecord(bytes, p) orelse return refused(entry.name, .wrong_size);
+            const dog = switch (record) {
                 .dog => |d| d,
+                .claim_by_no_human => return refused(entry.name, .claim_by_no_human),
                 .unknown_format => return refused(entry.name, .unknown_format),
                 .unknown_breed => return refused(entry.name, .unknown_breed),
                 .unknown_claim => return refused(entry.name, .unknown_claim),
@@ -115,11 +108,6 @@ pub const World = struct {
             switch (dog.claim) {
                 .unclaimed => {},
                 .claimed => |c| {
-                    // **A CLAIM NAMES A HUMAN THE COUNTER HAS HANDED OUT**:
-                    // one past it would be handed to a new device, dog and all.
-                    if (c.by.number() >= next_human) return refused(entry.name, .claim_past_next_human);
-                    // The counter starts at 1: no human is 0.
-                    if (c.by.number() == 0) return refused(entry.name, .claim_by_no_human);
                     // **A TOUCH IS A TIME THAT HAS BEEN**: one from before the
                     // epoch, or past now and a day of clock skew, would never be
                     // the stalest (its dog never taken over), or overflow.
@@ -177,7 +165,6 @@ pub const World = struct {
             .holders = holders,
             .written = written,
             .data_dir = data_dir,
-            .auth_dir = auth_dir,
             .left_over = left_over,
             .made = made,
         } };
@@ -199,30 +186,13 @@ pub const World = struct {
         return if (self.holders.get(human)) |id| .{ .holds = id } else .holds_none;
     }
 
-    /// Whether the counter has handed `human` out: an id at or past the next
-    /// one (an `auth/` restored from an older backup, its secret the same)
-    /// names no human yet, whatever a cookie says.
-    pub fn handedOut(self: *const World, io: Io, scratch: std.mem.Allocator, human: HumanId) !HandedOut {
-        const next = try webbox.counter.peek(io, scratch, try std.fs.path.join(scratch, &.{ self.auth_dir, "next-human" }));
-        return if (human.number() >= 1 and human.number() < next) .handed_out else .not_yet;
-    }
-
-    /// **AN ID A COOKIE NAMES IS NEVER HANDED OUT AGAIN**: the counter moved
-    /// past `human`, if it has not reached them (an `auth/` restored from an
-    /// older backup, its secret the same, took it back). The cookie keeps
-    /// its human, and no new device is given that id after.
-    pub fn reserveThrough(self: *World, io: Io, scratch: std.mem.Allocator, human: HumanId) !void {
-        const path = try std.fs.path.join(scratch, &.{ self.auth_dir, "next-human" });
-        while (try webbox.counter.peek(io, scratch, path) <= human.number()) _ = try webbox.counter.next(io, scratch, path);
-    }
-
-    /// A new human's id, handed out once (webbox.counter, beside the secret).
-    pub fn newHuman(self: *World, io: Io, scratch: std.mem.Allocator) !HumanId {
-        const n = try webbox.counter.next(io, scratch, try std.fs.path.join(scratch, &.{ self.auth_dir, "next-human" }));
-        const h: HumanId = .of(@intCast(n));
-        // `open` saw every claim name an id before the counter; one after is a bug.
-        if (self.holders.contains(h)) return error.NewHumanHoldsADog;
-        return h;
+    /// A new human: 128 random bits (humans.zig), drawn again in the case,
+    /// one in 2^128 a draw, that they name a human holding a dog.
+    pub fn newHuman(self: *const World, io: Io) HumanId {
+        while (true) {
+            const h = HumanId.fresh(io);
+            if (!self.holders.contains(h)) return h;
+        }
     }
 
     /// **KEEPS WHAT A REQUEST CHANGED**: a move or a claim written and then
@@ -300,7 +270,6 @@ pub const RecordRefusal = enum {
     unknown_claim,
     outside_park,
     id_not_its_name,
-    claim_past_next_human,
     claim_by_no_human,
     touched_at_no_real_time,
     human_holds_two,
@@ -353,7 +322,6 @@ const Fixture = struct {
     threaded: std.Io.Threaded,
     tmp: testing.TmpDir,
     data_dir: []const u8,
-    auth_dir: []const u8,
 
     fn init(self: *Fixture) !void {
         self.arena = .init(testing.allocator);
@@ -361,7 +329,6 @@ const Fixture = struct {
         self.tmp = testing.tmpDir(.{});
         const root = try std.fs.path.join(self.arena.allocator(), &.{ ".zig-cache", "tmp", &self.tmp.sub_path });
         self.data_dir = try std.fs.path.join(self.arena.allocator(), &.{ root, "data" });
-        self.auth_dir = try std.fs.path.join(self.arena.allocator(), &.{ root, "auth" });
     }
 
     fn deinit(self: *Fixture) void {
@@ -375,7 +342,7 @@ const Fixture = struct {
     }
 
     fn open(self: *Fixture) !Opened {
-        return World.open(self.io(), testing.allocator, self.arena.allocator(), self.data_dir, self.auth_dir, small, few, claiming.dogs_seed, noon);
+        return World.open(self.io(), testing.allocator, self.arena.allocator(), self.data_dir, small, few, claiming.dogs_seed, noon);
     }
 
     fn dogFile(self: *Fixture, name: []const u8) ![]const u8 {
@@ -421,8 +388,8 @@ test "claims, moves and takeovers are kept and come back, and who holds which is
     defer f.deinit();
     const a = f.arena.allocator();
     var w = (try f.open()).world;
-    const alice = try w.newHuman(f.io(), a);
-    const bob = try w.newHuman(f.io(), a);
+    const alice = w.newHuman(f.io());
+    const bob = w.newHuman(f.io());
     try w.keep(f.io(), a, .{ .claimed = .{ .dog = claimedBy(w.all[2], alice, noon), .from = .nobody } });
     var moved = claimedBy(w.all[2], alice, noon);
     moved.at = small.wrap(.at(-10, 990));
@@ -437,8 +404,6 @@ test "claims, moves and takeovers are kept and come back, and who holds which is
     try testing.expectEqual(answering.Holding{ .holds = .of(2) }, again.holding(bob));
     try testing.expectEqual(answering.Holding.holds_none, again.holding(alice));
     try testing.expectEqual(frames.ParkPoint.at(990, 990), again.all[2].at.point);
-    // Ids go on from where they were, beside the secret.
-    try testing.expectEqual(HumanId.of(3), try again.newHuman(f.io(), a));
 }
 
 test "a stay is held, and written only once an hour has passed since the last write" {
@@ -448,7 +413,7 @@ test "a stay is held, and written only once an hour has passed since the last wr
     const a = f.arena.allocator();
     var w = (try f.open()).world;
     defer w.close(testing.allocator);
-    const alice = try w.newHuman(f.io(), a);
+    const alice = w.newHuman(f.io());
     try w.keep(f.io(), a, .{ .claimed = .{ .dog = claimedBy(w.all[0], alice, noon), .from = .nobody } });
     const soon: dogs.Instant = .of(noon.seconds() + 60);
     try w.keep(f.io(), a, .{ .touched = claimedBy(w.all[0], alice, soon) });
@@ -459,22 +424,6 @@ test "a stay is held, and written only once an hour has passed since the last wr
     try testing.expectEqual(hour, (try f.readDog(0)).claim.claimed.touched);
 }
 
-test "a data folder restored or wiped does not take the id counter back: it is beside the secret" {
-    var f: Fixture = undefined;
-    try f.init();
-    defer f.deinit();
-    const a = f.arena.allocator();
-    var w = (try f.open()).world;
-    _ = try w.newHuman(f.io(), a);
-    _ = try w.newHuman(f.io(), a);
-    w.close(testing.allocator);
-    try webbox.store.removeTree(f.io(), a, f.data_dir);
-    var fresh = (try f.open()).world;
-    defer fresh.close(testing.allocator);
-    try testing.expectEqual(.made_now, fresh.made);
-    try testing.expectEqual(HumanId.of(3), try fresh.newHuman(f.io(), a));
-}
-
 test "what does not read stops the open, named by what it is" {
     const Case = struct { name: []const u8, bytes: []const u8, why: RecordRefusal };
     const good = stored.StoredDog.of(.{ .id = .of(1), .at = small.wrap(.at(50, 50)), .breed = .dog, .claim = .unclaimed });
@@ -482,18 +431,17 @@ test "what does not read stops the open, named by what it is" {
     outside.park_x = 1000;
     var unknown = good;
     unknown.breed_byte = 200;
-    var past = good;
-    past.claim_tag = .claimed;
-    past.claimed_by = 1; // no human has been handed out yet
+    var nobody = good;
+    nobody.claim_tag = .claimed; // by human 0
     const cases = [_]Case{
         .{ .name = "01", .bytes = std.mem.asBytes(&good), .why = .name_not_a_dog_id },
         .{ .name = "6", .bytes = std.mem.asBytes(&good), .why = .name_not_a_dog_id },
-        .{ .name = "1", .bytes = std.mem.asBytes(&good)[0..31], .why = .wrong_size },
+        .{ .name = "1", .bytes = std.mem.asBytes(&good)[0..47], .why = .wrong_size },
         .{ .name = "1", .bytes = std.mem.asBytes(&good) ++ "x", .why = .wrong_size },
         .{ .name = "2", .bytes = std.mem.asBytes(&good), .why = .id_not_its_name },
         .{ .name = "1", .bytes = std.mem.asBytes(&outside), .why = .outside_park },
         .{ .name = "1", .bytes = std.mem.asBytes(&unknown), .why = .unknown_breed },
-        .{ .name = "1", .bytes = std.mem.asBytes(&past), .why = .claim_past_next_human },
+        .{ .name = "1", .bytes = std.mem.asBytes(&nobody), .why = .claim_by_no_human },
     };
     for (cases) |case| {
         var f: Fixture = undefined;
@@ -512,7 +460,7 @@ test "two dogs claimed by one human, or some dogs and not all, stop the open" {
     defer f.deinit();
     const a = f.arena.allocator();
     var w = (try f.open()).world;
-    const alice = try w.newHuman(f.io(), a);
+    const alice = w.newHuman(f.io());
     // Written behind the world's back: two dogs, one claimant.
     const one = stored.StoredDog.of(claimedBy(w.all[0], alice, noon));
     const two = stored.StoredDog.of(claimedBy(w.all[1], alice, noon));
@@ -529,8 +477,8 @@ test "a park cannot be made with no dogs, or more than its spots" {
     try f.init();
     defer f.deinit();
     const a = f.arena.allocator();
-    try testing.expectEqual(Refused{ .dog_count = .{ .count = 0, .spots = 100 } }, (try World.open(f.io(), testing.allocator, a, f.data_dir, f.auth_dir, small, 0, 1, noon)).refused);
-    try testing.expectEqual(Refused{ .dog_count = .{ .count = 101, .spots = 100 } }, (try World.open(f.io(), testing.allocator, a, f.data_dir, f.auth_dir, small, 101, 1, noon)).refused);
+    try testing.expectEqual(Refused{ .dog_count = .{ .count = 0, .spots = 100 } }, (try World.open(f.io(), testing.allocator, a, f.data_dir, small, 0, 1, noon)).refused);
+    try testing.expectEqual(Refused{ .dog_count = .{ .count = 101, .spots = 100 } }, (try World.open(f.io(), testing.allocator, a, f.data_dir, small, 101, 1, noon)).refused);
 }
 
 test "a file's name is a dog's id, canonical, below the count" {
@@ -551,9 +499,7 @@ test "a stored touch that is no real time, or a claim by human 0, stops the open
         var f: Fixture = undefined;
         try f.init();
         defer f.deinit();
-        const a = f.arena.allocator();
         var w = (try f.open()).world;
-        _ = try w.newHuman(f.io(), a);
         var r = stored.StoredDog.of(w.all[0]);
         w.close(testing.allocator);
         r.claim_tag = .claimed;
@@ -581,7 +527,7 @@ test "a fresh park whose making was cut short is finished on the next open; a ch
     try testing.expectEqual(.made_now, finished.made);
     try testing.expectEqualSlices(dogs.Dog, made, finished.all);
     // A dog changed, then half gone: not a making cut short, so not guessed.
-    const bob: HumanId = try finished.newHuman(f.io(), a);
+    const bob: HumanId = finished.newHuman(f.io());
     try finished.keep(f.io(), a, .{ .claimed = .{ .dog = claimedBy(finished.all[0], bob, noon), .from = .nobody } });
     finished.close(testing.allocator);
     try webbox.store.remove(f.io(), a, try f.dogFile("5"));
@@ -595,7 +541,7 @@ test "a touch earlier than the last write (the clock gone back) is written, not 
     const a = f.arena.allocator();
     var w = (try f.open()).world;
     defer w.close(testing.allocator);
-    const alice = try w.newHuman(f.io(), a);
+    const alice = w.newHuman(f.io());
     try w.keep(f.io(), a, .{ .claimed = .{ .dog = claimedBy(w.all[0], alice, noon), .from = .nobody } });
     const back: dogs.Instant = .of(noon.seconds() - 24 * 60 * 60);
     try w.keep(f.io(), a, .{ .touched = claimedBy(w.all[0], alice, back) });
