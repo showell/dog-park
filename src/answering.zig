@@ -58,7 +58,11 @@ pub fn answer(p: park.Park, pop: population.Population, space: population.Space,
             },
         },
     };
-    const move = outcomes.decide(p, before.dog.at, request.move);
+    // A new human's first request stays: they have not seen their dog yet.
+    const move: outcomes.MoveOutcome = switch (before.since) {
+        .placed_now => .stayed,
+        .before_this_request => outcomes.decide(p, before.dog.at, request.move),
+    };
     var after = before.dog;
     after.at = move.dogAt(before.dog.at);
     const change: Change = switch (before.since) {
@@ -68,6 +72,8 @@ pub fn answer(p: park.Park, pop: population.Population, space: population.Space,
             .stayed, .refused => .nothing,
         },
     };
+    // **THE WIRE IS THE GATE**: `request` comes through wire.WireSceneRequest.read,
+    // which bounds the viewport; one from anywhere else may overflow coverFor.
     const others = othersIn(p, pop, human, scene.coverFor(request.viewport), room);
     return .{ .answer = .{ .scene = .{
         .viewport = request.viewport,
@@ -143,6 +149,13 @@ const Rig = struct {
         return a;
     }
 };
+
+test "a new human's first request stays, whatever it asks: they have not seen their dog" {
+    var rig: Rig = .{};
+    const a = rig.ask(alice, asking(.at(300, 300), .{ .drag = .{ .dx = 7, .dy = 0 } }));
+    try testing.expectEqual(frames.ParkPoint.at(550, 550), a.change.keep.at.point);
+    try testing.expectEqual(outcomes.MoveOutcome.stayed, a.answer.scene.move);
+}
 
 test "a human with no dog has one placed at the centre, kept, and shown" {
     var rig: Rig = .{};

@@ -7,9 +7,12 @@
 //!
 //! **ONE HANDLER AT A TIME**: webbox's hosts run one route at a time, so the
 //! world needs no lock of its own.
-//! **A FOLDER HOLDS AT MOST 65,536 ENTRIES ON FAT** (webbox.store), and an id
-//! of up to eight digits is one entry, so `dogs/` holds `most_dogs` and no
-//! more: past it, the folder is the box's to fan out.
+//! **A FOLDER HOLDS AT MOST 65,536 ENTRIES ON FAT** (webbox.store). A dog's
+//! name takes at most two (an id past eight digits is a long name), and a
+//! stopped write's temporary, one a dog at most, two more: four a dog, so
+//! `dogs/` holds `most_dogs` (16,000) and no more. Past it, the folder is
+//! the box's to fan out. (The 5,000 park's lattice has 2,500 spots, so
+//! placement says the park is full long before.)
 
 const std = @import("std");
 const Io = std.Io;
@@ -23,7 +26,7 @@ const stored = @import("stored.zig");
 const HumanId = @import("humans.zig").HumanId;
 
 /// The most dogs a world holds: under FAT's 65,536 entries in `dogs/`.
-pub const most_dogs: u32 = 60_000;
+pub const most_dogs: u32 = 16_000;
 
 /// The park every world is, for now (the build brief: 5,000 by 5,000).
 pub const the_park: park.Park = (park.Park.of(.{ .width = 5000, .height = 5000 })).park;
@@ -46,10 +49,12 @@ pub const World = struct {
         defer if (kept_by == .this_call) grid.deinit(base);
         const folder = try std.fs.path.join(scratch, &.{ data_dir, "dogs" });
         var left_over: u32 = 0;
+        var highest_owner: u64 = 0;
         for (try webbox.store.list(io, scratch, folder)) |entry| {
-            // A stop inside `store.replace` leaves its temporary sibling; the
-            // next replace of that dog writes over it.
-            if (entry.name.len > 0 and entry.name[0] == '~' and std.mem.endsWith(u8, entry.name, ".tmp")) {
+            // A stop inside `store.replace` leaves its temporary sibling (a
+            // file, `~` and eight hex digits, `.tmp`, in either case on FAT);
+            // the next replace of that dog writes over it.
+            if (entry.kind == .file and entry.name.len == 13 and entry.name[0] == '~' and std.ascii.endsWithIgnoreCase(entry.name, ".tmp")) {
                 left_over += 1;
                 continue;
             }
@@ -63,7 +68,10 @@ pub const World = struct {
                 .id => |h| h,
                 .not_an_id => return refused(entry.name, .name_not_a_human_id),
             };
-            const bytes = try webbox.store.read(io, scratch, try std.fs.path.join(scratch, &.{ folder, entry.name }), .limited(@sizeOf(stored.StoredDog) + 1));
+            const bytes = webbox.store.read(io, scratch, try std.fs.path.join(scratch, &.{ folder, entry.name }), .limited(@sizeOf(stored.StoredDog) + 1)) catch |e| switch (e) {
+                error.StreamTooLong => return refused(entry.name, .wrong_size),
+                else => return e,
+            };
             if (bytes.len != @sizeOf(stored.StoredDog)) return refused(entry.name, .wrong_size);
             const record = std.mem.bytesToValue(stored.StoredDog, bytes);
             const dog = switch (record.read(p)) {
@@ -73,6 +81,7 @@ pub const World = struct {
                 .outside_park => return refused(entry.name, .outside_park),
             };
             if (dog.owner != owner) return refused(entry.name, .owner_not_its_name);
+            highest_owner = @max(highest_owner, owner.number());
             switch (grid.population().put(dog)) {
                 .added => {},
                 .refused_full => return refused(entry.name, .more_than_capacity),
@@ -81,6 +90,11 @@ pub const World = struct {
                 .replaced => unreachable,
             }
         }
+        // **THE NEXT ID IS PAST EVERY DOG'S**: a counter lost or restored
+        // behind the dogs would hand a new device a human who has a dog, and
+        // their dog with it.
+        const next = try webbox.counter.peek(io, scratch, try std.fs.path.join(scratch, &.{ data_dir, "next-human" }));
+        if (grid.used > 0 and next <= highest_owner) return .{ .refused = .{ .name = "next-human", .why = .next_human_not_past_every_dog } };
         kept_by = .the_world;
         return .{ .world = .{ .park = p, .grid = grid, .data_dir = data_dir, .left_over = left_over } };
     }
@@ -99,9 +113,12 @@ pub const World = struct {
     }
 
     /// A new human's id, handed out once (webbox.counter).
-    pub fn newHuman(self: *const World, io: Io, scratch: std.mem.Allocator) !HumanId {
+    pub fn newHuman(self: *World, io: Io, scratch: std.mem.Allocator) !HumanId {
         const n = try webbox.counter.next(io, scratch, try std.fs.path.join(scratch, &.{ self.data_dir, "next-human" }));
-        return .of(@intCast(n));
+        const h: HumanId = .of(@intCast(n));
+        // `open` saw the counter past every dog; one moved back since is a bug.
+        if (self.population().lookup(h) == .found) return error.NewHumanHasADog;
+        return h;
     }
 
     /// **KEEPS A DOG**, written first and then indexed, so the index never
@@ -124,7 +141,8 @@ pub const Opened = union(enum) {
     refused: Refused,
 };
 
-/// A record that stops the world from opening, by its file's name.
+/// A record that stops the world from opening, by its file's name in
+/// `dogs/` (or `next-human`, the counter, beside it).
 pub const Refused = struct {
     name: []const u8,
     why: RecordRefusal,
@@ -139,6 +157,7 @@ pub const RecordRefusal = enum {
     outside_park,
     owner_not_its_name,
     more_than_capacity,
+    next_human_not_past_every_dog,
 };
 
 /// A human's id as a file's name: its digits.
@@ -236,6 +255,8 @@ test "a record that does not read stops the load, named" {
         .{ .name = "07", .bytes = std.mem.asBytes(&good), .why = .name_not_a_human_id },
         .{ .name = "seven", .bytes = std.mem.asBytes(&good), .why = .name_not_a_human_id },
         .{ .name = "7", .bytes = std.mem.asBytes(&good)[0..23], .why = .wrong_size },
+        .{ .name = "7", .bytes = std.mem.asBytes(&good) ++ "x", .why = .wrong_size },
+        .{ .name = "7", .bytes = &(@as([4096]u8, @splat(1))), .why = .wrong_size },
         .{ .name = "8", .bytes = std.mem.asBytes(&good), .why = .owner_not_its_name },
         .{ .name = "7", .bytes = std.mem.asBytes(&outside), .why = .outside_park },
         .{ .name = "7", .bytes = std.mem.asBytes(&unknown), .why = .unknown_breed },
@@ -251,17 +272,37 @@ test "a record that does not read stops the load, named" {
     }
 }
 
-test "a replace's leftover temporary is passed over, and counted" {
+test "a counter lost behind the dogs stops the start: a new device would take a dog" {
     var f: Fixture = undefined;
     try f.init();
     defer f.deinit();
+    const a = f.arena.allocator();
+    var w = (try f.open()).world;
+    const h = try w.newHuman(f.io(), a);
+    try w.keep(f.io(), a, .{ .owner = h, .at = the_park.wrap(.at(1, 1)), .breed = .dog });
+    w.close(testing.allocator);
+    try webbox.store.remove(f.io(), a, try std.fs.path.join(a, &.{ f.data_dir, "next-human" }));
+    const refused = (try f.open()).refused;
+    try testing.expectEqualStrings("next-human", refused.name);
+    try testing.expectEqual(RecordRefusal.next_human_not_past_every_dog, refused.why);
+}
+
+test "a replace's leftover temporary is passed over, and counted, in either case; a folder so named is not one" {
+    var f: Fixture = undefined;
+    try f.init();
+    defer f.deinit();
+    const a = f.arena.allocator();
     const good = stored.StoredDog.of(.{ .owner = .of(7), .at = the_park.wrap(.at(1, 1)), .breed = .dog });
     try f.file("7", std.mem.asBytes(&good));
     try f.file("~0badf00d.tmp", "half a reco");
+    try f.file("~0BADBEEF.TMP", "and in FAT's case");
+    try webbox.store.write(f.io(), a, try std.fs.path.join(a, &.{ f.data_dir, "next-human" }), "8\n", .{});
     var w = (try f.open()).world;
-    defer w.close(testing.allocator);
-    try testing.expectEqual(@as(u32, 1), w.left_over);
+    try testing.expectEqual(@as(u32, 2), w.left_over);
     try testing.expectEqual(@as(u32, 1), w.grid.used);
+    w.close(testing.allocator);
+    try webbox.store.makeDir(f.io(), a, try std.fs.path.join(a, &.{ f.data_dir, "dogs", "~deadbeef.tmp" }));
+    try testing.expectEqual(RecordRefusal.not_a_file, (try f.open()).refused.why);
 }
 
 test "a full world refuses a new owner's dog before writing it, and still moves the ones it has" {

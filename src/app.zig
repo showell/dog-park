@@ -75,7 +75,8 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
         .refused => |refused| {
             // **A RECORD THAT DOES NOT READ STOPS THE START, NAMED** (fail,
             // never warn).
-            std.debug.print("dog-park: {s}/dogs/{s} does not read ({t}); not starting\n", .{ r.data_dir, refused.name, refused.why });
+            const folder = if (refused.why == .next_human_not_past_every_dog) "" else "dogs/";
+            std.debug.print("dog-park: {s}/{s}{s} stops the start ({t}); not starting\n", .{ r.data_dir, folder, refused.name, refused.why });
             return error.UnreadableDogRecord;
         },
     }
