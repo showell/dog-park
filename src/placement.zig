@@ -1,7 +1,13 @@
 //! Placement: where a new human's dog goes. The first free lattice spot in
 //! a square spiral out from the park's centre, so the first humans see each
-//! other. **FREE** means no dog within half a spacing of the spot on either
-//! axis, edges included, measured across the seam (the park wraps).
+//! other. **FREE** means no dog within half a spacing of the spot on both
+//! axes at once (a square around it), edges included, measured across the
+//! seam (the park wraps).
+//!
+//! **ITS COST** is one `near` a spot tried: a park of 2,500 spots, full, is
+//! 2,500 of them. A park can only be that full with that many dogs, so the
+//! population's capacity bounds it; a very large park with a full index
+//! would be the box's to bound otherwise.
 
 const std = @import("std");
 const frames = @import("frames.zig");
@@ -18,8 +24,9 @@ pub fn place(p: park.Park, pop: population.Population, newcomer: HumanId) outcom
     const extent = p.extent();
     const centre: Offset = .{ .column = extent.columns / 2, .row = extent.rows / 2 };
     var spiral: Spiral = .{};
-    // Past this ring, the spiral is wholly off the park.
-    const last_ring: Coord = @max(extent.columns, extent.rows);
+    // Every spot is within half the longer side of the centre: past that
+    // ring, the spiral is wholly off the park.
+    const last_ring: Coord = @max(extent.columns, extent.rows) / 2;
     while (spiral.ring() <= last_ring) {
         const o = spiral.next();
         const column = centre.column + o.column;
@@ -89,7 +96,7 @@ pub const Spiral = struct {
 
 pub const Occupancy = enum { free, taken };
 
-/// Whether a dog stands within half a spacing of `at`, across the seam,
+/// Whether a dog stands within half a spacing of `at` on both axes, across the seam,
 /// other than the newcomer's own (a newcomer has none, but if the world
 /// asks again it is not in its own way).
 pub fn occupancy(p: park.Park, pop: population.Population, at: park.InParkPoint, newcomer: HumanId) Occupancy {
@@ -174,23 +181,38 @@ test "a full park is refused, and every spot was tried first" {
     var list: population.ListPopulation(30) = .{};
     const pop = list.population();
     var owner: u64 = 1;
+    var used: [5 * 5]u8 = @splat(0);
     while (true) : (owner += 1) switch (place(five, pop, .of(owner))) {
-        .placed => |spot| try testing.expectEqual(population.Put.added, pop.put(.{ .owner = .of(owner), .at = five.pointOf(spot).on, .breed = .dog })),
+        .placed => |spot| {
+            used[spot.row * 5 + spot.column] += 1;
+            try testing.expectEqual(population.Put.added, pop.put(.{ .owner = .of(owner), .at = five.pointOf(spot).on, .breed = .dog }));
+        },
         .refused => |why| {
             try testing.expectEqual(outcomes.PlacementRefusal.park_full, why);
             break;
         },
     };
     try testing.expectEqual(@as(u64, 26), owner);
+    for (used) |n| try testing.expectEqual(@as(u8, 1), n);
 }
 
-test "a long thin park is spiralled to its ends" {
-    const thin = (park.Park.of(.{ .width = 1000, .height = 100 })).park;
-    var list: population.ListPopulation(30) = .{};
-    const pop = list.population();
-    var owner: u64 = 1;
-    while (place(thin, pop, .of(owner)) == .placed) : (owner += 1) {
-        _ = pop.put(.{ .owner = .of(owner), .at = thin.pointOf(place(thin, pop, .of(owner)).placed).on, .breed = .dog });
+test "every park shape is filled spot by spot, each once, then refused" {
+    const shapes = [_][2]u31{ .{ 100, 100 }, .{ 100, 700 }, .{ 700, 100 }, .{ 200, 200 }, .{ 200, 300 }, .{ 400, 700 }, .{ 800, 300 }, .{ 100, 2000 } };
+    for (shapes) |shape| {
+        const p = (park.Park.of(.{ .width = shape[0], .height = shape[1] })).park;
+        const spots = @as(usize, p.extent().columns) * p.extent().rows;
+        var list: population.ListPopulation(64) = .{};
+        const pop = list.population();
+        var used: [64]u8 = @splat(0);
+        var owner: u64 = 1;
+        while (true) : (owner += 1) switch (place(p, pop, .of(owner))) {
+            .placed => |spot| {
+                used[@as(usize, spot.row) * p.extent().columns + spot.column] += 1;
+                _ = pop.put(.{ .owner = .of(owner), .at = p.pointOf(spot).on, .breed = .dog });
+            },
+            .refused => break,
+        };
+        try testing.expectEqual(spots, owner - 1);
+        for (used[0..spots]) |n| try testing.expectEqual(@as(u8, 1), n);
     }
-    try testing.expectEqual(@as(u64, 11), owner);
 }
