@@ -85,6 +85,9 @@ pub const WireScene = struct {
     park_width: u31,
     park_height: u31,
     own: WireDog,
+    /// Whether `own` is the dog held, or newly the asker's: the browser
+    /// centres on a new one.
+    own_is: WireOwnIs,
     others: []const WireDog,
     others_complete: WireCompleteness,
     /// What became of this request's move: the browser keeps its optimistic
@@ -109,6 +112,10 @@ pub const WireScene = struct {
             .park_width = s.park_size.width,
             .park_height = s.park_size.height,
             .own = .of(s.own),
+            .own_is = switch (s.own_is) {
+                .the_dog_held => .same_dog,
+                .a_dog_newly_theirs => .new_dog,
+            },
             .others = others_into[0..sent],
             .others_complete = switch (s.others_completeness) {
                 .all_in_region => all_sent,
@@ -127,6 +134,8 @@ pub const WireScene = struct {
 
 /// The protocol's own names, so renaming an internal enum changes no wire.
 pub const WireCompleteness = enum { all, more_not_sent };
+
+pub const WireOwnIs = enum { same_dog, new_dog };
 
 pub const WireMoveOutcome = enum { stayed, moved, refused_too_far_at_once };
 
@@ -202,6 +211,7 @@ test "a scene on the wire: plane copies, no owners, a move across the seam" {
         .others_completeness = .all_in_region,
         .park_size = small.size,
         .move = move,
+        .own_is = .the_dog_held,
     };
     var into: [1]WireDog = undefined;
     const w = WireScene.of(s, &into);

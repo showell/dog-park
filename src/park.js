@@ -128,8 +128,12 @@ function take(answer, wrappedAtSend) {
   shiftScene(scene, wrapped.planeDx - wrappedAtSend.planeDx, wrapped.planeDy - wrappedAtSend.planeDy);
   const first = state.scene === null;
   state.scene = scene;
-  if (first) {
-    // The first scene: centre the viewport on the own dog, and ask again.
+  if (first || scene.own_is === "new_dog") {
+    // The first scene, or a dog newly ours (claimed, perhaps not the one
+    // shown, or claimed again after ours was taken): centre the viewport on
+    // it, drop any drag meant for another, and ask again.
+    state.unsentOwnDogDx = 0;
+    state.unsentOwnDogDy = 0;
     state.ownPlaneX = scene.own.plane_x;
     state.ownPlaneY = scene.own.plane_y;
     state.viewport.planeX = state.ownPlaneX - Math.floor(state.viewport.width / 2);

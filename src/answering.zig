@@ -74,6 +74,10 @@ pub fn answer(p: park.Park, pop: population.Population, all: []const dogs.Dog, h
     var move: outcomes.MoveOutcome = undefined;
     var after: dogs.Dog = undefined;
     var change: Change = undefined;
+    const own_is: scene.OwnIs = switch (holding) {
+        .holds => .the_dog_held,
+        .holds_none => .a_dog_newly_theirs,
+    };
     switch (holding) {
         .holds => |id| {
             const before = all[id.number()];
@@ -113,6 +117,7 @@ pub fn answer(p: park.Park, pop: population.Population, all: []const dogs.Dog, h
         .others_completeness = others.completeness,
         .park_size = p.size,
         .move = move,
+        .own_is = own_is,
     }, .change = change };
 }
 
@@ -206,6 +211,8 @@ test "a human with no dog claims the unclaimed one nearest the centre, and their
     }, a.change.claimed);
     try testing.expectEqual(outcomes.MoveOutcome.stayed, a.scene.move);
     try testing.expectEqual(frames.PlanePoint.at(540, 520), a.scene.own.at);
+    try testing.expectEqual(scene.OwnIs.a_dog_newly_theirs, a.scene.own_is);
+    try testing.expectEqual(scene.OwnIs.the_dog_held, rig.ask(alice, noon, asking(.at(300, 300), .stay)).scene.own_is);
 }
 
 test "a drag moves the dog held and touches it; a stay or a refused drag only touches it" {

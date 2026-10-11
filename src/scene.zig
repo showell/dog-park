@@ -48,12 +48,18 @@ pub const Scene = struct {
     park_size: frames.Size,
     /// What became of this request's move; `own` is where it left the dog.
     move: outcomes.MoveOutcome,
+    /// Whether `own` is the dog the human held as they asked, or one newly
+    /// theirs (a first claim, or a claim again after theirs was taken): the
+    /// browser centres on a new one, which may be anywhere in the park.
+    own_is: OwnIs,
 
     /// The viewport asked for, grown by `margin`: the others are those in it.
     pub fn covers(self: Scene) park.PlaneRect {
         return coverFor(self.viewport);
     }
 };
+
+pub const OwnIs = enum { the_dog_held, a_dog_newly_theirs };
 
 /// The region a scene covers, for the viewport it was asked with.
 pub fn coverFor(v: frames.Viewport) park.PlaneRect {
