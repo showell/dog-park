@@ -14,6 +14,7 @@ pub const index = @import("index.zig");
 pub const placement = @import("placement.zig");
 pub const world = @import("world.zig");
 pub const answering = @import("answering.zig");
+pub const app = @import("app.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
