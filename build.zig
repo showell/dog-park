@@ -15,4 +15,17 @@ pub fn build(b: *std.Build) void {
     root.addImport("webbox", webbox);
     const tests = b.addTest(.{ .root_module = root });
     b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
+
+    // The Linux server: zig build run, then a browser at localhost:9101.
+    const main = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    main.addImport("webbox", webbox);
+    const exe = b.addExecutable(.{ .name = "dog-park", .root_module = main });
+    b.installArtifact(exe);
+    const run = b.addRunArtifact(exe);
+    if (b.args) |args| run.addArgs(args);
+    b.step("run", "Serve Dog Park on localhost:9101").dependOn(&run.step);
 }
