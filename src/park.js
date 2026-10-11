@@ -70,6 +70,7 @@ const state = {
   unsentOwnDogDx: 0,
   unsentOwnDogDy: 0,
   asking: false,
+  lastAskedMs: 0,
   // A scene is wanted (scrolled near the covered region's edge).
   wantScene: true,
   noRoom: null,
@@ -111,9 +112,14 @@ function wrapViewportHome() {
 }
 
 // An answer arrived for a request sent when the origin had wrapped by
-// `wrappedAtSend`.
+// `wrappedAtSend`. **THE ANSWER IS THE TRUTH**: the own dog is put where the
+// server has it (the copy near the viewport, as answered) plus whatever has
+// been dragged since the request went, so a request the server applied but
+// the browser saw fail is made good by the next answer, and a refusal puts
+// the dog back where it came from, on screen.
 function take(answer, wrappedAtSend) {
   if (answer.no_room) { state.noRoom = answer.no_room; return; }
+  state.noRoom = null;
   const scene = answer.scene;
   shiftScene(scene, wrapped.planeDx - wrappedAtSend.planeDx, wrapped.planeDy - wrappedAtSend.planeDy);
   const first = state.scene === null;
@@ -131,39 +137,45 @@ function take(answer, wrappedAtSend) {
   switch (scene.move) {
     case "stayed":
     case "moved":
-      // The drag was kept: the optimistic place stands.
       break;
     default:
-      // Refused: the dog snaps back to the server's.
-      snapBackTo(scene.own);
+      // Refused: the drag since is dropped too.
+      state.unsentOwnDogDx = 0;
+      state.unsentOwnDogDy = 0;
       break;
   }
+  state.ownPlaneX = scene.own.plane_x + state.unsentOwnDogDx;
+  state.ownPlaneY = scene.own.plane_y + state.unsentOwnDogDy;
 }
 
-// The dog put where the server has it, at the copy nearest where it was
-// drawn, and the drag since dropped.
-function snapBackTo(own) {
-  state.ownPlaneX = frames.nearestCopy(parkWidth(), own.plane_x, state.ownPlaneX);
-  state.ownPlaneY = frames.nearestCopy(parkHeight(), own.plane_y, state.ownPlaneY);
-  state.unsentOwnDogDx = 0;
-  state.unsentOwnDogDy = 0;
+// Whole park units only cross the wire: a pointer's fraction stays behind,
+// in what is not yet sent.
+function wholeUnits(ownDogD) {
+  return Math.trunc(ownDogD);
 }
 
 async function ask() {
   if (state.asking) return;
-  const move = { ownDogDx: state.unsentOwnDogDx, ownDogDy: state.unsentOwnDogDy };
+  const move = { ownDogDx: wholeUnits(state.unsentOwnDogDx), ownDogDy: wholeUnits(state.unsentOwnDogDy) };
   if (!state.wantScene && move.ownDogDx === 0 && move.ownDogDy === 0) return;
   state.asking = true;
   state.wantScene = false;
-  state.unsentOwnDogDx = 0;
-  state.unsentOwnDogDy = 0;
+  state.unsentOwnDogDx -= move.ownDogDx;
+  state.unsentOwnDogDy -= move.ownDogDy;
+  state.lastAskedMs = performance.now();
   const wrappedAtSend = { ...wrapped };
   try {
     take(await fetchScene(state.viewport, move), wrappedAtSend);
   } catch (e) {
-    // A failed request snaps the dog back to the last answer.
+    // A failed request snaps the dog back to the last answer, dropping the
+    // drag since; the next answer says whether the server applied it.
     console.warn(e);
-    if (state.scene) snapBackTo(state.scene.own);
+    if (state.scene) {
+      state.unsentOwnDogDx = 0;
+      state.unsentOwnDogDy = 0;
+      state.ownPlaneX = state.scene.own.plane_x;
+      state.ownPlaneY = state.scene.own.plane_y;
+    }
     state.wantScene = true;
   } finally {
     state.asking = false;
@@ -291,6 +303,7 @@ function sprites() {
   for (let planeX = firstPlaneX; planeX < v.planeX + v.width + dog_px; planeX += s.park_width) {
     for (let planeY = firstPlaneY; planeY < v.planeY + v.height + dog_px; planeY += s.park_height) {
       const at = frames.viewportFromPlane(v, planeX, planeY);
+      if (at.viewportX < -dog_px || at.viewportY < -dog_px) continue;
       out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: s.own.emoji, own: true, faint: false });
     }
   }
@@ -300,6 +313,9 @@ function sprites() {
 // ── the loop ────────────────────────────────────────────────────────────────
 
 const ask_every_ms = 80;
+// With nothing else asked, how often a stay asks what the others are doing
+// (until the server can tell, later, by SSE).
+const idle_ask_every_ms = 1000;
 
 function fitCanvas(canvas) {
   const ratio = window.devicePixelRatio || 1;
@@ -319,6 +335,7 @@ function start() {
   canvas.addEventListener("pointercancel", endDrag);
   setInterval(() => {
     if (nearCoveredEdge()) state.wantScene = true;
+    if (performance.now() - state.lastAskedMs > idle_ask_every_ms) state.wantScene = true;
     ask();
   }, ask_every_ms);
   const frame = () => {
