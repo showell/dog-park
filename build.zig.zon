@@ -1,0 +1,7 @@
+.{
+    .name = .dog_park,
+    .version = "0.0.0",
+    .fingerprint = 0x68c88f3759e4484,
+    .minimum_zig_version = "0.16.0",
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}
