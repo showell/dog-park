@@ -28,4 +28,17 @@ pub fn build(b: *std.Build) void {
     const run = b.addRunArtifact(exe);
     if (b.args) |args| run.addArgs(args);
     b.step("run", "Serve Dog Park on localhost:9101").dependOn(&run.step);
+
+    // The play server, for solo/: zig build play, from the checkout.
+    const play_main = b.createModule(.{
+        .root_source_file = b.path("src/play/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    play_main.addImport("webbox", webbox);
+    const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
+    b.installArtifact(play_exe);
+    const play_run = b.addRunArtifact(play_exe);
+    if (b.args) |args| play_run.addArgs(args);
+    b.step("play", "Serve the played Dog Park (solo/) on localhost:9103").dependOn(&play_run.step);
 }

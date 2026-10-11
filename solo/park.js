@@ -1,15 +1,13 @@
-// Dog Park, solo: one human, a few dogs, no server.
+// Dog Park, played: one human, the server keeping the dogs.
 //
-// Milestone 4: the park reaches past the screen every way. Holding your dog
-// near any edge of the screen scrolls the viewport that way, and your dog
-// goes with it at the same speed; the other dogs stay where they stand,
-// the rest just off the first screen: one past each edge, a pair past each
-// corner. Each dog shows its park
-// point under it.
+// Any dog you see can be picked up. Pressing a dog leashes it (the server
+// is told, and acks); dragging it sends where it is to the server, never
+// more than one position waiting for its ack; the server keeps each one.
+// Holding a dog near any edge of the screen scrolls the viewport that way,
+// the dog going with it at the same speed. Dragging anywhere else pans the
+// park, like a tablecloth under the dogs. Each dog shows its park point.
 //
-// Dragging anywhere else pans the park, like a tablecloth under the dogs:
-// every dog moves with your pointer, yours too, though yours never leaves
-// the screen. Only your dog can be picked up.
+// The dev console says what the server acks: "leashed", and each move.
 //
 // TWO FRAMES, both in CSS pixels: a PARK point (parkX, parkY) is where a
 // dog stands in the world; a VIEWPORT point (viewportX, viewportY) is
@@ -29,39 +27,11 @@ function parkFromViewport(viewport, viewportX, viewportY) {
   return { parkX: viewport.parkX + viewportX, parkY: viewport.parkY + viewportY };
 }
 
-// ── the world ───────────────────────────────────────────────────────────────
+// The screen the server's first layout was drawn for: the viewport starts
+// centred on its middle.
+const first_screen = { width: 1280, height: 800 };
 
-// Where each dog starts, as fractions of the first screen, so any screen
-// starts with the same picture: three on it, one just off it each way (20%
-// past the edge), and a pair just off each corner.
-const start_fractions = [
-  { emoji: "🐕", own: true, fx: 0.5, fy: 0.5 },
-  { emoji: "🐩", own: false, fx: 0.3, fy: 0.35 },
-  { emoji: "🦮", own: false, fx: 0.7, fy: 0.65 },
-  { emoji: "🐶", own: false, fx: 0.5, fy: -0.2 },
-  { emoji: "🐕‍🦺", own: false, fx: 0.5, fy: 1.2 },
-  { emoji: "🐩", own: false, fx: -0.2, fy: 0.5 },
-  { emoji: "🦮", own: false, fx: 1.2, fy: 0.5 },
-  { emoji: "🐶", own: false, fx: 1.2, fy: -0.2 },
-  { emoji: "🐩", own: false, fx: 1.28, fy: -0.2 },
-  { emoji: "🐕‍🦺", own: false, fx: 1.2, fy: 1.2 },
-  { emoji: "🦮", own: false, fx: 1.28, fy: 1.2 },
-  { emoji: "🐶", own: false, fx: -0.2, fy: 1.2 },
-  { emoji: "🐕‍🦺", own: false, fx: -0.28, fy: 1.2 },
-  { emoji: "🐩", own: false, fx: -0.2, fy: -0.2 },
-  { emoji: "🦮", own: false, fx: -0.28, fy: -0.2 },
-];
-
-function makeDogs(viewport) {
-  return start_fractions.map((d) => ({
-    emoji: d.emoji,
-    kind: d.own ? "own" : "other",
-    parkX: Math.round(d.fx * viewport.width),
-    parkY: Math.round(d.fy * viewport.height),
-  }));
-}
-
-// A park point kept on screen, a dog's half-size in from each edge: your
+// A park point kept on screen, a dog's half-size in from each edge: a held
 // dog never leaves the screen.
 function keptOnScreen(viewport, parkX, parkY) {
   const half = dog_px / 2;
@@ -71,34 +41,27 @@ function keptOnScreen(viewport, parkX, parkY) {
   };
 }
 
-// The viewport's top-left (a park point) nearest `want` that keeps the dog
-// on screen, a dog's half-size in from each edge: a pan never carries your
-// dog out of view.
-function viewportKeeping(viewport, dog, wantParkX, wantParkY) {
-  const half = dog_px / 2;
-  return {
-    parkX: Math.min(Math.max(wantParkX, dog.parkX - (viewport.width - half)), dog.parkX - half),
-    parkY: Math.min(Math.max(wantParkY, dog.parkY - (viewport.height - half)), dog.parkY - half),
-  };
-}
-
 // ── drag ────────────────────────────────────────────────────────────────────
 
-// Where the pointer grabbed the dog, relative to the dog's centre, so the
-// dog doesn't jump to the pointer. Both are viewport points.
-function grabbed(viewport, dog, pointerViewportX, pointerViewportY) {
-  const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
-  const dx = pointerViewportX - at.viewportX;
-  const dy = pointerViewportY - at.viewportY;
-  if (Math.abs(dx) > dog_px / 2 || Math.abs(dy) > dog_px / 2) return { kind: "missed" };
-  return { kind: "holding", grabDx: dx, grabDy: dy };
+// The dog under the pointer, the one drawn last (on top) first, and where
+// the pointer grabbed it relative to its centre, so it doesn't jump.
+function grabbed(viewport, dogs, pointerViewportX, pointerViewportY) {
+  for (let i = dogs.length - 1; i >= 0; i--) {
+    const at = viewportFromPark(viewport, dogs[i].parkX, dogs[i].parkY);
+    const dx = pointerViewportX - at.viewportX;
+    const dy = pointerViewportY - at.viewportY;
+    if (Math.abs(dx) <= dog_px / 2 && Math.abs(dy) <= dog_px / 2) {
+      return { kind: "holding", dog: dogs[i], grabDx: dx, grabDy: dy };
+    }
+  }
+  return { kind: "missed" };
 }
 
 // ── scroll ──────────────────────────────────────────────────────────────────
 
-// A band along each edge of the screen, where a held dog
-// scrolls the viewport: from the dog's farthest place on screen (half its
-// size from the edge) `band_px` inward. Deeper in the band, faster.
+// A band along each edge of the screen, where a held dog scrolls the
+// viewport: from the dog's farthest place on screen (half its size from the
+// edge) `band_px` inward. Deeper in the band, faster.
 const band_px = 80;
 const slowest_px_per_frame = (2 / 3) * 0.7;
 const fastest_px_per_frame = (16 / 3) * 0.7;
@@ -119,9 +82,60 @@ function axisScroll(dogViewportAt, length) {
   return far - near;
 }
 
+// ── the server ──────────────────────────────────────────────────────────────
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
+  return response.json();
+}
+
+async function fetchDogs() {
+  const response = await fetch("/dogs");
+  if (!response.ok) throw new Error(`/dogs: ${response.status}`);
+  return (await response.json()).dogs.map((d) => ({ id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y }));
+}
+
+// A leash is asked for and the dog moved at once (optimistic); the ack is
+// only said, for now.
+function leash(dog) {
+  post("/leash", { dog: dog.id }).then(
+    (ack) => console.log("leashed", ack.leashed),
+    (e) => console.error("leash failed:", e.message),
+  );
+}
+
+// Moves to the server: at most one waiting for its ack. Each send carries
+// where the dog is now, so the dogs moved while one waits are sent, each
+// at its latest place, as the acks come.
+const moves = { waiting: "none", due: new Set() }; // waiting: "none" or a dog
+
+function sendMove(dog) {
+  if (moves.waiting !== "none") { moves.due.add(dog); return; }
+  moves.waiting = dog;
+  const parkX = Math.round(dog.parkX);
+  const parkY = Math.round(dog.parkY);
+  const sentMs = performance.now();
+  post("/move", { dog: dog.id, park_x: parkX, park_y: parkY }).then(
+    (ack) => console.log(`moved ${ack.moved} to (${ack.park_x}, ${ack.park_y}) in ${Math.round(performance.now() - sentMs)} ms`),
+    (e) => console.error("move failed:", e.message),
+  ).finally(() => {
+    moves.waiting = "none";
+    const [next] = moves.due;
+    if (next !== undefined) {
+      moves.due.delete(next);
+      sendMove(next);
+    }
+  });
+}
+
 // ── the blitter: owns no logic ──────────────────────────────────────────────
 
-// Draws each sprite at its viewport point, its label under it; the own dog
+// Draws each sprite at its viewport point, its label under it; a held dog
 // ringed.
 function blit(canvas, width, height, sprites) {
   const ratio = window.devicePixelRatio || 1;
@@ -131,7 +145,7 @@ function blit(canvas, width, height, sprites) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const s of sprites) {
-    if (s.kind === "own") {
+    if (s.kind === "held") {
       ctx.beginPath();
       ctx.arc(s.viewportX, s.viewportY, dog_px * 0.7, 0, 2 * Math.PI);
       ctx.lineWidth = 3;
@@ -149,12 +163,12 @@ function blit(canvas, width, height, sprites) {
 
 // ── the page ────────────────────────────────────────────────────────────────
 
-function start() {
+async function start() {
   const canvas = document.getElementById("park");
+  const dogs = await fetchDogs();
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
-  let dogs = null;
-  // What the human's hand is doing: holding their dog, panning the park
-  // (from the pointer's last viewport point), or resting.
+  // What the human's hand is doing: holding a dog, panning the park (from
+  // the pointer's last viewport point), or resting.
   let hold = { kind: "resting" };
   // The pointer's last viewport point while holding: a still pointer in
   // the band keeps scrolling.
@@ -166,33 +180,36 @@ function start() {
     viewport.height = canvas.clientHeight;
     canvas.width = Math.floor(viewport.width * ratio);
     canvas.height = Math.floor(viewport.height * ratio);
-    if (dogs === null) dogs = makeDogs(viewport);
-    Object.assign(own(), keptOnScreen(viewport, own().parkX, own().parkY));
   }
-  const own = () => dogs.find((d) => d.kind === "own");
   fit();
+  viewport.parkX = Math.round(first_screen.width / 2 - viewport.width / 2);
+  viewport.parkY = Math.round(first_screen.height / 2 - viewport.height / 2);
   window.addEventListener("resize", fit);
 
-  // The own dog under the pointer, as far as the screen allows.
+  // The held dog under the pointer, as far as the screen allows.
   function follow() {
     const want = parkFromViewport(viewport, pointer.viewportX - hold.grabDx, pointer.viewportY - hold.grabDy);
-    Object.assign(own(), keptOnScreen(viewport, want.parkX, want.parkY));
+    Object.assign(hold.dog, keptOnScreen(viewport, want.parkX, want.parkY));
+    sendMove(hold.dog);
   }
 
   canvas.addEventListener("pointerdown", (e) => {
-    const g = grabbed(viewport, own(), e.offsetX, e.offsetY);
-    hold = g.kind === "holding" ? g : { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY };
+    const g = grabbed(viewport, dogs, e.offsetX, e.offsetY);
+    if (g.kind === "holding") {
+      hold = g;
+      leash(g.dog);
+    } else {
+      hold = { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY };
+    }
     pointer.viewportX = e.offsetX;
     pointer.viewportY = e.offsetY;
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
     if (hold.kind === "panning") {
-      // The park moves with the pointer, so the viewport moves against it,
-      // as far as your dog stays in view.
-      Object.assign(viewport, viewportKeeping(viewport, own(),
-        viewport.parkX - (e.offsetX - hold.lastViewportX),
-        viewport.parkY - (e.offsetY - hold.lastViewportY)));
+      // The park moves with the pointer, so the viewport moves against it.
+      viewport.parkX -= e.offsetX - hold.lastViewportX;
+      viewport.parkY -= e.offsetY - hold.lastViewportY;
       hold.lastViewportX = e.offsetX;
       hold.lastViewportY = e.offsetY;
       return;
@@ -208,19 +225,23 @@ function start() {
 
   const frame = () => {
     if (hold.kind === "holding") {
-      const dog = own();
+      const dog = hold.dog;
       const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
       const eastward = axisScroll(at.viewportX, viewport.width);
       const southward = axisScroll(at.viewportY, viewport.height);
       // The viewport and the dog move together: the dog stays put on screen
       // while it travels through the park.
-      viewport.parkX += eastward;
-      viewport.parkY += southward;
-      dog.parkX += eastward;
-      dog.parkY += southward;
+      if (eastward !== 0 || southward !== 0) {
+        viewport.parkX += eastward;
+        viewport.parkY += southward;
+        dog.parkX += eastward;
+        dog.parkY += southward;
+        sendMove(dog);
+      }
     }
+    const held = hold.kind === "holding" ? hold.dog : "none";
     const sprites = dogs.map((d) => ({
-      kind: d.kind,
+      kind: d === held ? "held" : "free",
       emoji: d.emoji,
       label: `(${Math.round(d.parkX)}, ${Math.round(d.parkY)})`,
       ...viewportFromPark(viewport, d.parkX, d.parkY),
@@ -231,4 +252,4 @@ function start() {
   requestAnimationFrame(frame);
 }
 
-start();
+start().catch((e) => console.error("Dog Park did not start:", e.message));
