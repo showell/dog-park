@@ -3,7 +3,8 @@
 // Milestone 4: the park reaches past the screen every way. Holding your dog
 // near any edge of the screen scrolls the viewport that way, and your dog
 // goes with it at the same speed; the other dogs stay where they stand,
-// four of them off the first screen, one each way. Each dog shows its park
+// the rest just off the first screen: one past each edge, a pair past each
+// corner. Each dog shows its park
 // point under it.
 //
 // TWO FRAMES, both in CSS pixels: a PARK point (parkX, parkY) is where a
@@ -27,15 +28,24 @@ function parkFromViewport(viewport, viewportX, viewportY) {
 // ── the world ───────────────────────────────────────────────────────────────
 
 // Where each dog starts, as fractions of the first screen, so any screen
-// starts with the same picture: three on it, and one off it each way.
+// starts with the same picture: three on it, one just off it each way (20%
+// past the edge), and a pair just off each corner.
 const start_fractions = [
   { emoji: "🐕", own: true, fx: 0.5, fy: 0.5 },
   { emoji: "🐩", own: false, fx: 0.3, fy: 0.35 },
   { emoji: "🦮", own: false, fx: 0.7, fy: 0.65 },
-  { emoji: "🐶", own: false, fx: 0.5, fy: -0.6 },
-  { emoji: "🐕‍🦺", own: false, fx: 0.5, fy: 1.6 },
-  { emoji: "🐩", own: false, fx: -0.6, fy: 0.5 },
-  { emoji: "🦮", own: false, fx: 1.6, fy: 0.5 },
+  { emoji: "🐶", own: false, fx: 0.5, fy: -0.2 },
+  { emoji: "🐕‍🦺", own: false, fx: 0.5, fy: 1.2 },
+  { emoji: "🐩", own: false, fx: -0.2, fy: 0.5 },
+  { emoji: "🦮", own: false, fx: 1.2, fy: 0.5 },
+  { emoji: "🐶", own: false, fx: 1.2, fy: -0.2 },
+  { emoji: "🐩", own: false, fx: 1.28, fy: -0.2 },
+  { emoji: "🐕‍🦺", own: false, fx: 1.2, fy: 1.2 },
+  { emoji: "🦮", own: false, fx: 1.28, fy: 1.2 },
+  { emoji: "🐶", own: false, fx: -0.2, fy: 1.2 },
+  { emoji: "🐕‍🦺", own: false, fx: -0.28, fy: 1.2 },
+  { emoji: "🐩", own: false, fx: -0.2, fy: -0.2 },
+  { emoji: "🦮", own: false, fx: -0.28, fy: -0.2 },
 ];
 
 function makeDogs(viewport) {
