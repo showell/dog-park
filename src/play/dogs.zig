@@ -14,8 +14,8 @@ pub const Dog = struct { emoji: []const u8, at: ParkPoint };
 /// The first layout: in every tile of the world, three dogs in a blue tile
 /// and two in a white one (a tile is blue when its column plus its row is
 /// odd), at these places in the tile. Their looks take turns.
-const in_blue = [_]ParkPoint{ .{ .park_x = 200, .park_y = 200 }, .{ .park_x = 600, .park_y = 400 }, .{ .park_x = 300, .park_y = 620 } };
-const in_white = [_]ParkPoint{ .{ .park_x = 250, .park_y = 560 }, .{ .park_x = 560, .park_y = 240 } };
+const in_blue = [_]ParkPoint{ .{ .park_x = 125, .park_y = 125 }, .{ .park_x = 375, .park_y = 250 }, .{ .park_x = 190, .park_y = 390 } };
+const in_white = [_]ParkPoint{ .{ .park_x = 155, .park_y = 350 }, .{ .park_x = 350, .park_y = 150 } };
 const looks = [_][]const u8{ "🐕", "🐩", "🦮", "🐶", "🐕‍🦺" };
 
 const blue_tiles = tiles.world_tiles * tiles.world_tiles / 2;
@@ -102,9 +102,9 @@ const testing = std.testing;
 test "the first layout: 250 dogs; the white tile (0, 0) holds two, the blue tile (1, 0) three; the last in tile (9, 9)" {
     const d = Dogs.laidOut();
     try testing.expectEqual(@as(usize, 250), dog_count);
-    try testing.expectEqual(ParkPoint{ .park_x = 250, .park_y = 560 }, d.at(@enumFromInt(0)));
-    try testing.expectEqual(ParkPoint{ .park_x = 560, .park_y = 240 }, d.at(@enumFromInt(1)));
-    try testing.expectEqual(ParkPoint{ .park_x = 1000, .park_y = 200 }, d.at(@enumFromInt(2)));
+    try testing.expectEqual(ParkPoint{ .park_x = 155, .park_y = 350 }, d.at(@enumFromInt(0)));
+    try testing.expectEqual(ParkPoint{ .park_x = 350, .park_y = 150 }, d.at(@enumFromInt(1)));
+    try testing.expectEqual(ParkPoint{ .park_x = 625, .park_y = 125 }, d.at(@enumFromInt(2)));
     try testing.expectEqual(tiles.Tile{ .col = 9, .row = 9 }, tiles.Tile.of(d.at(@enumFromInt(dog_count - 1))));
 }
 

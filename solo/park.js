@@ -1,6 +1,6 @@
 // Dog Park, played: one human, the server keeping the dogs.
 //
-// THE PARK IS A CHECKERBOARD of 800 px tiles, each named by its column and
+// THE PARK IS A CHECKERBOARD of 500 px tiles, each named by its column and
 // row, 10 by 10 of them: the world, which no dog leaves. The page
 // subscribes to the tiles around its viewport (at most 25; the page chooses
 // which), and the server keeps it told about the dogs in them. Each time
@@ -56,7 +56,7 @@ function keptOnScreen(viewport, parkX, parkY) {
 
 // ── tiles and the world ─────────────────────────────────────────────────────
 
-const tile_px = 800;
+const tile_px = 500;
 const most_tiles = 25;
 const world_tiles = 10;
 const world_px = world_tiles * tile_px;
@@ -80,8 +80,9 @@ function inWorld(t) {
   return t.col >= 0 && t.row >= 0 && t.col < world_tiles && t.row < world_tiles;
 }
 // How far past the viewport's edges the page subscribes, so a scroll finds
-// its dogs already known.
-const tile_margin_px = tile_px / 2;
+// its dogs already known: the widest of these that keeps a screen within
+// `most_tiles`.
+const tile_margins_px = [tile_px / 2, tile_px / 4, 0];
 
 function tileOf(parkX, parkY) {
   return { col: Math.floor(parkX / tile_px), row: Math.floor(parkY / tile_px) };
@@ -103,14 +104,14 @@ function tilesMeeting(parkX, parkY, width, height) {
   return out;
 }
 
-// The tiles the page wants: those within `tile_margin_px` of the viewport,
-// or, on a screen too big for that, those it shows.
+// The tiles the page wants: those within the widest margin of the viewport
+// that keeps them within `most_tiles`.
 function wantedTiles(viewport) {
-  const m = tile_margin_px;
-  const near = tilesMeeting(viewport.parkX - m, viewport.parkY - m, viewport.width + 2 * m, viewport.height + 2 * m);
-  if (near.length <= most_tiles) return near;
+  for (const m of tile_margins_px) {
+    const near = tilesMeeting(viewport.parkX - m, viewport.parkY - m, viewport.width + 2 * m, viewport.height + 2 * m);
+    if (near.length <= most_tiles) return near;
+  }
   const shown = tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height);
-  if (shown.length <= most_tiles) return shown;
   console.error(`a screen this big shows ${shown.length} tiles, past the ${most_tiles} a page may subscribe`);
   return shown.slice(0, most_tiles);
 }

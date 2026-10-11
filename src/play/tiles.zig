@@ -5,7 +5,7 @@
 const std = @import("std");
 const dogs = @import("dogs.zig");
 
-pub const tile_px = 800;
+pub const tile_px = 500;
 pub const most_subscribed = 25;
 /// The world is `world_tiles` by `world_tiles` tiles, from tile (0, 0): park
 /// points 0 to `world_px` - 1 on each axis.
@@ -24,8 +24,8 @@ pub const Tile = struct {
     col: i32,
     row: i32,
 
-    /// The tile a park point stands in: tile (0, 0) holds 0 to 799 on each
-    /// axis, tile (-1, 0) holds park_x -800 to -1.
+    /// The tile a park point stands in: tile (0, 0) holds 0 to 499 on each
+    /// axis, tile (-1, 0) holds park_x -500 to -1.
     pub fn of(at: dogs.ParkPoint) Tile {
         return .{ .col = @divFloor(at.park_x, tile_px), .row = @divFloor(at.park_y, tile_px) };
     }
@@ -82,13 +82,13 @@ pub const Subscribed = struct {
 
 const testing = std.testing;
 
-test "a tile's edges: 799 is the last of tile 0, 800 the first of tile 1; -1 is tile -1, 0 tile 0; -800 is tile -1, -801 tile -2" {
-    try testing.expectEqual(@as(i32, 0), Tile.of(.{ .park_x = 799, .park_y = 0 }).col);
-    try testing.expectEqual(@as(i32, 1), Tile.of(.{ .park_x = 800, .park_y = 0 }).col);
+test "a tile's edges: 499 is the last of tile 0, 500 the first of tile 1; -1 is tile -1, 0 tile 0; -500 is tile -1, -501 tile -2" {
+    try testing.expectEqual(@as(i32, 0), Tile.of(.{ .park_x = 499, .park_y = 0 }).col);
+    try testing.expectEqual(@as(i32, 1), Tile.of(.{ .park_x = 500, .park_y = 0 }).col);
     try testing.expectEqual(@as(i32, -1), Tile.of(.{ .park_x = -1, .park_y = 0 }).col);
     try testing.expectEqual(@as(i32, 0), Tile.of(.{ .park_x = 0, .park_y = 0 }).col);
-    try testing.expectEqual(@as(i32, -1), Tile.of(.{ .park_x = 0, .park_y = -800 }).row);
-    try testing.expectEqual(@as(i32, -2), Tile.of(.{ .park_x = 0, .park_y = -801 }).row);
+    try testing.expectEqual(@as(i32, -1), Tile.of(.{ .park_x = 0, .park_y = -500 }).row);
+    try testing.expectEqual(@as(i32, -2), Tile.of(.{ .park_x = 0, .park_y = -501 }).row);
 }
 
 fn namedTiles(n: usize, is: @FieldType(Named, "is")) [most_subscribed + 1]Named {
@@ -109,11 +109,11 @@ test "subscriptions: 25 tiles named is the most; 26 is refused whole, and what w
     try testing.expect(!s.holds(.{ .col = 9, .row = 9 }));
 }
 
-test "the world's edges: 0 and 7999 are in it, -1 and 8000 outside; a tile past them is refused" {
-    try testing.expectEqual(Where.in_world, where(.{ .park_x = 0, .park_y = 7999 }));
+test "the world's edges: 0 and 4999 are in it, -1 and 5000 outside; a tile past them is refused" {
+    try testing.expectEqual(Where.in_world, where(.{ .park_x = 0, .park_y = 4999 }));
     try testing.expectEqual(Where.outside_world, where(.{ .park_x = -1, .park_y = 0 }));
-    try testing.expectEqual(Where.in_world, where(.{ .park_x = 7999, .park_y = 0 }));
-    try testing.expectEqual(Where.outside_world, where(.{ .park_x = 0, .park_y = 8000 }));
+    try testing.expectEqual(Where.in_world, where(.{ .park_x = 4999, .park_y = 0 }));
+    try testing.expectEqual(Where.outside_world, where(.{ .park_x = 0, .park_y = 5000 }));
     var s: Subscribed = .{};
     try testing.expectEqual(Subscribing.replaced, s.replace(&.{.{ .col = 9, .row = 9, .is = .new }}));
     try testing.expectEqual(Subscribing{ .outside_world = .{ .col = 10, .row = 9 } }, s.replace(&.{.{ .col = 10, .row = 9, .is = .new }}));
