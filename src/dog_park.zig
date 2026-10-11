@@ -14,3 +14,8 @@ pub const wire = @import("wire.zig");
 test {
     @import("std").testing.refAllDecls(@This());
 }
+
+test "the webbox library is reachable" {
+    const webbox = @import("webbox");
+    try @import("std").testing.expectEqualStrings("/a.js", webbox.http.pathOf("/a.js?h=00"));
+}

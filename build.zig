@@ -11,6 +11,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const webbox = b.dependency("webbox", .{ .target = target, .optimize = optimize }).module("webbox");
+    root.addImport("webbox", webbox);
     const tests = b.addTest(.{ .root_module = root });
     b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
 }

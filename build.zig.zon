@@ -4,4 +4,9 @@
     .fingerprint = 0x68c88f3759e4484,
     .minimum_zig_version = "0.16.0",
     .paths = .{ "build.zig", "build.zig.zon", "src" },
+    .dependencies = .{
+        // The web-server-in-a-box library: angry-gopher's server package,
+        // a sibling checkout (../angry-gopher), module `webbox`.
+        .webbox = .{ .path = "../angry-gopher/zig-server" },
+    },
 }
