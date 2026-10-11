@@ -1,39 +1,26 @@
-//! The dogs: a fixed few, each with its id, its look and its park point.
+//! The dogs: a fixed number, each with its id, its look and its park point.
 //! The park is a plane of whole CSS pixels; north is smaller `park_y`.
 
 const std = @import("std");
+const tiles = @import("tiles.zig");
 
 /// A dog is known by its place in the list, made once.
-pub const DogId = enum(u8) { _ };
+pub const DogId = enum(u16) { _ };
 
 pub const ParkPoint = struct { park_x: i32, park_y: i32 };
 
 pub const Dog = struct { emoji: []const u8, at: ParkPoint };
 
-/// The screen the first layout is drawn for: dogs are laid out as fractions
-/// of it, three on it, one just past each edge, a pair past each corner.
-pub const first_screen = .{ .width = 1280, .height = 800 };
+/// The first layout: in every tile of the world, three dogs in a blue tile
+/// and two in a white one (a tile is blue when its column plus its row is
+/// odd), at these places in the tile. Their looks take turns.
+const in_blue = [_]ParkPoint{ .{ .park_x = 200, .park_y = 200 }, .{ .park_x = 600, .park_y = 400 }, .{ .park_x = 300, .park_y = 620 } };
+const in_white = [_]ParkPoint{ .{ .park_x = 250, .park_y = 560 }, .{ .park_x = 560, .park_y = 240 } };
+const looks = [_][]const u8{ "🐕", "🐩", "🦮", "🐶", "🐕‍🦺" };
 
-const Placed = struct { emoji: []const u8, fx: f32, fy: f32 };
-const first_layout = [_]Placed{
-    .{ .emoji = "🐕", .fx = 0.5, .fy = 0.5 },
-    .{ .emoji = "🐩", .fx = 0.3, .fy = 0.35 },
-    .{ .emoji = "🦮", .fx = 0.7, .fy = 0.65 },
-    .{ .emoji = "🐶", .fx = 0.5, .fy = -0.2 },
-    .{ .emoji = "🐕‍🦺", .fx = 0.5, .fy = 1.2 },
-    .{ .emoji = "🐩", .fx = -0.2, .fy = 0.5 },
-    .{ .emoji = "🦮", .fx = 1.2, .fy = 0.5 },
-    .{ .emoji = "🐶", .fx = 1.2, .fy = -0.2 },
-    .{ .emoji = "🐩", .fx = 1.28, .fy = -0.2 },
-    .{ .emoji = "🐕‍🦺", .fx = 1.2, .fy = 1.2 },
-    .{ .emoji = "🦮", .fx = 1.28, .fy = 1.2 },
-    .{ .emoji = "🐶", .fx = -0.2, .fy = 1.2 },
-    .{ .emoji = "🐕‍🦺", .fx = -0.28, .fy = 1.2 },
-    .{ .emoji = "🐩", .fx = -0.2, .fy = -0.2 },
-    .{ .emoji = "🦮", .fx = -0.28, .fy = -0.2 },
-};
-
-pub const dog_count = first_layout.len;
+const blue_tiles = tiles.world_tiles * tiles.world_tiles / 2;
+const white_tiles = tiles.world_tiles * tiles.world_tiles - blue_tiles;
+pub const dog_count = blue_tiles * in_blue.len + white_tiles * in_white.len;
 
 /// What a request names: one of the dogs, or none of them.
 pub const Lookup = union(enum) { dog: DogId, no_such_dog };
@@ -49,10 +36,22 @@ pub const Dogs = struct {
 
     pub fn laidOut() Dogs {
         var d: Dogs = undefined;
-        for (first_layout, &d.list) |p, *dog| dog.* = .{ .emoji = p.emoji, .at = .{
-            .park_x = @intFromFloat(@round(p.fx * first_screen.width)),
-            .park_y = @intFromFloat(@round(p.fy * first_screen.height)),
-        } };
+        var n: usize = 0;
+        var row: i32 = 0;
+        while (row < tiles.world_tiles) : (row += 1) {
+            var col: i32 = 0;
+            while (col < tiles.world_tiles) : (col += 1) {
+                const places: []const ParkPoint = if (@mod(col + row, 2) == 1) &in_blue else &in_white;
+                for (places) |p| {
+                    d.list[n] = .{ .emoji = looks[n % looks.len], .at = .{
+                        .park_x = col * tiles.tile_px + p.park_x,
+                        .park_y = row * tiles.tile_px + p.park_y,
+                    } };
+                    n += 1;
+                }
+            }
+        }
+        std.debug.assert(n == dog_count);
         return d;
     }
 
@@ -61,9 +60,9 @@ pub const Dogs = struct {
     /// The dogs as written: exactly the laid-out dogs, in order, each where
     /// it was kept. The looks are the layout's, so a file can't change them.
     pub fn read(bytes: []const u8) ReadError!Dogs {
-        var buf: [16 * 1024]u8 = undefined;
-        var fba: std.heap.FixedBufferAllocator = .init(&buf);
-        const w = std.json.parseFromSliceLeaky(Written, fba.allocator(), bytes, .{}) catch return error.NotDogs;
+        var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+        defer arena.deinit();
+        const w = std.json.parseFromSliceLeaky(Written, arena.allocator(), bytes, .{}) catch return error.NotDogs;
         if (w.dogs.len != dog_count) return error.WrongDogs;
         var d = laidOut();
         for (w.dogs, &d.list, 0..) |stored, *dog, i| {
@@ -100,10 +99,13 @@ pub const Dogs = struct {
 
 const testing = std.testing;
 
-test "the first layout: the middle dog at the first screen's centre, the north one 20% past its top" {
+test "the first layout: 250 dogs; the white tile (0, 0) holds two, the blue tile (1, 0) three; the last in tile (9, 9)" {
     const d = Dogs.laidOut();
-    try testing.expectEqual(ParkPoint{ .park_x = 640, .park_y = 400 }, d.at(@enumFromInt(0)));
-    try testing.expectEqual(ParkPoint{ .park_x = 640, .park_y = -160 }, d.at(@enumFromInt(3)));
+    try testing.expectEqual(@as(usize, 250), dog_count);
+    try testing.expectEqual(ParkPoint{ .park_x = 250, .park_y = 560 }, d.at(@enumFromInt(0)));
+    try testing.expectEqual(ParkPoint{ .park_x = 560, .park_y = 240 }, d.at(@enumFromInt(1)));
+    try testing.expectEqual(ParkPoint{ .park_x = 1000, .park_y = 200 }, d.at(@enumFromInt(2)));
+    try testing.expectEqual(tiles.Tile{ .col = 9, .row = 9 }, tiles.Tile.of(d.at(@enumFromInt(dog_count - 1))));
 }
 
 test "dogs written read back the same, moves and all" {

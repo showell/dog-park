@@ -7,6 +7,18 @@ const dogs = @import("dogs.zig");
 
 pub const tile_px = 800;
 pub const most_subscribed = 25;
+/// The world is `world_tiles` by `world_tiles` tiles, from tile (0, 0): park
+/// points 0 to `world_px` - 1 on each axis.
+pub const world_tiles = 10;
+pub const world_px = world_tiles * tile_px;
+
+/// Whether a park point is in the world.
+pub const Where = enum { in_world, outside_world };
+
+pub fn where(at: dogs.ParkPoint) Where {
+    const in = at.park_x >= 0 and at.park_x < world_px and at.park_y >= 0 and at.park_y < world_px;
+    return if (in) .in_world else .outside_world;
+}
 
 pub const Tile = struct {
     col: i32,
@@ -37,6 +49,8 @@ pub const Subscribing = union(enum) {
     replaced,
     /// Refused, and nothing changed: more than `most_subscribed` tiles named.
     too_many: usize,
+    /// Refused, and nothing changed: a tile named is outside the world.
+    outside_world: Tile,
 };
 
 pub const Subscribed = struct {
@@ -55,6 +69,7 @@ pub const Subscribed = struct {
         var next: Subscribed = .{};
         for (named) |n| {
             const t = n.tile();
+            if (where(.{ .park_x = t.col * tile_px, .park_y = t.row * tile_px }) == .outside_world) return .{ .outside_world = t };
             if (next.holds(t)) continue;
             if (next.len == most_subscribed) return .{ .too_many = named.len };
             next.tiles[next.len] = t;
@@ -78,7 +93,7 @@ test "a tile's edges: 799 is the last of tile 0, 800 the first of tile 1; -1 is 
 
 fn namedTiles(n: usize, is: @FieldType(Named, "is")) [most_subscribed + 1]Named {
     var out: [most_subscribed + 1]Named = undefined;
-    for (out[0..n], 0..) |*t, i| t.* = .{ .col = @intCast(i), .row = 0, .is = is };
+    for (out[0..n], 0..) |*t, i| t.* = .{ .col = @intCast(i % world_tiles), .row = @intCast(i / world_tiles), .is = is };
     return out;
 }
 
@@ -88,10 +103,20 @@ test "subscriptions: 25 tiles named is the most; 26 is refused whole, and what w
     try testing.expectEqual(Subscribing.replaced, s.replace(first[0..25]));
     try testing.expectEqual(@as(usize, 25), s.len);
     var more = namedTiles(26, .held);
-    more[25] = .{ .col = 99, .row = 0, .is = .new };
+    more[25] = .{ .col = 9, .row = 9, .is = .new };
     try testing.expectEqual(Subscribing{ .too_many = 26 }, s.replace(more[0..26]));
     try testing.expectEqual(@as(usize, 25), s.len);
-    try testing.expect(!s.holds(.{ .col = 99, .row = 0 }));
+    try testing.expect(!s.holds(.{ .col = 9, .row = 9 }));
+}
+
+test "the world's edges: 0 and 7999 are in it, -1 and 8000 outside; a tile past them is refused" {
+    try testing.expectEqual(Where.in_world, where(.{ .park_x = 0, .park_y = 7999 }));
+    try testing.expectEqual(Where.outside_world, where(.{ .park_x = -1, .park_y = 0 }));
+    try testing.expectEqual(Where.in_world, where(.{ .park_x = 7999, .park_y = 0 }));
+    try testing.expectEqual(Where.outside_world, where(.{ .park_x = 0, .park_y = 8000 }));
+    var s: Subscribed = .{};
+    try testing.expectEqual(Subscribing.replaced, s.replace(&.{.{ .col = 9, .row = 9, .is = .new }}));
+    try testing.expectEqual(Subscribing{ .outside_world = .{ .col = 10, .row = 9 } }, s.replace(&.{.{ .col = 10, .row = 9, .is = .new }}));
 }
 
 test "a subscription replaces the set: a tile left out is dropped, one named twice is held once" {

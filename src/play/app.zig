@@ -73,7 +73,7 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
         try webbox.site_secret.create(io, scratch.allocator(), r.auth_dir);
         break :blk .created;
     };
-    const stored = try webbox.store.readOrNull(io, scratch.allocator(), dogs_path, .limited(64 * 1024));
+    const stored = try webbox.store.readOrNull(io, scratch.allocator(), dogs_path, .limited(1024 * 1024));
     if (stored) |bytes| {
         the_dogs = dogs.Dogs.read(bytes) catch |e| {
             // **A DOGS FILE THAT DOES NOT READ STOPS THE START, NAMED** (fail,
@@ -141,7 +141,7 @@ fn me(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void {
         },
     };
     const human = try humanOf(io, alloc, who.human);
-    const Answer = struct { viewport: humans.Viewport, leash: union(enum) { none, dog: u8 } };
+    const Answer = struct { viewport: humans.Viewport, leash: union(enum) { none, dog: u16 } };
     const answer: Answer = .{ .viewport = human.viewport, .leash = switch (human.leash) {
         .none => .none,
         .dog => |d| .{ .dog = @intFromEnum(d) },
@@ -206,6 +206,8 @@ fn release(req: *std.http.Server.Request, _: Io, alloc: std.mem.Allocator, who: 
 fn move(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: HumanId) !void {
     const asked = (try readJson(dogs.MoveRequest, req, alloc)) orelse return;
     const dog = (try dogNamed(req, asked.dog)) orelse return;
+    const to: dogs.ParkPoint = .{ .park_x = asked.park_x, .park_y = asked.park_y };
+    if (tiles.where(to) == .outside_world) return badRequest(req, "That is outside the world.\n");
     the_dogs.moveTo(dog, .{ .park_x = asked.park_x, .park_y = asked.park_y });
     try keepDogs(io, alloc);
     const at = the_dogs.at(dog);
@@ -228,6 +230,7 @@ fn subscribe(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, wh
     const asked = (try readJson(TilesRequest, req, alloc)) orelse return;
     const human = try humanOf(io, alloc, who);
     switch (human.tiles.replace(asked.tiles)) {
+        .outside_world => |t| return badRequest(req, try std.fmt.allocPrint(alloc, "Tile ({d}, {d}) is outside the world.\n", .{ t.col, t.row })),
         .too_many => |n| return req.respond(try std.fmt.allocPrint(alloc, "{{\"too_many\":{d},\"most\":{d}}}", .{ n, tiles.most_subscribed }), .{
             .status = .bad_request,
             .keep_alive = false,
