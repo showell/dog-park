@@ -9,6 +9,8 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
+# The browser's half, its pure parts, without a browser (163.4).
+node ops/park_js_check.js
 zig build
 
 WORK="$(mktemp -d)"

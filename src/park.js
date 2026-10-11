@@ -28,7 +28,7 @@ const frames = {
   // tile, [0, parkSide): a whole number of park sizes, so nothing on screen
   // moves (every plane point shifts with it).
   homeShift(parkSide, planeX) {
-    return -Math.floor(planeX / parkSide) * parkSide;
+    return 0 - Math.floor(planeX / parkSide) * parkSide;
   },
 };
 
