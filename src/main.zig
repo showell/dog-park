@@ -26,6 +26,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .default_trusted_proxy = "127.0.0.1",
         .default_auth_dir = "~/DogParkAuth",
         .routes_hint = "(/, /park.js, POST /scene)",
+        // Every body is read before the turn, up to this (webbox, metal-vmm
+        // QUEUE 162): a scene request is the only one with a body.
+        .largest_body = app.longest_body,
         .free_space = unread,
     }, report);
 }
