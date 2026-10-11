@@ -160,9 +160,9 @@ pub const WireOwnDog = struct {
 
 pub const WireMoveOutcome = enum { stayed, moved, refused_too_far_at_once };
 
-/// What the browser gets: a scene. A request always ends with its human
-/// holding a dog (claiming.zig), so there is no other answer; the union is
-/// the wire's shape, `{"scene": ...}`, kept for a later one.
+/// What the browser gets: a scene, whose own dog may be none
+/// (docs/CLAIMS-V1.md), so there is no other answer; the union is the
+/// wire's shape, `{"scene": ...}`, kept for a later one.
 pub const WireAnswer = union(enum) {
     scene: WireScene,
 

@@ -41,8 +41,10 @@ pub const DogId = enum(u32) {
     }
 };
 
-/// A moment, in the wall clock's Unix seconds: when a provisional claim
-/// ends. Not a duration.
+/// A moment, in seconds on the machine's monotonic clock (its awake time):
+/// when a provisional claim ends. Not a duration, and never stored: a claim
+/// that lives in memory only needs no wall clock, and one stepped back or
+/// forward by NTP must not stretch or end every claim at once.
 pub const Instant = enum(i64) {
     _,
 

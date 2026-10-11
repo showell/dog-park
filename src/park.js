@@ -193,6 +193,9 @@ function take(answer, wrappedAtSend) {
   const scene = answer.scene;
   shiftScene(scene, wrapped.planeDx - wrappedAtSend.planeDx, wrapped.planeDy - wrappedAtSend.planeDy);
   const first = state.scene === null;
+  // A dog after a read-only spell is centred on whatever it says (its
+  // answer as new_dog may have been lost, and it come as same_dog).
+  const hadDog = ownDog(state.scene) !== null;
   state.scene = scene;
   const own = ownDog(scene);
   if (!own) {
@@ -201,10 +204,11 @@ function take(answer, wrappedAtSend) {
     // pace; a later answer with a dog centres on it.
     state.unsentOwnDogDx = 0;
     state.unsentOwnDogDy = 0;
-    drag.active = false;
+    // A pan goes on; a dog drag has no dog left to move.
+    if (drag.kind === "dog") drag.active = false;
     return;
   }
-  if (first || own.is === "new_dog") {
+  if (first || !hadDog || own.is === "new_dog") {
     // The first scene, or a dog newly ours (perhaps not the one shown, or
     // given again after ours ended undragged, or the first after a
     // read-only spell): centre the viewport on it, drop any drag meant for

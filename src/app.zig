@@ -145,7 +145,10 @@ fn scene(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
         .new_device => try newDevice(io, alloc, now),
     };
     const room: answering.Room = .{ .others = try alloc.alloc(dogs.Drawn, most_others), .found = try alloc.alloc(dogs.Dog, most_others) };
-    const answered = answering.answer(the_world.park, the_world.population(), the_world.all, who.human, the_world.holding(who.human), .of(now), request, room);
+    // Claims run on the monotonic clock (dogs.Instant); the cookie, on the
+    // wall clock it is signed with.
+    const claims_now: dogs.Instant = .of(@intCast(@divFloor(Io.Clock.now(.awake, io).nanoseconds, std.time.ns_per_s)));
+    const answered = answering.answer(the_world.park, the_world.population(), the_world.all, who.human, the_world.holding(who.human), claims_now, request, room);
     try the_world.keep(io, alloc, answered.change);
     const out = try std.json.Stringify.valueAlloc(alloc, wire.WireAnswer.of(answered.scene, try alloc.alloc(wire.WireDog, most_others)), .{});
     const json: std.http.Header = .{ .name = "content-type", .value = "application/json" };

@@ -143,6 +143,22 @@ check("no dog free: read-only, nothing of ours drawn, a press pans, and the drag
   same([wrapped.planeDx, wrapped.planeDy], [5000, 5000]);
 });
 
+check("a pan goes on across a read-only answer", () => {
+  reset();
+  take({ scene: scene(0, 0, null, {}) }, { planeDx: 0, planeDy: 0 });
+  drag.active = true;
+  drag.kind = "pan";
+  take({ scene: scene(0, 0, null, {}) }, { planeDx: 0, planeDy: 0 });
+  assert.ok(drag.active, "the pan was cut off by an answer");
+});
+
+check("a dog after a read-only spell is centred on, even said to be the same dog (its new_dog answer lost)", () => {
+  reset();
+  take({ scene: scene(0, 0, null, {}) }, { planeDx: 0, planeDy: 0 });
+  take({ scene: scene(4000, 4000, { is: "same_dog" }, {}) }, { planeDx: 0, planeDy: 0 });
+  same([state.viewport.planeX, state.viewport.planeY], [3600, 3700]);
+});
+
 check("a later answer with a dog: centred on it, ringed, and draggable on it", () => {
   reset();
   take({ scene: scene(0, 0, null, {}) }, { planeDx: 0, planeDy: 0 });
