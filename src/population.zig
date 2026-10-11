@@ -67,63 +67,68 @@ pub const Put = union(enum) {
     refused_full,
 };
 
+// ── the contract's reference ─────────────────────────────────────────────────
+
+/// A population of at most `capacity` dogs, in a list: the contract's
+/// reference, too slow to be an index, and the oracle an index is tested
+/// against (index.zig).
+pub fn ListPopulation(comptime capacity: usize) type {
+    return struct {
+        held: [capacity]dogs.Dog = undefined,
+        len: usize = 0,
+
+        const Self = @This();
+
+        pub fn population(self: *Self) Population {
+            return .{ .ptr = self, .vtable = &.{ .near = near, .lookup = lookup, .put = put } };
+        }
+
+        fn of(ptr: *anyopaque) *Self {
+            return @ptrCast(@alignCast(ptr));
+        }
+
+        fn near(ptr: *anyopaque, q: Near, into: []dogs.Dog) Found {
+            const self = of(ptr);
+            var count: u32 = 0;
+            for (self.held[0..self.len]) |d| {
+                if (d.owner == q.except or q.region.holds(d.at.point) == .outside) continue;
+                if (count == into.len) return .{ .count = count, .completeness = .more_in_region };
+                into[count] = d;
+                count += 1;
+            }
+            return .{ .count = count, .completeness = .all_in_region };
+        }
+
+        fn lookup(ptr: *anyopaque, owner: HumanId) Lookup {
+            for (of(ptr).held[0..of(ptr).len]) |d| if (d.owner == owner) return .{ .found = d };
+            return .no_dog;
+        }
+
+        fn put(ptr: *anyopaque, dog: dogs.Dog) Put {
+            const self = of(ptr);
+            for (self.held[0..self.len]) |*d| if (d.owner == dog.owner) {
+                const was = d.at;
+                d.* = dog;
+                return .{ .replaced = was };
+            };
+            if (self.len == capacity) return .refused_full;
+            self.held[self.len] = dog;
+            self.len += 1;
+            return .added;
+        }
+    };
+}
+
 // ── tests: the interface's contract, on the smallest population ─────────────
 
 const testing = std.testing;
-
-/// A population of at most `capacity` dogs, in a list: the contract's
-/// reference, not an index.
-const ListPopulation = struct {
-    held: [capacity]dogs.Dog = undefined,
-    len: usize = 0,
-
-    const capacity = 3;
-
-    fn population(self: *ListPopulation) Population {
-        return .{ .ptr = self, .vtable = &.{ .near = near, .lookup = lookup, .put = put } };
-    }
-
-    fn of(ptr: *anyopaque) *ListPopulation {
-        return @ptrCast(@alignCast(ptr));
-    }
-
-    fn near(ptr: *anyopaque, q: Near, into: []dogs.Dog) Found {
-        const self = of(ptr);
-        var count: u32 = 0;
-        for (self.held[0..self.len]) |d| {
-            if (d.owner == q.except or q.region.holds(d.at.point) == .outside) continue;
-            if (count == into.len) return .{ .count = count, .completeness = .more_in_region };
-            into[count] = d;
-            count += 1;
-        }
-        return .{ .count = count, .completeness = .all_in_region };
-    }
-
-    fn lookup(ptr: *anyopaque, owner: HumanId) Lookup {
-        for (of(ptr).held[0..of(ptr).len]) |d| if (d.owner == owner) return .{ .found = d };
-        return .no_dog;
-    }
-
-    fn put(ptr: *anyopaque, dog: dogs.Dog) Put {
-        const self = of(ptr);
-        for (self.held[0..self.len]) |*d| if (d.owner == dog.owner) {
-            const was = d.at;
-            d.* = dog;
-            return .{ .replaced = was };
-        };
-        if (self.len == capacity) return .refused_full;
-        self.held[self.len] = dog;
-        self.len += 1;
-        return .added;
-    }
-};
 
 fn dogAt(owner: u64, x: frames.Coord, y: frames.Coord) dogs.Dog {
     return .{ .owner = .of(owner), .at = .{ .point = .at(x, y) }, .breed = .dog };
 }
 
 test "put adds an owner's dog, then replaces it: one dog a human" {
-    var list: ListPopulation = .{};
+    var list: ListPopulation(3) = .{};
     const pop = list.population();
     try testing.expectEqual(Put.added, pop.put(dogAt(1, 10, 10)));
     try testing.expectEqual(Put{ .replaced = .{ .point = .at(10, 10) } }, pop.put(dogAt(1, 20, 20)));
@@ -135,7 +140,7 @@ test "put adds an owner's dog, then replaces it: one dog a human" {
 }
 
 test "near leaves out the asker's dog, and says when its slice was too short" {
-    var list: ListPopulation = .{};
+    var list: ListPopulation(3) = .{};
     const pop = list.population();
     _ = pop.put(dogAt(1, 10, 10));
     _ = pop.put(dogAt(2, 20, 20));
