@@ -84,18 +84,11 @@ pub const WireScene = struct {
     covers_height: u31,
     park_width: u31,
     park_height: u31,
-    own: WireDog,
-    /// Whether `own` is the dog held, or newly the asker's: the browser
-    /// centres on a new one.
-    own_is: WireOwnIs,
+    /// The asker's own dog, or none free for them (docs/CLAIMS-V1.md): the
+    /// browser shows the park read-only then, and keeps asking.
+    own: WireOwn,
     others: []const WireDog,
     others_complete: WireCompleteness,
-    /// What became of this request's move: the browser keeps its optimistic
-    /// drag, or, refused, puts the dog where `own` says. `own` is the copy
-    /// nearest the viewport's centre; the browser draws the copy nearest its
-    /// own optimistic place (and, on a screen wider than the park, every
-    /// copy in view), from `park_width` and `park_height`.
-    move: WireMoveOutcome,
 
     /// `s` for the wire, its others written into `others_into`: as many as
     /// fit, and if not all did, the scene says more were not sent.
@@ -111,22 +104,29 @@ pub const WireScene = struct {
             .covers_height = c.size.height,
             .park_width = s.park_size.width,
             .park_height = s.park_size.height,
-            .own = .of(s.own),
-            .own_is = switch (s.own_is) {
-                .the_dog_held => .same_dog,
-                .a_dog_newly_theirs => .new_dog,
+            .own = switch (s.own) {
+                .has_dog => |o| .{ .has_dog = .{
+                    .plane_x = o.drawn.at.x.number(),
+                    .plane_y = o.drawn.at.y.number(),
+                    .emoji = o.drawn.breed.emoji(),
+                    .is = switch (o.is) {
+                        .the_dog_held => .same_dog,
+                        .a_dog_newly_theirs => .new_dog,
+                    },
+                    .move = switch (o.move) {
+                        .stayed => .stayed,
+                        .moved => .moved,
+                        .refused => |r| switch (r) {
+                            .too_far_at_once => .refused_too_far_at_once,
+                        },
+                    },
+                } },
+                .no_dog_free => .no_dog_free,
             },
             .others = others_into[0..sent],
             .others_complete = switch (s.others_completeness) {
                 .all_in_region => all_sent,
                 .more_in_region => .more_not_sent,
-            },
-            .move = switch (s.move) {
-                .stayed => .stayed,
-                .moved => .moved,
-                .refused => |r| switch (r) {
-                    .too_far_at_once => .refused_too_far_at_once,
-                },
             },
         };
     }
@@ -136,6 +136,27 @@ pub const WireScene = struct {
 pub const WireCompleteness = enum { all, more_not_sent };
 
 pub const WireOwnIs = enum { same_dog, new_dog };
+
+/// The asker's own dog on the wire, `{"has_dog": {...}}`, or
+/// `{"no_dog_free": {}}`.
+pub const WireOwn = union(enum) {
+    has_dog: WireOwnDog,
+    no_dog_free,
+};
+
+/// The own dog: the copy nearest the viewport's centre (the browser draws
+/// the copy nearest its own optimistic place, and on a screen wider than the
+/// park every copy in view, from `park_width` and `park_height`), whether it
+/// is the dog held or newly theirs (the browser centres on a new one), and
+/// what became of this request's move (kept, or refused: the browser puts
+/// the dog where this says).
+pub const WireOwnDog = struct {
+    plane_x: frames.Coord,
+    plane_y: frames.Coord,
+    emoji: []const u8,
+    is: WireOwnIs,
+    move: WireMoveOutcome,
+};
 
 pub const WireMoveOutcome = enum { stayed, moved, refused_too_far_at_once };
 
@@ -204,22 +225,20 @@ test "a scene on the wire: plane copies, no owners, a move across the seam" {
     const viewport: frames.Viewport = .{ .origin = .at(-300, 0), .size = .{ .width = 300, .height = 200 } };
     const other: dogs.Dog = .{ .id = .of(3), .at = small.wrap(.at(940, 50)), .breed = .poodle, .claim = .unclaimed };
     const own: dogs.Dog = .{ .id = .of(4), .at = move.dogAt(start), .breed = .dog_face, .claim = .unclaimed };
-    const s: scene.Scene = .{
+    var s: scene.Scene = .{
         .viewport = viewport,
-        .own = own.drawnNear(small, viewport.centre()),
+        .own = .{ .has_dog = .{ .drawn = own.drawnNear(small, viewport.centre()), .is = .the_dog_held, .move = move } },
         .others = &.{other.drawnNear(small, viewport.centre())},
         .others_completeness = .all_in_region,
         .park_size = small.size,
-        .move = move,
-        .own_is = .the_dog_held,
     };
     var into: [1]WireDog = undefined;
     const w = WireScene.of(s, &into);
-    try testing.expectEqual(WireMoveOutcome.moved, w.move);
+    try testing.expectEqual(WireMoveOutcome.moved, w.own.has_dog.move);
     // The dog went west past the seam: its park point is at 960, its copy
     // near the viewport at -40, just west of where it was dragged from.
     try testing.expectEqual(frames.ParkPoint.at(960, 10), move.dogAt(start).point);
-    try testing.expectEqual(@as(frames.Coord, -40), w.own.plane_x);
+    try testing.expectEqual(@as(frames.Coord, -40), w.own.has_dog.plane_x);
     try testing.expectEqual(@as(frames.Coord, -500), w.covers_plane_x);
     try testing.expectEqual(@as(frames.Coord, -60), w.others[0].plane_x);
     try testing.expectEqualStrings("🐩", w.others[0].emoji);
@@ -228,4 +247,11 @@ test "a scene on the wire: plane copies, no owners, a move across the seam" {
     const short = WireScene.of(s, into[0..0]);
     try testing.expectEqual(@as(usize, 0), short.others.len);
     try testing.expectEqual(WireCompleteness.more_not_sent, short.others_complete);
+    // No dog free: the scene comes, its own saying so.
+    s.own = .no_dog_free;
+    const none = WireScene.of(s, &into);
+    try testing.expect(none.own == .no_dog_free);
+    const json = try std.json.Stringify.valueAlloc(testing.allocator, WireAnswer{ .scene = none }, .{});
+    defer testing.allocator.free(json);
+    try testing.expect(std.mem.indexOf(u8, json, "\"own\":{\"no_dog_free\":{}}") != null);
 }

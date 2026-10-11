@@ -37,26 +37,38 @@ pub const margin: u31 = 200;
 pub const Scene = struct {
     /// The viewport asked with; what the scene covers follows from it.
     viewport: frames.Viewport,
-    /// The human's own dog, apart from the others, so no flag marks it: its
-    /// copy nearest the viewport's centre.
-    own: dogs.Drawn,
+    /// The human's own dog, apart from the others, so no flag marks it; or,
+    /// with no dog free for them, none (docs/CLAIMS-V1.md: the page is
+    /// read-only).
+    own: Own,
     /// Every copy of every other dog in `covers()` (a park narrower than the
     /// covered rectangle shows a dog more than once); never the own dog
     /// (population.Near.except).
     others: []const dogs.Drawn,
     others_completeness: population.Completeness,
     park_size: frames.Size,
-    /// What became of this request's move; `own` is where it left the dog.
-    move: outcomes.MoveOutcome,
-    /// Whether `own` is the dog the human held as they asked, or one newly
-    /// theirs (a first claim, or a claim again after theirs was taken): the
-    /// browser centres on a new one, which may be anywhere in the park.
-    own_is: OwnIs,
 
     /// The viewport asked for, grown by `margin`: the others are those in it.
     pub fn covers(self: Scene) park.PlaneRect {
         return coverFor(self.viewport);
     }
+};
+
+/// The asker's own dog, or none.
+pub const Own = union(enum) {
+    has_dog: HasDog,
+    no_dog_free,
+};
+
+pub const HasDog = struct {
+    /// Its copy nearest the viewport's centre.
+    drawn: dogs.Drawn,
+    /// Whether it is the dog the human had as they asked, or one newly given
+    /// them (their first, or one after theirs ended undragged): the browser
+    /// centres on a new one, which may be anywhere in the park.
+    is: OwnIs,
+    /// What became of this request's move; `drawn` is where it left the dog.
+    move: outcomes.MoveOutcome,
 };
 
 pub const OwnIs = enum { the_dog_held, a_dog_newly_theirs };

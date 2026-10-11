@@ -48,19 +48,21 @@ STAY='{"viewport_plane_x":2300,"viewport_plane_y":2300,"viewport_width":400,"vie
 DRAG='{"viewport_plane_x":2300,"viewport_plane_y":2300,"viewport_width":400,"viewport_height":300,"move":{"drag":{"own_dog_dx":25,"own_dog_dy":-15}}}'
 curl -sf -c "$WORK/jar" -H 'content-type: application/json' -d "$STAY" "$URL/scene" > "$WORK/first.json" || fail "the first POST /scene"
 grep -q dogpark_human "$WORK/jar" || fail "the first scene set no cookie"
-# A first visit is shown a dog; the next request, with its cookie, claims it
-# (docs/FIXED-DOGS.md); the one after drags it.
-curl -sf -b "$WORK/jar" -H 'content-type: application/json' -d "$STAY" "$URL/scene" > "$WORK/claim.json" || fail "the claiming POST /scene"
+# A first visit is given a dog, provisionally; the next request, with its
+# cookie, is the same dog; the one after drags it, and holds it for good
+# (docs/CLAIMS-V1.md).
+curl -sf -b "$WORK/jar" -H 'content-type: application/json' -d "$STAY" "$URL/scene" > "$WORK/claim.json" || fail "the second POST /scene"
 curl -sf -b "$WORK/jar" -H 'content-type: application/json' -d "$DRAG" "$URL/scene" > "$WORK/second.json" || fail "the dragging POST /scene"
 
 python3 - "$WORK/first.json" "$WORK/second.json" <<'PY' || fail "the scenes' JSON"
 import json, sys
 first = json.load(open(sys.argv[1]))["scene"]
 second = json.load(open(sys.argv[2]))["scene"]
-assert first["move"] == "stayed", first
-assert second["move"] == "moved", second
-# The same human's dog, the one claimed, moved by the drag.
-assert (second["own"]["plane_x"], second["own"]["plane_y"]) == (first["own"]["plane_x"] + 25, first["own"]["plane_y"] - 15), (first["own"], second["own"])
+mine, moved = first["own"]["has_dog"], second["own"]["has_dog"]
+assert mine["move"] == "stayed" and mine["is"] == "new_dog", mine
+assert moved["move"] == "moved" and moved["is"] == "same_dog", moved
+# The same human's dog, the one given, moved by the drag.
+assert (moved["plane_x"], moved["plane_y"]) == (mine["plane_x"] + 25, mine["plane_y"] - 15), (mine, moved)
 assert second["park_width"] == 5000 and second["park_height"] == 5000
 assert second["others_complete"] == "all"
 PY

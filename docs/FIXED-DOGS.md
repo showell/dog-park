@@ -1,5 +1,7 @@
 # Amendment: the dogs are fixed; a human claims one (Steve, 2026-10-11)
 
+*Amended by docs/CLAIMS-V1.md (QUEUE 168), which wins where they differ: random humans and no `next-human`, provisional and held claims instead of `touched` and the stalest takeover, and no dog when none is free.*
+
 *QUEUE item 164. Where this says otherwise, this wins over the earlier
 briefs.*
 

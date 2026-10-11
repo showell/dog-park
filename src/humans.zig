@@ -24,12 +24,13 @@ pub const HumanId = enum(u128) {
         return @intFromEnum(self);
     }
 
-    /// A new human: 128 bits from the OS's random source, drawn again in the
-    /// one case in 2^128 they are all zero.
-    pub fn fresh(io: Io) HumanId {
+    /// A new human: 128 bits from the OS's random source, with no fallback
+    /// (`io.randomSecure`: no entropy is an error, never a guessable seed),
+    /// drawn again in the one case in 2^128 they are all zero.
+    pub fn fresh(io: Io) Io.RandomSecureError!HumanId {
         while (true) {
             var bytes: [16]u8 = undefined;
-            io.random(&bytes);
+            try io.randomSecure(&bytes);
             const n = std.mem.readInt(u128, &bytes, .little);
             if (n != 0) return @enumFromInt(n);
         }
@@ -88,8 +89,8 @@ test "a name that is not one spelling of one human is no one" {
 test "fresh humans are random and never zero" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
-    const a = HumanId.fresh(threaded.io());
-    const b = HumanId.fresh(threaded.io());
+    const a = try HumanId.fresh(threaded.io());
+    const b = try HumanId.fresh(threaded.io());
     try testing.expect(a != b);
     try testing.expect(a.number() != 0);
 }

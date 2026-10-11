@@ -13,8 +13,8 @@ const source = fs.readFileSync(path.join(__dirname, "..", "src", "park.js"), "ut
 const sandbox = { console, performance: { now: () => 0 } };
 vm.createContext(sandbox);
 // The script's top-level names are its own; hand back the ones checked here.
-const park = vm.runInContext(source + "\n;({ frames, state, wrapped, take, askAfter, askingIsDue });", sandbox);
-const { frames, state, wrapped, take, askAfter, askingIsDue } = park;
+const park = vm.runInContext(source + "\n;({ frames, state, wrapped, take, askAfter, askingIsDue, sprites, pressStarts, panBy, drag });", sandbox);
+const { frames, state, wrapped, take, askAfter, askingIsDue, sprites, pressStarts, panBy, drag } = park;
 
 // Objects made in the sandbox have its prototypes, so they are compared by
 // their JSON, field by field in order.
@@ -62,22 +62,25 @@ check("viewport and plane, both ways", () => {
 
 // ── take: the answer is the truth ───────────────────────────────────────────
 
-function scene(ownX, ownY, extra) {
+// A scene as wire.zig writes it. `own` is the own dog's fields (is, move)
+// beside its place; `null` for no dog free.
+function scene(ownX, ownY, own, extra) {
   return {
     covers_plane_x: 0, covers_plane_y: 0, covers_width: 1200, covers_height: 1000,
     park_width: 5000, park_height: 5000,
-    own: { plane_x: ownX, plane_y: ownY, emoji: "x" },
-    own_is: "same_dog",
-    others: [],
+    own: own === null
+      ? { no_dog_free: {} }
+      : { has_dog: { plane_x: ownX, plane_y: ownY, emoji: "x", is: "same_dog", move: "stayed", ...own } },
+    others: [{ plane_x: 1100, plane_y: 1100, emoji: "o" }],
     others_complete: "all",
-    move: "stayed",
     ...extra,
   };
 }
 
 function reset() {
   state.viewport = { planeX: 1000, planeY: 1000, width: 800, height: 600 };
-  state.scene = scene(1400, 1300, {});
+  state.scene = scene(1400, 1300, {}, {});
+  drag.active = false;
   state.ownPlaneX = 1400;
   state.ownPlaneY = 1300;
   state.unsentOwnDogDx = 0;
@@ -90,7 +93,7 @@ check("take: a kept move puts the dog where the server has it, plus the drag sin
   reset();
   state.unsentOwnDogDx = 7;
   state.unsentOwnDogDy = -3;
-  take({ scene: scene(1430, 1290, { move: "moved" }) }, { planeDx: 0, planeDy: 0 });
+  take({ scene: scene(1430, 1290, { move: "moved" }, {}) }, { planeDx: 0, planeDy: 0 });
   same([state.ownPlaneX, state.ownPlaneY], [1437, 1287]);
   same([state.unsentOwnDogDx, state.unsentOwnDogDy], [7, -3]);
 });
@@ -98,7 +101,7 @@ check("take: a kept move puts the dog where the server has it, plus the drag sin
 check("take: a refusal puts the dog back where the server has it, and drops the drag since", () => {
   reset();
   state.unsentOwnDogDx = 7;
-  take({ scene: scene(1400, 1300, { move: "refused_too_far_at_once" }) }, { planeDx: 0, planeDy: 0 });
+  take({ scene: scene(1400, 1300, { move: "refused_too_far_at_once" }, {}) }, { planeDx: 0, planeDy: 0 });
   same([state.ownPlaneX, state.ownPlaneY], [1400, 1300]);
   assert.strictEqual(state.unsentOwnDogDx, 0);
 });
@@ -107,7 +110,7 @@ check("take: an answer to a request sent before the origin wrapped is shifted by
   reset();
   // The origin wrapped a park west after the request went.
   wrapped.planeDx = -5000;
-  take({ scene: scene(6400, 1300, { move: "moved", covers_plane_x: 5000 }) }, { planeDx: 0, planeDy: 0 });
+  take({ scene: scene(6400, 1300, { move: "moved" }, { covers_plane_x: 5000 }) }, { planeDx: 0, planeDy: 0 });
   assert.strictEqual(state.ownPlaneX, 1400);
   assert.strictEqual(state.scene.covers_plane_x, 0);
 });
@@ -115,10 +118,39 @@ check("take: an answer to a request sent before the origin wrapped is shifted by
 check("take: a dog newly ours centres the viewport on it and drops the drag meant for the other", () => {
   reset();
   state.unsentOwnDogDx = 50;
-  take({ scene: scene(3000, 3000, { own_is: "new_dog" }) }, { planeDx: 0, planeDy: 0 });
+  take({ scene: scene(3000, 3000, { is: "new_dog" }, {}) }, { planeDx: 0, planeDy: 0 });
   same([state.ownPlaneX, state.ownPlaneY], [3000, 3000]);
   same([state.viewport.planeX, state.viewport.planeY], [2600, 2700]);
   assert.strictEqual(state.unsentOwnDogDx, 0);
+});
+
+check("no dog free: read-only, nothing of ours drawn, a press pans, and the drag since is dropped", () => {
+  reset();
+  state.unsentOwnDogDx = 9;
+  take({ scene: scene(0, 0, null, {}) }, { planeDx: 0, planeDy: 0 });
+  assert.strictEqual(state.unsentOwnDogDx, 0);
+  const kinds = sprites().map((s) => s.kind);
+  assert.ok(!kinds.includes("own"), "no ringed dog");
+  assert.ok(kinds.includes("other"), "the others still drawn");
+  assert.strictEqual(pressStarts(400, 300), "pan");
+  // Dragging the background 30 right and 10 down: the park follows the
+  // pointer, the viewport goes the other way.
+  panBy(30, 10);
+  same([state.viewport.planeX, state.viewport.planeY], [970, 990]);
+  // Panned past the park's corner, the origin wraps home, as ever.
+  panBy(1000, 1000);
+  same([state.viewport.planeX, state.viewport.planeY], [4970, 4990]);
+  same([wrapped.planeDx, wrapped.planeDy], [5000, 5000]);
+});
+
+check("a later answer with a dog: centred on it, ringed, and draggable on it", () => {
+  reset();
+  take({ scene: scene(0, 0, null, {}) }, { planeDx: 0, planeDy: 0 });
+  take({ scene: scene(2000, 2500, { is: "new_dog" }, {}) }, { planeDx: 0, planeDy: 0 });
+  same([state.viewport.planeX, state.viewport.planeY], [1600, 2200]);
+  assert.ok(sprites().some((s) => s.kind === "own"));
+  assert.strictEqual(pressStarts(400, 300), "dog");
+  assert.strictEqual(pressStarts(10, 10), "nothing");
 });
 
 // ── the ask loop ────────────────────────────────────────────────────────────

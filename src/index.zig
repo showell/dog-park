@@ -118,7 +118,7 @@ pub const GridPopulation = struct {
                 var slot = self.heads[@intCast(row * self.columns + column)];
                 while (slot != .none) : (slot = self.entries[@intFromEnum(slot)].next) {
                     const d = self.entries[@intFromEnum(slot)].dog;
-                    if (d.id == q.except or q.region.holds(d.at.point) == .outside) continue;
+                    if (q.except.excludes(d.id) or q.region.holds(d.at.point) == .outside) continue;
                     if (count == into.len) return .{ .count = count, .completeness = .more_in_region };
                     into[count] = d;
                     count += 1;
@@ -214,7 +214,7 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, ids: u32, operati
                     .top_left = .at(edgy.coord(random, width, cell) - random.uintLessThan(u31, 3) * width, edgy.coord(random, height, cell)),
                     .size = .{ .width = random.uintLessThan(u31, 3 * p.size.width), .height = random.uintLessThan(u31, p.size.height + 400) },
                 };
-                const q: contract.Near = .{ .region = region, .except = .of(random.uintLessThan(u32, ids)) };
+                const q: contract.Near = .{ .region = region, .except = .{ .dog = .of(random.uintLessThan(u32, ids)) } };
                 const most = random.uintAtMost(usize, capacity);
                 const found_grid = g.near(q, into_grid[0..most]);
                 const found_list = l.near(q, into_list[0..most]);
@@ -236,7 +236,7 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, ids: u32, operati
                         for (got[0..i]) |earlier| try testing.expect(earlier.id != d.id);
                     },
                 }
-                for (got) |d| try testing.expect(d.id != q.except);
+                for (got) |d| try testing.expect(!q.except.excludes(d.id));
             },
         }
     }

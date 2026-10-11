@@ -81,8 +81,7 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
         try webbox.site_secret.create(io, scratch.allocator(), r.auth_dir);
         break :blk .created;
     };
-    const now: dogs.Instant = .of(@intCast(@divFloor(Io.Clock.now(.real, io).nanoseconds, std.time.ns_per_s)));
-    switch (try world.World.open(io, base, scratch.allocator(), r.data_dir, world.the_park, claiming.dog_count, claiming.dogs_seed, now)) {
+    switch (try world.World.open(io, base, scratch.allocator(), r.data_dir, world.the_park, claiming.dog_count, claiming.dogs_seed)) {
         .world => |w| the_world = w,
         .refused => |refused| {
             // **WHAT DOES NOT READ STOPS THE START, NAMED** (fail, never warn).
@@ -142,11 +141,11 @@ fn scene(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
     };
     // A new device becomes a human only once its request reads.
     const who: Who = switch (visitor.visitor) {
-        .known => |h| .{ .human = h, .standing = .returning, .set_cookie = visitor.renewal },
+        .known => |h| .{ .human = h, .set_cookie = visitor.renewal },
         .new_device => try newDevice(io, alloc, now),
     };
     const room: answering.Room = .{ .others = try alloc.alloc(dogs.Drawn, most_others), .found = try alloc.alloc(dogs.Dog, most_others) };
-    const answered = answering.answer(the_world.park, the_world.population(), the_world.all, who.human, who.standing, the_world.holding(who.human), .of(now), request, room);
+    const answered = answering.answer(the_world.park, the_world.population(), the_world.all, who.human, the_world.holding(who.human), .of(now), request, room);
     try the_world.keep(io, alloc, answered.change);
     const out = try std.json.Stringify.valueAlloc(alloc, wire.WireAnswer.of(answered.scene, try alloc.alloc(wire.WireDog, most_others)), .{});
     const json: std.http.Header = .{ .name = "content-type", .value = "application/json" };
@@ -158,10 +157,10 @@ fn scene(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
 
 /// A device new to the park: a human made for it, and the cookie that says so.
 fn newDevice(io: Io, alloc: std.mem.Allocator, now: i64) !Who {
-    const h = the_world.newHuman(io);
+    const h = try the_world.newHuman(io);
     var name: [32]u8 = undefined;
     const issued = (try signed_cookie.issue(device_cookie, io, alloc, auth_dir, h.name(&name), now)) orelse return error.NoSecret;
-    return .{ .human = h, .standing = .first_visit, .set_cookie = .{ .header = issued } };
+    return .{ .human = h, .set_cookie = .{ .header = issued } };
 }
 
 const SetCookie = union(enum) {
@@ -171,7 +170,6 @@ const SetCookie = union(enum) {
 
 const Who = struct {
     human: HumanId,
-    standing: answering.Standing,
     set_cookie: SetCookie,
 };
 
@@ -248,6 +246,15 @@ const Rig = struct {
         return .{ .head = all[0..split], .body = all[split + 4 ..] };
     }
 
+    /// The claim on disk of dog `id`.
+    fn storedClaim(self: *Rig, id: dogs.DogId) !dogs.Claim {
+        const a = self.arena.allocator();
+        var name: [10]u8 = undefined;
+        const path = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &self.tmp.sub_path, "data", "dogs", std.fmt.bufPrint(&name, "{d}", .{id.number()}) catch unreachable });
+        const bytes = try webbox.store.read(self.threaded.io(), a, path, .limited(64));
+        return (@import("stored.zig").readRecord(bytes, world.the_park) orelse return error.NotARecord).dog.claim;
+    }
+
     fn post(self: *Rig, cookie: []const u8, body: []const u8) !Response {
         const a = self.arena.allocator();
         const cookie_line = if (cookie.len == 0) "" else try std.fmt.allocPrint(a, "Cookie: {s}\r\n", .{cookie});
@@ -273,7 +280,7 @@ const stay_body =
     \\{"viewport_plane_x":2300,"viewport_plane_y":2300,"viewport_width":400,"viewport_height":300,"move":{"stay":{}}}
 ;
 
-test "a first visit is shown a dog and keeps nothing; the next, with its cookie, claims it; then it drags" {
+test "a first visit is given a dog provisionally, written nowhere; with its cookie it is the same dog; a drag makes it held, and written" {
     var rig: Rig = undefined;
     try rig.init();
     defer rig.deinit();
@@ -285,34 +292,41 @@ test "a first visit is shown a dog and keeps nothing; the next, with its cookie,
     const cookie = cookieSet(first.head);
     try testing.expect(std.mem.startsWith(u8, cookie, "__Host-dogpark_human="));
     const me = humanOf(cookie);
-    try testing.expectEqual(answering.Holding.holds_none, the_world.holding(me));
-    const shown = (try std.json.parseFromSliceLeaky(std.json.Value, a, first.body, .{})).object.get("scene").?.object.get("own").?.object;
+    const given = the_world.holding(me).holds;
+    try testing.expect(the_world.all[given.number()].claim == .provisional);
+    const shown = (try std.json.parseFromSliceLeaky(std.json.Value, a, first.body, .{})).object.get("scene").?.object.get("own").?.object.get("has_dog").?.object;
+    try testing.expectEqualStrings("new_dog", shown.get("is").?.string);
 
     const second = try rig.post(cookie, stay_body);
     try testing.expect(std.mem.indexOf(u8, second.head, "set-cookie") == null);
-    const claimed = the_world.holding(me).holds;
-    const at = the_world.all[claimed.number()].at.point;
-    // The dog the first visit was shown is the one claimed, nobody having
-    // claimed it between.
+    try testing.expectEqual(given, the_world.holding(me).holds);
+    const at = the_world.all[given.number()].at.point;
     try testing.expectEqual(@as(i64, at.x.number()), shown.get("plane_x").?.integer);
+    try testing.expectEqual(dogs.Claim.unclaimed, try rig.storedClaim(given));
 
     const drag =
         \\{"viewport_plane_x":2300,"viewport_plane_y":2300,"viewport_width":400,"viewport_height":300,"move":{"drag":{"own_dog_dx":30,"own_dog_dy":-20}}}
     ;
     const third = try rig.post(cookie, drag);
-    const scene_ = (try std.json.parseFromSliceLeaky(std.json.Value, a, third.body, .{})).object.get("scene").?.object;
-    try testing.expectEqualStrings("moved", scene_.get("move").?.string);
-    try testing.expectEqual(@as(i64, at.x.number() + 30), scene_.get("own").?.object.get("plane_x").?.integer);
-    try testing.expectEqual(@as(i64, at.y.number() - 20), scene_.get("own").?.object.get("plane_y").?.integer);
-    try testing.expectEqual(at.plus(.{ .dx = 30, .dy = -20 }), @import("frames.zig").homeCopy(the_world.all[claimed.number()].at.point));
+    const own = (try std.json.parseFromSliceLeaky(std.json.Value, a, third.body, .{})).object.get("scene").?.object.get("own").?.object.get("has_dog").?.object;
+    try testing.expectEqualStrings("moved", own.get("move").?.string);
+    try testing.expectEqual(@as(i64, at.x.number() + 30), own.get("plane_x").?.integer);
+    try testing.expectEqual(@as(i64, at.y.number() - 20), own.get("plane_y").?.integer);
+    try testing.expectEqual(at.plus(.{ .dx = 30, .dy = -20 }), @import("frames.zig").homeCopy(the_world.all[given.number()].at.point));
+    try testing.expectEqual(dogs.Claim{ .held = .{ .by = me } }, try rig.storedClaim(given));
 }
 
-test "cookie-less requests churn no claim: a loop of first visits leaves every dog unclaimed" {
+test "cookie-less requests write nothing: each is a new human with a provisional claim in memory only" {
     var rig: Rig = undefined;
     try rig.init();
     defer rig.deinit();
     for (0..20) |_| _ = try rig.post("", stay_body);
-    for (the_world.all) |d| try testing.expectEqual(dogs.Claim.unclaimed, d.claim);
+    var provisional: usize = 0;
+    for (the_world.all) |d| {
+        if (d.claim == .provisional) provisional += 1;
+        try testing.expectEqual(dogs.Claim.unclaimed, try rig.storedClaim(d.id));
+    }
+    try testing.expectEqual(@as(usize, 20), provisional);
 }
 
 test "a forged cookie is a new device, never the human it names" {
@@ -363,8 +377,13 @@ test "a second start finds the secret and the dogs" {
     var rig: Rig = undefined;
     try rig.init();
     defer rig.deinit();
+    const drag =
+        \\{"viewport_plane_x":2300,"viewport_plane_y":2300,"viewport_width":400,"viewport_height":300,"move":{"drag":{"own_dog_dx":5,"own_dog_dy":0}}}
+    ;
     const cookie = cookieSet((try rig.post("", stay_body)).head);
-    _ = try rig.post(cookie, stay_body);
+    _ = try rig.post(cookie, drag);
+    // Another, given a dog and never dragging it: provisional, forgotten.
+    const looker = cookieSet((try rig.post("", stay_body)).head);
     the_world.close(testing.allocator);
     const a = rig.arena.allocator();
     const root = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &rig.tmp.sub_path });
@@ -376,6 +395,7 @@ test "a second start finds the secret and the dogs" {
     try testing.expectEqual(claiming.dog_count, again.dogs);
     try testing.expectEqual(.found, again.made);
     try testing.expect(the_world.holding(humanOf(cookie)) == .holds);
+    try testing.expect(the_world.holding(humanOf(looker)) == .holds_none);
 }
 
 test "a cookie names its human by 32 hex digits, and one of the old counter's numbers names no one (docs/CLAIMS-V1.md)" {
@@ -386,8 +406,8 @@ test "a cookie names its human by 32 hex digits, and one of the old counter's nu
     const first = cookieSet((try rig.post("", stay_body)).head);
     const value = first[std.mem.indexOfScalar(u8, first, '=').? + 1 ..];
     try testing.expectEqual(@as(usize, 32), std.mem.indexOfScalar(u8, value, '.').?);
-    // A cookie the old counter's way, signed with the site's own secret: a
-    // number names no human now, so its device is new.
+    // A cookie the old counter's way, signed now with the site's own secret:
+    // a number names no human, so its device is new, with a cookie of its own.
     const secret_dir = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &rig.tmp.sub_path, "auth" });
     var digits = device_cookie;
     digits.kind.validId = struct {
@@ -395,9 +415,11 @@ test "a cookie names its human by 32 hex digits, and one of the old counter's nu
             return true;
         }
     }.any;
-    const numbered = (try signed_cookie.issue(digits, rig.threaded.io(), a, secret_dir, "1", 1_790_000_000)).?;
-    const sent = numbered[0..std.mem.indexOfScalar(u8, numbered, ';').?];
-    const answered = try rig.post(sent, stay_body);
+    const now: i64 = @intCast(@divFloor(Io.Clock.now(.real, rig.threaded.io()).nanoseconds, std.time.ns_per_s));
+    const numbered = (try signed_cookie.issue(digits, rig.threaded.io(), a, secret_dir, "1", now)).?;
+    const answered = try rig.post(numbered[0..std.mem.indexOfScalar(u8, numbered, ';').?], stay_body);
     try testing.expect(std.mem.startsWith(u8, answered.head, "HTTP/1.1 200"));
-    try testing.expect(cookieSet(answered.head).len > 0);
+    const fresh = cookieSet(answered.head);
+    try testing.expect(std.mem.startsWith(u8, fresh, "__Host-dogpark_human="));
+    try testing.expect(humanOf(fresh) != humanOf(first));
 }

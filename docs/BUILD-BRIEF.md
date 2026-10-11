@@ -62,7 +62,8 @@ implements `population.Population`.
 webbox (`../angry-gopher/zig-server`, module `webbox`; the dependency and a
 test that reaches it are on `main`).
 - **Ids:** a new human's id comes from `webbox.counter` at
-  `data/next-human`.
+  `data/next-human`. *Superseded by docs/CLAIMS-V1.md: 128 random bits, no
+  counter.*
 - **Records:** each dog is one file, `data/dogs/<human id>`, holding its
   `StoredDog` bytes, written with `webbox.store.replace`.
 - **When it's written:** on every accepted move, for now. That's fine on

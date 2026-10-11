@@ -162,11 +162,17 @@ function shiftPlane(planeDx, planeDy) {
   if (state.scene) shiftScene(state.scene, planeDx, planeDy);
 }
 
+// The scene's own dog (wire.zig's WireOwnDog), or null when no dog was free
+// for us: the page is read-only then (docs/CLAIMS-V1.md).
+function ownDog(scene) {
+  return scene && scene.own.has_dog ? scene.own.has_dog : null;
+}
+
 function shiftScene(scene, planeDx, planeDy) {
   scene.covers_plane_x += planeDx;
   scene.covers_plane_y += planeDy;
-  scene.own.plane_x += planeDx;
-  scene.own.plane_y += planeDy;
+  const own = ownDog(scene);
+  if (own) { own.plane_x += planeDx; own.plane_y += planeDy; }
   for (const d of scene.others) { d.plane_x += planeDx; d.plane_y += planeDy; }
 }
 
@@ -188,21 +194,33 @@ function take(answer, wrappedAtSend) {
   shiftScene(scene, wrapped.planeDx - wrappedAtSend.planeDx, wrapped.planeDy - wrappedAtSend.planeDy);
   const first = state.scene === null;
   state.scene = scene;
-  if (first || scene.own_is === "new_dog") {
-    // The first scene, or a dog newly ours (claimed, perhaps not the one
-    // shown, or claimed again after ours was taken): centre the viewport on
-    // it, drop any drag meant for another, and ask again.
+  const own = ownDog(scene);
+  if (!own) {
+    // **NO DOG FREE FOR US: READ-ONLY.** Nothing ringed, nothing to drag (a
+    // drag of the background pans instead), and the ask loop keeps its idle
+    // pace; a later answer with a dog centres on it.
     state.unsentOwnDogDx = 0;
     state.unsentOwnDogDy = 0;
-    state.ownPlaneX = scene.own.plane_x;
-    state.ownPlaneY = scene.own.plane_y;
+    drag.active = false;
+    return;
+  }
+  if (first || own.is === "new_dog") {
+    // The first scene, or a dog newly ours (perhaps not the one shown, or
+    // given again after ours ended undragged, or the first after a
+    // read-only spell): centre the viewport on it, drop any drag meant for
+    // another, and ask again.
+    state.unsentOwnDogDx = 0;
+    state.unsentOwnDogDy = 0;
+    drag.active = false;
+    state.ownPlaneX = own.plane_x;
+    state.ownPlaneY = own.plane_y;
     state.viewport.planeX = state.ownPlaneX - Math.floor(state.viewport.width / 2);
     state.viewport.planeY = state.ownPlaneY - Math.floor(state.viewport.height / 2);
     wrapViewportHome();
     want();
     return;
   }
-  switch (scene.move) {
+  switch (own.move) {
     case "stayed":
     case "moved":
       break;
@@ -212,8 +230,8 @@ function take(answer, wrappedAtSend) {
       state.unsentOwnDogDy = 0;
       break;
   }
-  state.ownPlaneX = scene.own.plane_x + state.unsentOwnDogDx;
-  state.ownPlaneY = scene.own.plane_y + state.unsentOwnDogDy;
+  state.ownPlaneX = own.plane_x + state.unsentOwnDogDx;
+  state.ownPlaneY = own.plane_y + state.unsentOwnDogDy;
 }
 
 // Whole park units only cross the wire: a pointer's fraction stays behind,
@@ -242,11 +260,12 @@ async function ask() {
     // A failed request snaps the dog back to the last answer, dropping the
     // drag since; the next answer says whether the server applied it.
     console.warn(e);
-    if (state.scene) {
+    const own = ownDog(state.scene);
+    if (own) {
       state.unsentOwnDogDx = 0;
       state.unsentOwnDogDy = 0;
-      state.ownPlaneX = state.scene.own.plane_x;
-      state.ownPlaneY = state.scene.own.plane_y;
+      state.ownPlaneX = own.plane_x;
+      state.ownPlaneY = own.plane_y;
     }
     state.ask = askAfter(state.ask, "failed", performance.now());
     return;
@@ -258,7 +277,26 @@ async function ask() {
 // ── drag ────────────────────────────────────────────────────────────────────
 
 const dog_px = 40;
-const drag = { active: false, lastViewportX: 0, lastViewportY: 0, pointerViewportX: 0, pointerViewportY: 0 };
+// A drag is of the own dog, or, read-only, of the background (`kind`).
+const drag = { active: false, kind: "dog", lastViewportX: 0, lastViewportY: 0, pointerViewportX: 0, pointerViewportY: 0 };
+
+// What a press at a viewport point starts: a drag of the own dog (on it), a
+// pan (read-only, anywhere), or nothing.
+function pressStarts(viewportX, viewportY) {
+  if (!state.scene) return "nothing";
+  if (!ownDog(state.scene)) return "pan";
+  const own = frames.viewportFromPlane(state.viewport, state.ownPlaneX, state.ownPlaneY);
+  if (Math.abs(viewportX - own.viewportX) > dog_px / 2 || Math.abs(viewportY - own.viewportY) > dog_px / 2) return "nothing";
+  return "dog";
+}
+
+// The background dragged by a pointer's displacement: the park follows the
+// pointer, so the viewport moves the other way, and wraps home as ever.
+function panBy(viewportDx, viewportDy) {
+  state.viewport.planeX -= viewportDx;
+  state.viewport.planeY -= viewportDy;
+  wrapViewportHome();
+}
 
 function moveOwnDog(ownDogDx, ownDogDy) {
   state.ownPlaneX += ownDogDx;
@@ -268,10 +306,10 @@ function moveOwnDog(ownDogDx, ownDogDy) {
 }
 
 function startDrag(e) {
-  if (!state.scene) return;
-  const own = frames.viewportFromPlane(state.viewport, state.ownPlaneX, state.ownPlaneY);
-  if (Math.abs(e.offsetX - own.viewportX) > dog_px / 2 || Math.abs(e.offsetY - own.viewportY) > dog_px / 2) return;
+  const starts = pressStarts(e.offsetX, e.offsetY);
+  if (starts === "nothing") return;
   drag.active = true;
+  drag.kind = starts;
   drag.lastViewportX = drag.pointerViewportX = e.offsetX;
   drag.lastViewportY = drag.pointerViewportY = e.offsetY;
   e.target.setPointerCapture(e.pointerId);
@@ -279,7 +317,8 @@ function startDrag(e) {
 
 function continueDrag(e) {
   if (!drag.active) return;
-  moveOwnDog(e.offsetX - drag.lastViewportX, e.offsetY - drag.lastViewportY);
+  if (drag.kind === "pan") panBy(e.offsetX - drag.lastViewportX, e.offsetY - drag.lastViewportY);
+  else moveOwnDog(e.offsetX - drag.lastViewportX, e.offsetY - drag.lastViewportY);
   drag.lastViewportX = drag.pointerViewportX = e.offsetX;
   drag.lastViewportY = drag.pointerViewportY = e.offsetY;
 }
@@ -297,7 +336,7 @@ const ask_within_px = 60;
 // While dragging near a screen edge, the viewport scrolls that way, and the
 // dog with it (it stays under the pointer). There is no edge to stop at.
 function autoScroll() {
-  if (!drag.active) return;
+  if (!drag.active || drag.kind !== "dog") return;
   const v = state.viewport;
   let planeDx = 0;
   let planeDy = 0;
@@ -379,13 +418,15 @@ function sprites() {
     const at = frames.viewportFromPlane(v, d.plane_x, d.plane_y);
     out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: d.emoji, kind: "other" });
   }
+  const own = ownDog(s);
+  if (!own) return out; // read-only: no dog of ours to draw
   const firstPlaneX = frames.nearestCopy(s.park_width, state.ownPlaneX, v.planeX) - s.park_width;
   const firstPlaneY = frames.nearestCopy(s.park_height, state.ownPlaneY, v.planeY) - s.park_height;
   for (let planeX = firstPlaneX; planeX < v.planeX + v.width + dog_px; planeX += s.park_width) {
     for (let planeY = firstPlaneY; planeY < v.planeY + v.height + dog_px; planeY += s.park_height) {
       const at = frames.viewportFromPlane(v, planeX, planeY);
       if (at.viewportX < -dog_px || at.viewportY < -dog_px) continue;
-      out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: s.own.emoji, kind: "own" });
+      out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: own.emoji, kind: "own" });
     }
   }
   return out;

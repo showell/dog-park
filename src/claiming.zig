@@ -1,11 +1,12 @@
 //! Claiming (docs/FIXED-DOGS.md): the park's dogs, made once, and which of
 //! them a newcomer claims. Pure: the world keeps what it decides.
 //!
-//! **A NEWCOMER CLAIMS** the unclaimed dog nearest the park's centre (the
-//! wrapped distance, ties to the lower id), so the first humans see each
-//! other; or, with every dog claimed, the one whose claim was touched
-//! longest ago (ties to the lower id), which changes hands. With at least
-//! one dog a claim always succeeds: there is no "park full".
+//! **A HUMAN WITH NO DOG IS GIVEN** the free dog nearest the park's centre
+//! (the wrapped distance, ties to the lower id), so the first humans see each
+//! other. A dog is free when its claim, as it stands now, is none: never
+//! claimed, or claimed provisionally and not dragged in time
+//! (docs/CLAIMS-V1.md). **WHEN NO DOG IS FREE, NONE IS GIVEN**: no claim is
+//! ever taken from anyone.
 
 const std = @import("std");
 const frames = @import("frames.zig");
@@ -61,35 +62,40 @@ pub fn makeDogs(allocator: std.mem.Allocator, p: park.Park, count: u32, seed: u6
     return .{ .made = made };
 }
 
-/// Which dog a newcomer claims.
-pub const Claiming = union(enum) {
-    unclaimed: DogId,
-    taken_over: TakenOver,
+/// What a human with no dog is given: a free dog, and who its claim named
+/// before (a provisional claim that ended), or no dog at all.
+pub const Given = union(enum) {
+    dog: Free,
+    no_dog_free,
 };
 
-/// A dog that changes hands: it keeps where it stands.
-pub const TakenOver = struct {
+pub const Free = struct {
     dog: DogId,
-    from: HumanId,
+    /// Whose provisional claim on it ended unused, if anyone's: the world
+    /// forgets they held it.
+    from: Previously,
 };
 
-/// The claim for a newcomer, from every dog of the park (`all[i]` is dog
-/// `i`, and there is at least one).
-pub fn claimFor(p: park.Park, all: []const dogs.Dog) Claiming {
-    std.debug.assert(all.len > 0);
+pub const Previously = union(enum) {
+    nobody,
+    human: HumanId,
+};
+
+/// The dog for a human with none, at `now`, from every dog of the park
+/// (`all[i]` is dog `i`).
+pub fn claimFor(p: park.Park, all: []const dogs.Dog, now: dogs.Instant) Given {
     const centre: frames.ParkPoint = .at(p.size.width / 2, p.size.height / 2);
     var nearest: Best(u64) = .none_yet;
-    var stalest: Best(i64) = .none_yet;
-    for (all) |d| switch (d.claim) {
+    for (all) |d| switch (d.claim.at(now)) {
         .unclaimed => nearest.offer(wrappedDistanceSquared(p, d.at.point, centre), d.id),
-        .claimed => |c| stalest.offer(c.touched.seconds(), d.id),
+        .provisional, .held => {},
     };
     return switch (nearest) {
-        .some => |n| .{ .unclaimed = n.id },
-        .none_yet => switch (stalest) {
-            .some => |s| .{ .taken_over = .{ .dog = s.id, .from = all[s.id.number()].claim.claimed.by } },
-            .none_yet => unreachable, // every dog is claimed or not
-        },
+        .some => |n| .{ .dog = .{
+            .dog = n.id,
+            .from = if (all[n.id.number()].claim.holder()) |h| .{ .human = h } else .nobody,
+        } },
+        .none_yet => .no_dog_free,
     };
 }
 
@@ -133,32 +139,44 @@ fn dog(id: u32, x: frames.Coord, y: frames.Coord, claim: dogs.Claim) dogs.Dog {
     return .{ .id = .of(id), .at = small.wrap(.at(x, y)), .breed = .dog, .claim = claim };
 }
 
-fn by(human: u64, touched: i64) dogs.Claim {
-    return .{ .claimed = .{ .by = .of(human), .touched = .of(touched) } };
+const noon: dogs.Instant = .of(1_790_000_000);
+
+fn held(human: u128) dogs.Claim {
+    return .{ .held = .{ .by = .of(human) } };
+}
+
+fn provisional(human: u128, made: dogs.Instant) dogs.Claim {
+    return .{ .provisional = .madeAt(.of(human), made) };
 }
 
 test "a newcomer claims the unclaimed dog nearest the centre" {
     const all = [_]dogs.Dog{
-        dog(0, 500, 500, by(1, 100)),
+        dog(0, 500, 500, held(1)),
         dog(1, 650, 500, .unclaimed),
         dog(2, 520, 540, .unclaimed),
         dog(3, 900, 900, .unclaimed),
     };
-    try testing.expectEqual(Claiming{ .unclaimed = .of(2) }, claimFor(small, &all));
+    try testing.expectEqual(Given{ .dog = .{ .dog = .of(2), .from = .nobody } }, claimFor(small, &all, noon));
 }
 
 test "nearness wraps: a dog across the seam from the centre's far side is near" {
     // The centre is (500, 500); a dog at x 999 is 499 away, and one at x 1
     // is 499 the other way: a tie, to the lower id.
     const all = [_]dogs.Dog{ dog(0, 999, 500, .unclaimed), dog(1, 1, 500, .unclaimed), dog(2, 0, 0, .unclaimed) };
-    try testing.expectEqual(Claiming{ .unclaimed = .of(0) }, claimFor(small, &all));
+    try testing.expectEqual(Given{ .dog = .{ .dog = .of(0), .from = .nobody } }, claimFor(small, &all, noon));
     try testing.expectEqual(@as(u64, 499 * 499), wrappedDistanceSquared(small, .at(1, 500), .at(500, 500)));
     try testing.expectEqual(@as(u64, 2 * 2), wrappedDistanceSquared(small, .at(999, 0), .at(1, 0)));
 }
 
-test "with every dog claimed, the stalest claim changes hands; a tie goes to the lower id" {
-    const all = [_]dogs.Dog{ dog(0, 500, 500, by(1, 300)), dog(1, 100, 100, by(2, 200)), dog(2, 0, 0, by(3, 200)) };
-    try testing.expectEqual(Claiming{ .taken_over = .{ .dog = .of(1), .from = .of(2) } }, claimFor(small, &all));
+test "with every dog held or provisional, no dog is given, and no claim is taken" {
+    const all = [_]dogs.Dog{ dog(0, 500, 500, held(1)), dog(1, 100, 100, provisional(2, noon)), dog(2, 0, 0, held(3)) };
+    try testing.expectEqual(Given.no_dog_free, claimFor(small, &all, noon.after(119)));
+}
+
+test "a provisional claim not dragged in time frees its dog, which is given again, saying whose it was" {
+    const all = [_]dogs.Dog{ dog(0, 500, 500, provisional(2, noon)), dog(1, 100, 100, held(3)) };
+    try testing.expectEqual(Given.no_dog_free, claimFor(small, &all, noon.after(119)));
+    try testing.expectEqual(Given{ .dog = .{ .dog = .of(0), .from = .{ .human = .of(2) } } }, claimFor(small, &all, noon.after(120)));
 }
 
 test "the dogs are made the same from the same seed, each on its own spot, unclaimed" {

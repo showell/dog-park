@@ -1,7 +1,7 @@
 //! Dogs. **THE DOGS ARE FIXED** (docs/FIXED-DOGS.md): a park has a number
 //! of them, made once with its data and never made or destroyed after, each
-//! with its own id. A human does not bring a dog: they claim one, and a dog
-//! changes hands when every dog is claimed and its claim is the stalest.
+//! with its own id. A human does not bring a dog: they are given one, which
+//! is theirs once they drag it (docs/CLAIMS-V1.md).
 
 const std = @import("std");
 const frames = @import("frames.zig");
@@ -41,9 +41,8 @@ pub const DogId = enum(u32) {
     }
 };
 
-/// A moment, in the wall clock's Unix seconds: when a claim was last
-/// touched. Not a duration, and not the monotonic clock's: a claim's
-/// staleness is compared across restarts.
+/// A moment, in the wall clock's Unix seconds: when a provisional claim
+/// ends. Not a duration.
 pub const Instant = enum(i64) {
     _,
 
@@ -54,18 +53,55 @@ pub const Instant = enum(i64) {
     pub fn seconds(self: Instant) i64 {
         return @intFromEnum(self);
     }
+
+    pub fn after(self: Instant, seconds_later: i64) Instant {
+        return .of(self.seconds() +| seconds_later);
+    }
 };
 
-/// Who holds a dog: nobody, or a human, as of when they last asked for a
-/// scene (a move or a stay: a human who only looks still holds their dog).
+/// **HOW LONG A NEW HUMAN HAS TO DRAG THEIR DOG** (docs/CLAIMS-V1.md): a
+/// provisional claim ends this long after it was made, if the dog has not
+/// been dragged.
+pub const provisional_seconds: i64 = 120;
+
+/// Who holds a dog: nobody; a new human, until they drag it or until it
+/// ends (memory only: a restart forgets it); or a human for good.
 pub const Claim = union(enum) {
     unclaimed,
-    claimed: Claimed,
+    provisional: Provisional,
+    held: Held,
+
+    /// **THE CLAIM AS IT STANDS AT `now`**: a provisional claim at or past
+    /// its end is no claim. The one place expiry is decided.
+    pub fn at(self: Claim, now: Instant) Claim {
+        return switch (self) {
+            .provisional => |pc| if (now.seconds() >= pc.until.seconds()) .unclaimed else self,
+            .unclaimed, .held => self,
+        };
+    }
+
+    /// Who the claim names, ended or not.
+    pub fn holder(self: Claim) ?HumanId {
+        return switch (self) {
+            .unclaimed => null,
+            .provisional => |pc| pc.by,
+            .held => |h| h.by,
+        };
+    }
 };
 
-pub const Claimed = struct {
+pub const Provisional = struct {
     by: HumanId,
-    touched: Instant,
+    until: Instant,
+
+    /// A claim made at `now`, ending `provisional_seconds` after.
+    pub fn madeAt(by: HumanId, now: Instant) Provisional {
+        return .{ .by = by, .until = now.after(provisional_seconds) };
+    }
+};
+
+pub const Held = struct {
+    by: HumanId,
 };
 
 /// A dog where it stands: its id, its place in the park, its look, and
@@ -93,6 +129,20 @@ pub const Drawn = struct {
         return .{ .dog_at = self.at };
     }
 };
+
+test "a provisional claim stands at 119 s and is gone at 120 s; a held claim never ends" {
+    const made: Instant = .of(1_790_000_000);
+    const pc: Claim = .{ .provisional = .madeAt(.of(7), made) };
+    try std.testing.expectEqual(pc, pc.at(made.after(119)));
+    try std.testing.expectEqual(Claim.unclaimed, pc.at(made.after(120)));
+    try std.testing.expectEqual(Claim.unclaimed, pc.at(made.after(1_000_000)));
+    const held: Claim = .{ .held = .{ .by = .of(7) } };
+    try std.testing.expectEqual(held, held.at(made.after(std.math.maxInt(i64))));
+    try std.testing.expectEqual(Claim.unclaimed, (Claim{ .unclaimed = {} }).at(made));
+    // An end past i64's largest second saturates, and never wraps to the past.
+    const far: Claim = .{ .provisional = .madeAt(.of(7), .of(std.math.maxInt(i64) - 5)) };
+    try std.testing.expectEqual(far, far.at(.of(std.math.maxInt(i64) - 1)));
+}
 
 test "every breed has an emoji" {
     inline for (@typeInfo(Breed).@"enum".fields) |f| {

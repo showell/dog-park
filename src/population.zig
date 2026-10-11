@@ -12,7 +12,21 @@ const DogId = dogs.DogId;
 /// dog comes apart (scene.Scene.own), so it is never among the others.
 pub const Near = struct {
     region: park.ParkRect,
-    except: DogId,
+    except: Except,
+};
+
+/// The dog a query leaves out: the asker's own, or none (an asker with no
+/// dog sees every dog).
+pub const Except = union(enum) {
+    nothing,
+    dog: DogId,
+
+    pub fn excludes(self: Except, id: DogId) bool {
+        return switch (self) {
+            .nothing => false,
+            .dog => |own| own == id,
+        };
+    }
 };
 
 /// What `near` answers: how many dogs it wrote into the caller's slice (the
@@ -91,7 +105,7 @@ pub fn ListPopulation(comptime capacity: usize) type {
             const self = of(ptr);
             var count: u32 = 0;
             for (self.held[0..self.len]) |d| {
-                if (d.id == q.except or q.region.holds(d.at.point) == .outside) continue;
+                if (q.except.excludes(d.id) or q.region.holds(d.at.point) == .outside) continue;
                 if (count == into.len) return .{ .count = count, .completeness = .more_in_region };
                 into[count] = d;
                 count += 1;
@@ -147,11 +161,11 @@ test "near leaves out the asker's dog, and says when its slice was too short" {
     _ = pop.put(dogAt(3, 30, 30));
     const everywhere: park.ParkRect = .{ .top_left = .at(0, 0), .size = .{ .width = 100, .height = 100 } };
     var into: [3]dogs.Dog = undefined;
-    const all = pop.near(.{ .region = everywhere, .except = .of(1) }, &into);
+    const all = pop.near(.{ .region = everywhere, .except = .{ .dog = .of(1) } }, &into);
     try testing.expectEqual(Completeness.all_in_region, all.completeness);
     try testing.expectEqual(@as(usize, 2), all.dogsIn(&into).len);
     for (all.dogsIn(&into)) |d| try testing.expect(d.id != DogId.of(1));
-    const cut = pop.near(.{ .region = everywhere, .except = .of(1) }, into[0..1]);
+    const cut = pop.near(.{ .region = everywhere, .except = .{ .dog = .of(1) } }, into[0..1]);
     try testing.expectEqual(Completeness.more_in_region, cut.completeness);
     try testing.expectEqual(@as(usize, 1), cut.dogsIn(&into).len);
 }
