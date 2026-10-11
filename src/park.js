@@ -324,7 +324,14 @@ function nearCoveredEdge() {
 
 // ── the blitter ─────────────────────────────────────────────────────────────
 // Owns no logic: given what to draw at viewport points, it clears the canvas
-// and draws each emoji, the own dog ringed, a faint one pale.
+// and draws each emoji in its kind's style.
+
+// Each kind of sprite's look, chosen here and nowhere else.
+const sprite_styles = {
+  own: { colour: "#000", ring: "#d33" },
+  other: { colour: "#000", ring: "none" },
+  lattice_spot: { colour: "#ccc", ring: "none" },
+};
 
 function blit(canvas, sprites) {
   const ratio = window.devicePixelRatio || 1;
@@ -335,14 +342,15 @@ function blit(canvas, sprites) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const s of sprites) {
-    if (s.own) {
+    const style = sprite_styles[s.kind];
+    if (style.ring !== "none") {
       ctx.beginPath();
       ctx.arc(s.viewportX, s.viewportY, dog_px * 0.7, 0, 2 * Math.PI);
       ctx.lineWidth = 3;
-      ctx.strokeStyle = "#d33";
+      ctx.strokeStyle = style.ring;
       ctx.stroke();
     }
-    ctx.fillStyle = s.faint ? "#ccc" : "#000";
+    ctx.fillStyle = style.colour;
     ctx.fillText(s.emoji, s.viewportX, s.viewportY);
   }
 }
@@ -364,12 +372,12 @@ function sprites() {
   for (let planeX = firstSpotPlaneX; planeX < v.planeX + v.width + half; planeX += lattice_px) {
     for (let planeY = firstSpotPlaneY; planeY < v.planeY + v.height + half; planeY += lattice_px) {
       const at = frames.viewportFromPlane(v, planeX, planeY);
-      out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: "\u00b7", own: false, faint: true });
+      out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: "\u00b7", kind: "lattice_spot" });
     }
   }
   for (const d of s.others) {
     const at = frames.viewportFromPlane(v, d.plane_x, d.plane_y);
-    out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: d.emoji, own: false, faint: false });
+    out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: d.emoji, kind: "other" });
   }
   const firstPlaneX = frames.nearestCopy(s.park_width, state.ownPlaneX, v.planeX) - s.park_width;
   const firstPlaneY = frames.nearestCopy(s.park_height, state.ownPlaneY, v.planeY) - s.park_height;
@@ -377,7 +385,7 @@ function sprites() {
     for (let planeY = firstPlaneY; planeY < v.planeY + v.height + dog_px; planeY += s.park_height) {
       const at = frames.viewportFromPlane(v, planeX, planeY);
       if (at.viewportX < -dog_px || at.viewportY < -dog_px) continue;
-      out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: s.own.emoji, own: true, faint: false });
+      out.push({ viewportX: at.viewportX, viewportY: at.viewportY, emoji: s.own.emoji, kind: "own" });
     }
   }
   return out;
