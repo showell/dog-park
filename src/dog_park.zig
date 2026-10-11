@@ -17,6 +17,7 @@ pub const answering = @import("answering.zig");
 pub const app = @import("app.zig");
 /// The played Dog Park's server (solo/), built up with Steve.
 pub const play_dogs = @import("play/dogs.zig");
+pub const play_humans = @import("play/humans.zig");
 pub const play_app = @import("play/app.zig");
 
 test {

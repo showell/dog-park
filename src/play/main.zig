@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .default_port = 9103,
         .default_trusted_proxy = "127.0.0.1",
         .default_auth_dir = "~/DogParkAuth",
-        .routes_hint = "(/, /park.js, GET /dogs, POST /leash, POST /move)",
+        .routes_hint = "(/, /park.js, GET /dogs, GET /me, POST /leash, /release, /move, /viewport)",
         .free_space = unread,
     }, report);
 }
@@ -37,5 +37,9 @@ fn report(started: *const site.Started) void {
     switch (r.dogs) {
         .loaded => std.debug.print("dog-park-play: the dogs loaded from {s}\n", .{r.dogs_path}),
         .laid_out => std.debug.print("dog-park-play: no dogs were kept, so they were laid out afresh in {s}\n", .{r.dogs_path}),
+    }
+    switch (r.secret) {
+        .found => {},
+        .created => std.debug.print("dog-park-play: no signing secret was found, so one was created\n", .{}),
     }
 }

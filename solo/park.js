@@ -3,11 +3,15 @@
 // Any dog you see can be picked up. Pressing a dog leashes it (the server
 // is told, and acks); dragging it sends where it is to the server, never
 // more than one position waiting for its ack; the server keeps each one.
+// The leash is let go when you press another dog, or 5 s after you let go
+// of the dog (the page says so to the server). The server keeps where your
+// viewport is, and your leash, so a reload shows you the same place, and a
+// dog still on your leash still ringed.
 // Holding a dog near any edge of the screen scrolls the viewport that way,
 // the dog going with it at the same speed. Dragging anywhere else pans the
 // park, like a tablecloth under the dogs. Each dog shows its park point.
 //
-// The dev console says what the server acks: "leashed", and each move.
+// The dev console says what the server acks: each leash, release and move.
 //
 // TWO FRAMES, both in CSS pixels: a PARK point (parkX, parkY) is where a
 // dog stands in the world; a VIEWPORT point (viewportX, viewportY) is
@@ -100,12 +104,50 @@ async function fetchDogs() {
   return (await response.json()).dogs.map((d) => ({ id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y }));
 }
 
+async function fetchMe() {
+  const response = await fetch("/me");
+  if (!response.ok) throw new Error(`/me: ${response.status}`);
+  return response.json();
+}
+
+// ── the leash ───────────────────────────────────────────────────────────────
+
+// How long a dog stays on your leash after you let go of it.
+const leash_kept_ms = 5000;
+
+// The dog on your leash: none, or a dog held in your hand, or a dog let go
+// of and kept on the leash until a timer lets it go.
+let leashed = { kind: "none" };
+
 // A leash is asked for and the dog moved at once (optimistic); the ack is
 // only said, for now.
-function leash(dog) {
+function leashTo(dog) {
+  if (leashed.kind !== "none" && leashed.dog !== dog) releaseLeash();
+  if (leashed.kind === "kept") clearTimeout(leashed.timer);
+  const already = leashed.kind !== "none" && leashed.dog === dog;
+  leashed = { kind: "in_hand", dog };
+  if (already) return;
   post("/leash", { dog: dog.id }).then(
-    (ack) => console.log("leashed", ack.leashed),
+    (ack) => console.log("leashed", ack),
     (e) => console.error("leash failed:", e.message),
+  );
+}
+
+// Let go of the dog in your hand: it stays on the leash `leash_kept_ms`.
+function keepOnLeash() {
+  if (leashed.kind !== "in_hand") return;
+  const dog = leashed.dog;
+  leashed = { kind: "kept", dog, timer: setTimeout(releaseLeash, leash_kept_ms) };
+}
+
+function releaseLeash() {
+  if (leashed.kind === "none") return;
+  if (leashed.kind === "kept") clearTimeout(leashed.timer);
+  const dog = leashed.dog;
+  leashed = { kind: "none" };
+  post("/release", { dog: dog.id }).then(
+    (ack) => console.log("released", ack),
+    (e) => console.error("release failed:", e.message),
   );
 }
 
@@ -133,10 +175,29 @@ function sendMove(dog) {
   });
 }
 
+// The viewport to the server, the same way: at most one waiting, the latest
+// sent when it is acked.
+const viewportSends = { waiting: false, due: false };
+
+function sendViewport(viewport) {
+  if (viewportSends.waiting) { viewportSends.due = true; return; }
+  viewportSends.waiting = true;
+  post("/viewport", { park_x: Math.round(viewport.parkX), park_y: Math.round(viewport.parkY) }).then(
+    () => {},
+    (e) => console.error("viewport failed:", e.message),
+  ).finally(() => {
+    viewportSends.waiting = false;
+    if (viewportSends.due) {
+      viewportSends.due = false;
+      sendViewport(viewport);
+    }
+  });
+}
+
 // ── the blitter: owns no logic ──────────────────────────────────────────────
 
-// Draws each sprite at its viewport point, its label under it; a held dog
-// ringed.
+// Draws each sprite at its viewport point, its label under it; a leashed
+// dog ringed.
 function blit(canvas, width, height, sprites) {
   const ratio = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d");
@@ -145,7 +206,7 @@ function blit(canvas, width, height, sprites) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const s of sprites) {
-    if (s.kind === "held") {
+    if (s.kind === "leashed") {
       ctx.beginPath();
       ctx.arc(s.viewportX, s.viewportY, dog_px * 0.7, 0, 2 * Math.PI);
       ctx.lineWidth = 3;
@@ -165,6 +226,7 @@ function blit(canvas, width, height, sprites) {
 
 async function start() {
   const canvas = document.getElementById("park");
+  const me = await fetchMe();
   const dogs = await fetchDogs();
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
   // What the human's hand is doing: holding a dog, panning the park (from
@@ -182,8 +244,20 @@ async function start() {
     canvas.height = Math.floor(viewport.height * ratio);
   }
   fit();
-  viewport.parkX = Math.round(first_screen.width / 2 - viewport.width / 2);
-  viewport.parkY = Math.round(first_screen.height / 2 - viewport.height / 2);
+  if (me.viewport.at) {
+    viewport.parkX = me.viewport.at.park_x;
+    viewport.parkY = me.viewport.at.park_y;
+  } else {
+    viewport.parkX = Math.round(first_screen.width / 2 - viewport.width / 2);
+    viewport.parkY = Math.round(first_screen.height / 2 - viewport.height / 2);
+    sendViewport(viewport);
+  }
+  // A dog still on your leash from before the reload: kept on it the usual
+  // time from now, then let go.
+  if (me.leash.dog !== undefined) {
+    const dog = dogs.find((d) => d.id === me.leash.dog);
+    leashed = { kind: "kept", dog, timer: setTimeout(releaseLeash, leash_kept_ms) };
+  }
   window.addEventListener("resize", fit);
 
   // The held dog under the pointer, as far as the screen allows.
@@ -197,7 +271,7 @@ async function start() {
     const g = grabbed(viewport, dogs, e.offsetX, e.offsetY);
     if (g.kind === "holding") {
       hold = g;
-      leash(g.dog);
+      leashTo(g.dog);
     } else {
       hold = { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY };
     }
@@ -210,6 +284,7 @@ async function start() {
       // The park moves with the pointer, so the viewport moves against it.
       viewport.parkX -= e.offsetX - hold.lastViewportX;
       viewport.parkY -= e.offsetY - hold.lastViewportY;
+      sendViewport(viewport);
       hold.lastViewportX = e.offsetX;
       hold.lastViewportY = e.offsetY;
       return;
@@ -219,7 +294,10 @@ async function start() {
     pointer.viewportY = e.offsetY;
     follow();
   });
-  const letGo = () => { hold = { kind: "resting" }; };
+  const letGo = () => {
+    if (hold.kind === "holding") keepOnLeash();
+    hold = { kind: "resting" };
+  };
   canvas.addEventListener("pointerup", letGo);
   canvas.addEventListener("pointercancel", letGo);
 
@@ -237,11 +315,12 @@ async function start() {
         dog.parkX += eastward;
         dog.parkY += southward;
         sendMove(dog);
+        sendViewport(viewport);
       }
     }
-    const held = hold.kind === "holding" ? hold.dog : "none";
+    const onLeash = leashed.kind === "none" ? "none" : leashed.dog;
     const sprites = dogs.map((d) => ({
-      kind: d === held ? "held" : "free",
+      kind: d === onLeash ? "leashed" : "free",
       emoji: d.emoji,
       label: `(${Math.round(d.parkX)}, ${Math.round(d.parkY)})`,
       ...viewportFromPark(viewport, d.parkX, d.parkY),
