@@ -1,7 +1,7 @@
 #!/bin/bash
 # The smoke check: Dog Park built, started on a side port with a temporary
-# config, asked for its page and two scenes (the second with the cookie the
-# drag with the cookie it set), its JSON checked, and stopped. Seconds.
+# config, asked for its page and three scenes (a first visit, then a claim
+# and a drag with the cookie it set), its JSON checked, and stopped. Seconds.
 #
 #   ops/smoke            (from anywhere; exits non-zero on any failure)
 
