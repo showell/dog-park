@@ -35,6 +35,9 @@ const frames = {
 // ── wire ────────────────────────────────────────────────────────────────────
 // The request and the answer exactly as wire.zig has them.
 
+// A request that hangs gives up, so the next ask is not blocked behind it.
+const ask_gives_up_ms = 5000;
+
 async function fetchScene(viewport, move) {
   const request = {
     viewport_plane_x: Math.round(viewport.planeX),
@@ -50,6 +53,7 @@ async function fetchScene(viewport, move) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(request),
     credentials: "same-origin",
+    signal: AbortSignal.timeout(ask_gives_up_ms),
   });
   if (!response.ok) throw new Error(`POST /scene: ${response.status}`);
   return response.json();
@@ -150,13 +154,17 @@ function take(answer, wrappedAtSend) {
 
 // Whole park units only cross the wire: a pointer's fraction stays behind,
 // in what is not yet sent.
-function wholeUnits(ownDogD) {
-  return Math.trunc(ownDogD);
+// At most `longest_drag_px` on an axis goes in one request (outcomes.zig's
+// longest_drag); the rest waits for the next.
+const longest_drag_px = 2000;
+
+function sendableUnits(ownDogD) {
+  return Math.max(-longest_drag_px, Math.min(longest_drag_px, Math.trunc(ownDogD)));
 }
 
 async function ask() {
   if (state.asking) return;
-  const move = { ownDogDx: wholeUnits(state.unsentOwnDogDx), ownDogDy: wholeUnits(state.unsentOwnDogDy) };
+  const move = { ownDogDx: sendableUnits(state.unsentOwnDogDx), ownDogDy: sendableUnits(state.unsentOwnDogDy) };
   if (!state.wantScene && move.ownDogDx === 0 && move.ownDogDy === 0) return;
   state.asking = true;
   state.wantScene = false;

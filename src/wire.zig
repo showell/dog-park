@@ -1,7 +1,7 @@
 //! What crosses to and from the browser, as records whose field names say
 //! their frame, so the JavaScript reading them cannot guess wrong either.
-//! No JSON here: the box encodes these. A tag is a string the browser
-//! switches on ("stay" or "drag"; "moved" or "refused").
+//! They cross as JSON through `std.json` (app.zig), and a tag is a string the
+//! browser switches on, the union's field name.
 //!
 //! **IN BY `read`, OUT BY `of`.** A wire record holds plain numbers, which
 //! no type can keep in their frame, so each is made in one place.
@@ -16,11 +16,14 @@ const population = @import("population.zig");
 const scene = @import("scene.zig");
 const outcomes = @import("outcomes.zig");
 
-/// The widest and tallest viewport a request may ask for, and how far past
-/// the park's home tile its origin may be (the browser wraps its origin back
-/// into the park's range as it scrolls): enough for any screen, small enough
-/// that no coordinate built from a request comes near overflowing.
+/// The widest and tallest viewport a request may ask for: enough for any
+/// screen, small enough that no coordinate built from a request comes near
+/// overflowing.
 pub const widest_viewport: u31 = 10_000;
+
+/// How far past the park's home tile a viewport's origin may be (the browser
+/// wraps its origin back into the park's range as it scrolls).
+pub const farthest_origin_past_park: u31 = 10_000;
 
 /// The browser's request: its viewport in the plane, and its dog's move.
 pub const WireSceneRequest = struct {
@@ -39,7 +42,7 @@ pub const WireSceneRequest = struct {
             @as(u32, self.viewport_height) + 2 * scene.margin > 2 * @as(u32, p.size.height)) return .{ .refused = .viewport_too_large };
         const origin: frames.PlanePoint = .at(self.viewport_plane_x, self.viewport_plane_y);
         const home: park.PlaneRect = .{ .top_left = .at(0, 0), .size = p.size };
-        if (home.grownBy(widest_viewport).holds(origin) == .outside) return .{ .refused = .viewport_far_from_park };
+        if (home.grownBy(farthest_origin_past_park).holds(origin) == .outside) return .{ .refused = .viewport_far_from_park };
         return .{ .request = .{
             .viewport = .{ .origin = origin, .size = .{ .width = self.viewport_width, .height = self.viewport_height } },
             .move = switch (self.move) {
@@ -183,7 +186,7 @@ test "a viewport empty, too large, or far from the park is refused, never carrie
     w.viewport_plane_x = std.math.maxInt(frames.Coord);
     try testing.expectEqual(RequestRefusal.viewport_far_from_park, w.read(small).refused);
     w = request(.stay);
-    w.viewport_plane_y = -@as(frames.Coord, widest_viewport) - 1;
+    w.viewport_plane_y = -@as(frames.Coord, farthest_origin_past_park) - 1;
     try testing.expectEqual(RequestRefusal.viewport_far_from_park, w.read(small).refused);
     // Scrolled past the park's corner, or a tile away, is a fine viewport.
     w = request(.stay);

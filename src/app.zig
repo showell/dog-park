@@ -283,6 +283,7 @@ test "the first request makes a human and a dog at the centre; the second, with 
     // A second device is a second human, its dog beside the first's.
     const other = try rig.post("", stay_body);
     try testing.expect(std.mem.startsWith(u8, cookieSet(other.head), "dogpark_human=2."));
+    try testing.expectEqual(@import("frames.zig").ParkPoint.at(2650, 2550), the_world.population().lookup(.of(2)).found.at.point);
 }
 
 test "a forged cookie is a new device, never the human it names" {
