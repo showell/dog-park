@@ -1,4 +1,4 @@
-//! Dog Park served as a Linux process: webbox's Linux host (linux_host.zig)
+//! Dog Park served as a Linux process: webbox's Linux host (`webbox_linux`)
 //! with Dog Park's name, its environment variables (DOGPARK_*), its default
 //! port, and the lines its setup's report prints.
 //!
@@ -12,7 +12,7 @@ const app = @import("app.zig");
 pub const site = webbox.site.Site(app);
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    try webbox.linux_host.Server(site).run(init, .{
+    try @import("webbox_linux").linux_host.Server(site).run(init, .{
         .name = "dog-park",
         .env = .{
             .port = "DOGPARK_PORT",

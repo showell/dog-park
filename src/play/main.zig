@@ -10,7 +10,7 @@ const app = @import("app.zig");
 pub const site = webbox.site.Site(app);
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    try webbox.linux_host.Server(site).run(init, .{
+    try @import("webbox_linux").linux_host.Server(site).run(init, .{
         .name = "dog-park-play",
         .env = .{
             .port = "DOGPARK_PORT",

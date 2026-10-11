@@ -11,7 +11,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const webbox = b.dependency("webbox", .{ .target = target, .optimize = optimize }).module("webbox");
+    // webbox is two modules: `webbox`, portable, what the application's code
+    // imports; and `webbox_linux`, the Linux host, for a Linux `main` only.
+    const webbox_dep = b.dependency("webbox", .{ .target = target, .optimize = optimize });
+    const webbox = webbox_dep.module("webbox");
+    const webbox_linux = webbox_dep.module("webbox_linux");
     root.addImport("webbox", webbox);
     const tests = b.addTest(.{ .root_module = root });
     b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
@@ -23,6 +27,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     main.addImport("webbox", webbox);
+    main.addImport("webbox_linux", webbox_linux);
     const exe = b.addExecutable(.{ .name = "dog-park", .root_module = main });
     b.installArtifact(exe);
     const run = b.addRunArtifact(exe);
@@ -36,6 +41,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     play_main.addImport("webbox", webbox);
+    play_main.addImport("webbox_linux", webbox_linux);
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);
