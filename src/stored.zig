@@ -45,10 +45,9 @@ pub const StoredDog = extern struct {
         const breed = std.enums.fromInt(dogs.Breed, self.breed_byte) orelse
             return .{ .unknown_breed = self.breed_byte };
         const at: frames.ParkPoint = .at(self.park_x, self.park_y);
-        return switch (p.clamp(at)) {
+        return switch (p.holding(at)) {
             .inside => |in| .{ .dog = .{ .owner = HumanId.of(self.owner), .at = in, .breed = breed } },
-            // The park shrank, or the record is bad: the box decides which.
-            .clamped => .{ .outside_park = at },
+            .outside => .{ .outside_park = at },
         };
     }
 };

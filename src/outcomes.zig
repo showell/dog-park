@@ -6,19 +6,19 @@ const frames = @import("frames.zig");
 const park = @import("park.zig");
 const scene = @import("scene.zig");
 
-/// A move's outcome. Kept moves say, by type, whether the park clamped them.
-/// Made by `decide`, so an outcome cannot disagree with its move.
+/// A move's outcome. Made by `decide`, so an outcome cannot disagree with
+/// its move.
 pub const MoveOutcome = union(enum) {
     stayed,
-    /// Moved: the dog's new place, inside the park or clamped to its edge.
-    moved: park.Clamped,
+    /// Moved: the dog's new place, wrapped into the park if the move left it.
+    moved: park.InParkPoint,
     refused: MoveRefusal,
 
     /// Where the dog is after this outcome, given where it was.
     pub fn dogAt(self: MoveOutcome, was: park.InParkPoint) park.InParkPoint {
         return switch (self) {
             .stayed, .refused => was,
-            .moved => |c| c.point(),
+            .moved => |p| p,
         };
     }
 };
@@ -30,14 +30,14 @@ pub const MoveRefusal = enum {
 };
 
 /// What `move` does to a dog at `was` in `p`: the only way a drag reaches a
-/// dog, so no drag is applied unchecked or unclamped.
+/// dog, so no drag is applied unchecked or unwrapped.
 pub fn decide(p: park.Park, was: park.InParkPoint, move: scene.Move) MoveOutcome {
     return switch (move) {
         .stay => .stayed,
         // A drag of nothing, though Move.of never makes one, is a stay.
         .drag => |d| if (std.meta.eql(d, frames.Displacement.none)) .stayed else switch (dragLength(d)) {
             .too_far => .{ .refused = .too_far_at_once },
-            .within_limit => .{ .moved = p.clamp(was.point.plus(d)) },
+            .within_limit => .{ .moved = p.wrap(was.point.plus(d)) },
         },
     };
 }
@@ -83,17 +83,16 @@ test "a stay stays, and a refused move leaves the dog where it started" {
     try testing.expectEqual(start, far.dogAt(start));
 }
 
-test "a drag inside the park moves; one past its edge is clamped, and says so" {
+test "a drag inside the park moves; one past its edge wraps to the far side" {
     const in = decide(small, start, .{ .drag = .{ .dx = 5, .dy = 5 } });
-    try testing.expectEqual(frames.ParkPoint.at(15, 15), in.moved.inside.point);
-    const out = decide(small, start, .{ .drag = .{ .dx = -50, .dy = 0 } });
-    try testing.expectEqual(frames.ParkPoint.at(-40, 10), out.moved.clamped.asked);
-    try testing.expectEqual(frames.ParkPoint.at(0, 10), out.dogAt(start).point);
+    try testing.expectEqual(frames.ParkPoint.at(15, 15), in.moved.point);
+    const west = decide(small, start, .{ .drag = .{ .dx = -50, .dy = -20 } });
+    try testing.expectEqual(frames.ParkPoint.at(960, 590), west.dogAt(start).point);
 }
 
-test "a drag of exactly the longest is kept, and clamped at the edge" {
-    const edge = decide(small, start, .{ .drag = .{ .dx = longest_drag, .dy = 0 } });
-    try testing.expectEqual(frames.ParkPoint.at(999, 10), edge.dogAt(start).point);
+test "a drag of exactly the longest is kept, and wraps more than a whole park" {
+    const far = decide(small, start, .{ .drag = .{ .dx = longest_drag, .dy = longest_drag } });
+    try testing.expectEqual(frames.ParkPoint.at(10, 210), far.dogAt(start).point);
 }
 
 test "a drag's length, at the limit and past it" {

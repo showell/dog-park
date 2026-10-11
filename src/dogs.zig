@@ -34,22 +34,22 @@ pub const Dog = struct {
     at: park.InParkPoint,
     breed: Breed,
 
-    /// The dog with its owner left out: what a scene shows of it.
-    pub fn drawn(self: Dog) Drawn {
-        return .{ .at = self.at, .breed = self.breed };
-    }
-
-    /// The frame centred on this dog.
-    pub fn frame(self: Dog) frames.OwnDogFrame {
-        return .{ .dog_at = self.at.point };
+    /// The dog with its owner left out, drawn at its copy nearest `near`.
+    pub fn drawnNear(self: Dog, p: park.Park, near: frames.PlanePoint) Drawn {
+        return .{ .at = p.nearestCopy(self.at, near), .breed = self.breed };
     }
 };
 
-/// A dog as drawn: where, and its look. No owner, so a scene's own dog
-/// cannot name somebody else as its owner.
+/// A dog as drawn: a copy of it in the plane, and its look. No owner, so a
+/// scene's own dog cannot name somebody else as its owner.
 pub const Drawn = struct {
-    at: park.InParkPoint,
+    at: frames.PlanePoint,
     breed: Breed,
+
+    /// The frame centred on this copy of the dog.
+    pub fn frame(self: Drawn) frames.OwnDogFrame {
+        return .{ .dog_at = self.at };
+    }
 };
 
 test "every breed has an emoji" {
@@ -58,7 +58,10 @@ test "every breed has an emoji" {
     }
 }
 
-test "a dog's own frame is centred on it" {
-    const d: Dog = .{ .owner = .of(1), .at = .{ .point = .at(300, 400) }, .breed = .poodle };
-    try std.testing.expectEqual(frames.OwnDogPoint.at(0, 0), d.frame().fromPark(d.at.point));
+test "a dog is drawn at its copy nearest a plane point, and its frame is centred there" {
+    const p = (park.Park.of(.{ .width = 1000, .height = 600 })).park;
+    const d: Dog = .{ .owner = .of(1), .at = p.wrap(.at(30, 400)), .breed = .poodle };
+    const drawn = d.drawnNear(p, .at(980, 400));
+    try std.testing.expectEqual(frames.PlanePoint.at(1030, 400), drawn.at);
+    try std.testing.expectEqual(frames.OwnDogPoint.at(0, 0), drawn.frame().fromPlane(drawn.at));
 }

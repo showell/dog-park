@@ -21,7 +21,7 @@ pub const Move = union(enum) {
     }
 };
 
-/// One request: where the viewport is in the park, and the move.
+/// One request: where the viewport is in the plane, and the move.
 pub const SceneRequest = struct {
     viewport: frames.Viewport,
     move: Move,
@@ -31,23 +31,26 @@ pub const SceneRequest = struct {
 /// scrolling needs no new request.
 pub const margin: u31 = 200;
 
-/// What a request gets back. The dogs are in the park's frame: the browser
+/// What a request gets back. The dogs are copies in the plane: the browser
 /// scrolls within the margin without asking, so it places them through its
-/// own current viewport (frames.Viewport.fromPark), not the one asked with.
+/// own current viewport (frames.Viewport.fromPlane), not the one asked with.
 pub const Scene = struct {
     /// The viewport asked with; what the scene covers follows from it.
     viewport: frames.Viewport,
-    /// The human's own dog, apart from the others, so no flag marks it.
+    /// The human's own dog, apart from the others, so no flag marks it: its
+    /// copy nearest the viewport's centre.
     own: dogs.Drawn,
-    /// The other dogs in `covers()`: never the own dog (population.Near.except).
-    others: []const dogs.Dog,
+    /// Every copy of every other dog in `covers()` (a park narrower than the
+    /// covered rectangle shows a dog more than once); never the own dog
+    /// (population.Near.except).
+    others: []const dogs.Drawn,
     others_completeness: population.Completeness,
     park_size: frames.Size,
     /// What became of this request's move; `own` is where it left the dog.
     move: outcomes.MoveOutcome,
 
     /// The viewport asked for, grown by `margin`: the others are those in it.
-    pub fn covers(self: Scene) park.ParkRect {
+    pub fn covers(self: Scene) park.PlaneRect {
         return coverFor(self.viewport);
     }
 };
@@ -61,8 +64,8 @@ pub const SceneAnswer = union(enum) {
 };
 
 /// The region a scene covers, for the viewport it was asked with.
-pub fn coverFor(v: frames.Viewport) park.ParkRect {
-    return (park.ParkRect{ .top_left = v.origin, .size = v.size }).grownBy(margin);
+pub fn coverFor(v: frames.Viewport) park.PlaneRect {
+    return (park.PlaneRect{ .top_left = v.origin, .size = v.size }).grownBy(margin);
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
@@ -77,13 +80,13 @@ test "a move is a stay or a drag, never both: a drag of nothing is a stay" {
 test "a scene covers the viewport and its margin" {
     const v: frames.Viewport = .{ .origin = .at(1000, 1000), .size = .{ .width = 800, .height = 600 } };
     const c = coverFor(v);
-    try testing.expectEqual(frames.ParkPoint.at(800, 800), c.top_left);
+    try testing.expectEqual(frames.PlanePoint.at(800, 800), c.top_left);
     try testing.expectEqual(frames.Size{ .width = 1200, .height = 1000 }, c.size);
     // The viewport's own corner is inside what it covers.
     try testing.expect(c.holds(v.origin) == .inside);
 }
 
-test "a viewport at the park's corner covers past the park's edge, and that is fine" {
+test "a viewport at the park's corner covers past the seam, and that is fine" {
     const v: frames.Viewport = .{ .origin = .at(0, 0), .size = .{ .width = 800, .height = 600 } };
-    try testing.expectEqual(frames.ParkPoint.at(-200, -200), coverFor(v).top_left);
+    try testing.expectEqual(frames.PlanePoint.at(-200, -200), coverFor(v).top_left);
 }

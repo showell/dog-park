@@ -7,12 +7,22 @@
 //! frames differ only by where their origin is, never by scale or axes
 //! (x right, y down, as the browser's). So a displacement is the same in
 //! every frame, and one type serves them all.
+//!
+//! **THE PARK WRAPS** (docs/WRAP-AMENDMENT.md): it tiles an infinite plane,
+//! Pac-Man style. A dog's canonical place is in the park; the viewport, and
+//! the copies of dogs it draws, are in the plane. A park point plus a
+//! displacement is a plane point, since a move may leave the park's tile;
+//! `park.Park.wrap` brings a plane point home.
 
 const std = @import("std");
 
 pub const Frame = enum {
-    /// The whole world; its origin is the park's top-left corner.
+    /// The world, once: its origin is the park's top-left corner, and it
+    /// ends at the park's size.
     park,
+    /// The infinite plane the park tiles: its origin is the park's, and the
+    /// copy of the park one tile east starts at (width, 0).
+    plane,
     /// What the human sees; its origin is the viewport's top-left corner.
     viewport,
     /// Centred on the human's own dog.
@@ -62,8 +72,13 @@ pub fn Point(comptime frame: Frame) type {
             return .{ .x = .of(x), .y = .of(y) };
         }
 
-        pub fn plus(self: Self, d: Displacement) Self {
-            return at(self.x.number() + d.dx, self.y.number() + d.dy);
+        /// Where a displacement from a point of this frame lands: in the
+        /// plane, from the park (a move may leave the park's tile), and in
+        /// this frame from any other.
+        pub const Landing = if (frame == .park) Point(.plane) else Self;
+
+        pub fn plus(self: Self, d: Displacement) Landing {
+            return Landing.at(self.x.number() + d.dx, self.y.number() + d.dy);
         }
 
         /// The displacement that takes `from` to `self`.
@@ -74,6 +89,7 @@ pub fn Point(comptime frame: Frame) type {
 }
 
 pub const ParkPoint = Point(.park);
+pub const PlanePoint = Point(.plane);
 pub const ViewportPoint = Point(.viewport);
 pub const OwnDogPoint = Point(.own_dog);
 
@@ -100,18 +116,28 @@ pub const Size = struct {
     height: u31,
 };
 
-/// The park's region the human sees: its top-left in the park, and its size.
-/// The conversion between the viewport's frame and the park's.
+/// The copy of a park point on the plane's home tile, where the two frames'
+/// origins agree.
+pub fn onHomeTile(p: ParkPoint) PlanePoint {
+    return .at(p.x.number(), p.y.number());
+}
+
+/// The region of the plane the human sees: its top-left in the plane, and
+/// its size. The conversion between the viewport's frame and the plane's.
 pub const Viewport = struct {
-    origin: ParkPoint,
+    origin: PlanePoint,
     size: Size,
 
-    pub fn toPark(self: Viewport, p: ViewportPoint) ParkPoint {
+    pub fn toPlane(self: Viewport, p: ViewportPoint) PlanePoint {
         return self.origin.plus(p.minus(.at(0, 0)));
     }
 
-    pub fn fromPark(self: Viewport, p: ParkPoint) ViewportPoint {
+    pub fn fromPlane(self: Viewport, p: PlanePoint) ViewportPoint {
         return ViewportPoint.at(0, 0).plus(p.minus(self.origin));
+    }
+
+    pub fn centre(self: Viewport) PlanePoint {
+        return self.origin.plus(.{ .dx = self.size.width / 2, .dy = self.size.height / 2 });
     }
 
     /// The viewport moved by `d`, its size kept: what auto-scrolling does.
@@ -120,17 +146,17 @@ pub const Viewport = struct {
     }
 };
 
-/// Where the human's own dog stands in the park: the conversion between the
-/// own-dog frame and the park's. Made by `dogs.Dog.frame`: one from any
-/// other park point is the bug, visible by name.
+/// Where the human's own dog is drawn in the plane: the conversion between
+/// the own-dog frame and the plane's. Made by `dogs.Drawn.frame`: one from
+/// any other plane point is the bug, visible by name.
 pub const OwnDogFrame = struct {
-    dog_at: ParkPoint,
+    dog_at: PlanePoint,
 
-    pub fn toPark(self: OwnDogFrame, p: OwnDogPoint) ParkPoint {
+    pub fn toPlane(self: OwnDogFrame, p: OwnDogPoint) PlanePoint {
         return self.dog_at.plus(p.minus(.at(0, 0)));
     }
 
-    pub fn fromPark(self: OwnDogFrame, p: ParkPoint) OwnDogPoint {
+    pub fn fromPlane(self: OwnDogFrame, p: PlanePoint) OwnDogPoint {
         return OwnDogPoint.at(0, 0).plus(p.minus(self.dog_at));
     }
 };
@@ -140,15 +166,25 @@ pub const OwnDogFrame = struct {
 const testing = std.testing;
 
 test "a point plus a displacement, and a point minus a point" {
-    const a: ParkPoint = .at(100, 200);
+    const a: PlanePoint = .at(100, 200);
     const d: Displacement = .{ .dx = 7, .dy = -3 };
-    try testing.expectEqual(ParkPoint.at(107, 197), a.plus(d));
+    try testing.expectEqual(PlanePoint.at(107, 197), a.plus(d));
     try testing.expectEqual(d, a.plus(d).minus(a));
     try testing.expectEqual(Displacement.none, a.minus(a));
 }
 
+test "a park point plus a displacement is a plane point: a move may leave the park" {
+    const a: ParkPoint = .at(100, 200);
+    try testing.expect(@TypeOf(a.plus(.none)) == PlanePoint);
+    try testing.expectEqual(PlanePoint.at(-5, 200), a.plus(.{ .dx = -105, .dy = 0 }));
+    try testing.expectEqual(onHomeTile(a), a.plus(.none));
+    try testing.expectEqual(Displacement{ .dx = 3, .dy = 4 }, ParkPoint.at(103, 204).minus(a));
+}
+
 test "the frames are distinct types, and so are their coordinates" {
     try testing.expect(ParkPoint != ViewportPoint);
+    try testing.expect(ParkPoint != PlanePoint);
+    try testing.expect(PlanePoint != ViewportPoint);
     try testing.expect(ParkPoint != OwnDogPoint);
     try testing.expect(ViewportPoint != OwnDogPoint);
     // `.{ .x = seen.x }` for a park point does not compile: the fields differ.
@@ -159,31 +195,32 @@ test "the frames are distinct types, and so are their coordinates" {
 test "one scale: two viewport points' difference moves a park point as far" {
     const a: ViewportPoint = .at(10, 10);
     const b: ViewportPoint = .at(40, 30);
-    try testing.expectEqual(ParkPoint.at(130, 120), ParkPoint.at(100, 100).plus(b.minus(a)));
+    try testing.expectEqual(PlanePoint.at(130, 120), ParkPoint.at(100, 100).plus(b.minus(a)));
 }
 
-test "the viewport's frame and the park's, both ways" {
-    const v: Viewport = .{ .origin = .at(1000, 500), .size = .{ .width = 800, .height = 600 } };
+test "the viewport's frame and the plane's, both ways, on any tile" {
+    const v: Viewport = .{ .origin = .at(-1000, 500), .size = .{ .width = 800, .height = 600 } };
     const seen: ViewportPoint = .at(40, 60);
-    try testing.expectEqual(ParkPoint.at(1040, 560), v.toPark(seen));
-    try testing.expectEqual(seen, v.fromPark(v.toPark(seen)));
-    const dog: ParkPoint = .at(1234, 987);
-    try testing.expectEqual(dog, v.toPark(v.fromPark(dog)));
+    try testing.expectEqual(PlanePoint.at(-960, 560), v.toPlane(seen));
+    try testing.expectEqual(seen, v.fromPlane(v.toPlane(seen)));
+    const dog: PlanePoint = .at(1234, 987);
+    try testing.expectEqual(dog, v.toPlane(v.fromPlane(dog)));
     // The viewport's own corner is the origin in its frame.
-    try testing.expectEqual(ViewportPoint.at(0, 0), v.fromPark(v.origin));
+    try testing.expectEqual(ViewportPoint.at(0, 0), v.fromPlane(v.origin));
+    try testing.expectEqual(PlanePoint.at(-600, 800), v.centre());
 }
 
-test "the own-dog frame and the park's, both ways" {
+test "the own-dog frame and the plane's, both ways" {
     const f: OwnDogFrame = .{ .dog_at = .at(300, 400) };
-    try testing.expectEqual(OwnDogPoint.at(0, 0), f.fromPark(f.dog_at));
+    try testing.expectEqual(OwnDogPoint.at(0, 0), f.fromPlane(f.dog_at));
     const near: OwnDogPoint = .at(-50, 25);
-    try testing.expectEqual(ParkPoint.at(250, 425), f.toPark(near));
-    try testing.expectEqual(near, f.fromPark(f.toPark(near)));
+    try testing.expectEqual(PlanePoint.at(250, 425), f.toPlane(near));
+    try testing.expectEqual(near, f.fromPlane(f.toPlane(near)));
 }
 
-test "scrolling moves the origin, and what a park point looks like moves the other way" {
+test "scrolling moves the origin, and what a plane point looks like moves the other way" {
     const v: Viewport = .{ .origin = .at(0, 0), .size = .{ .width = 100, .height = 100 } };
-    const dog: ParkPoint = .at(50, 50);
+    const dog: PlanePoint = .at(50, 50);
     const after = v.scrolled(.{ .dx = 10, .dy = 0 });
-    try testing.expectEqual(ViewportPoint.at(40, 50), after.fromPark(dog));
+    try testing.expectEqual(ViewportPoint.at(40, 50), after.fromPlane(dog));
 }
