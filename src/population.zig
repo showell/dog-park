@@ -58,6 +58,11 @@ pub const Population = struct {
     }
 };
 
+/// Whether a population can take one more owner's dog: the question a new
+/// human's first request asks before a dog is placed (`put` would answer
+/// `refused_full`, but only after the placing).
+pub const Space = enum { room_for_one_more, full };
+
 /// What `put` did: placed a new owner's dog, moved an owner's dog, or
 /// refused (the index is full; its memory is bounded).
 pub const Put = union(enum) {

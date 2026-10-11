@@ -12,6 +12,7 @@ pub const stored = @import("stored.zig");
 pub const wire = @import("wire.zig");
 pub const index = @import("index.zig");
 pub const placement = @import("placement.zig");
+pub const world = @import("world.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
