@@ -13,7 +13,9 @@ serves them is the library's.
 shares only the domain and the Caddy in front with lynrummy.com. Developed
 on Linux first; on bare metal later, through gopher-metal.
 
-**Status (2026-10-11):** the data types are being drafted
-([docs/TYPES-BRIEF.md](docs/TYPES-BRIEF.md)). Nothing serves yet.
+**Status (2026-10-11):** the data types are drafted, one module a concept
+under `src/` ([docs/TYPES-BRIEF.md](docs/TYPES-BRIEF.md)); the first
+end-to-end version, one human at a time, is being built
+([docs/BUILD-BRIEF.md](docs/BUILD-BRIEF.md)). Nothing serves yet.
 
     zig build test
