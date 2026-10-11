@@ -70,15 +70,77 @@ const state = {
   // The own dog where the browser draws it: optimistic while dragging.
   ownPlaneX: 0,
   ownPlaneY: 0,
-  // The drag not yet sent, and whether a request is out.
+  // The drag not yet sent.
   unsentOwnDogDx: 0,
   unsentOwnDogDy: 0,
-  asking: false,
-  lastAskedMs: 0,
-  // A scene is wanted (scrolled near the covered region's edge).
-  wantScene: true,
-  noRoom: null,
+  // The ask loop, one value (askAfter below says how it moves):
+  //   { kind: "idle", wants: "nothing" | "a_scene", lastAskedMs }
+  //   { kind: "asking", thenWants: "nothing" | "a_scene", lastAskedMs }
+  //   { kind: "backing_off", untilMs, failures }     after a failure
+  //   { kind: "retrying", failures }                 backed off, due again
+  //   { kind: "asking_again", failures, lastAskedMs } a retry is out
+  ask: { kind: "idle", wants: "a_scene", lastAskedMs: 0 },
 };
+
+// ── the ask loop ────────────────────────────────────────────────────────────
+// Pure: the loop's next value, for an event at `nowMs`. Events:
+//   "want_a_scene"  something wants one (the first, a new dog, a resize, the
+//                   viewport near the covered region's edge, an idle second)
+//   "sent"          a request went
+//   "answered"      it came back whole
+//   "failed"        it did not (a 4xx, a 5xx, the network, given up on)
+//   "tick"          time passed
+// A failure backs off, doubling from half a second to half a minute, so a
+// page that cannot be answered does not ask twelve times a second for ever.
+
+const backoff_first_ms = 500;
+const backoff_most_ms = 30000;
+
+function askAfter(ask, event, nowMs) {
+  switch (ask.kind) {
+    case "idle":
+      if (event === "want_a_scene") return { ...ask, wants: "a_scene" };
+      if (event === "sent") return { kind: "asking", thenWants: "nothing", lastAskedMs: nowMs };
+      return ask;
+    case "asking":
+      if (event === "want_a_scene") return { ...ask, thenWants: "a_scene" };
+      if (event === "answered") return { kind: "idle", wants: ask.thenWants, lastAskedMs: ask.lastAskedMs };
+      if (event === "failed") return { kind: "backing_off", untilMs: nowMs + backoff_first_ms, failures: 1 };
+      return ask;
+    case "backing_off":
+      if (event === "tick" && nowMs >= ask.untilMs) return { kind: "retrying", failures: ask.failures };
+      return ask;
+    case "retrying":
+      // Backed off: the next request is a retry, and its failure backs off
+      // longer.
+      if (event === "sent") return { kind: "asking_again", failures: ask.failures, lastAskedMs: nowMs };
+      return ask;
+    case "asking_again":
+      if (event === "answered") return { kind: "idle", wants: "nothing", lastAskedMs: ask.lastAskedMs };
+      if (event === "failed") {
+        const failures = ask.failures + 1;
+        return { kind: "backing_off", untilMs: nowMs + Math.min(backoff_most_ms, backoff_first_ms * 2 ** (failures - 1)), failures };
+      }
+      return ask;
+  }
+  return ask;
+}
+
+// Whether, in this value, a request should go now.
+function askingIsDue(ask, unsentMove, nowMs) {
+  switch (ask.kind) {
+    case "idle":
+      return ask.wants === "a_scene" || unsentMove || nowMs - ask.lastAskedMs > idle_ask_every_ms;
+    case "retrying":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function want() {
+  state.ask = askAfter(state.ask, "want_a_scene", performance.now());
+}
 
 function parkWidth() { return state.scene ? state.scene.park_width : 1; }
 function parkHeight() { return state.scene ? state.scene.park_height : 1; }
@@ -122,8 +184,6 @@ function wrapViewportHome() {
 // the browser saw fail is made good by the next answer, and a refusal puts
 // the dog back where it came from, on screen.
 function take(answer, wrappedAtSend) {
-  if (answer.no_room) { state.noRoom = answer.no_room; return; }
-  state.noRoom = null;
   const scene = answer.scene;
   shiftScene(scene, wrapped.planeDx - wrappedAtSend.planeDx, wrapped.planeDy - wrappedAtSend.planeDy);
   const first = state.scene === null;
@@ -139,7 +199,7 @@ function take(answer, wrappedAtSend) {
     state.viewport.planeX = state.ownPlaneX - Math.floor(state.viewport.width / 2);
     state.viewport.planeY = state.ownPlaneY - Math.floor(state.viewport.height / 2);
     wrapViewportHome();
-    state.wantScene = true;
+    want();
     return;
   }
   switch (scene.move) {
@@ -167,17 +227,17 @@ function sendableUnits(ownDogD) {
 }
 
 async function ask() {
-  if (state.asking) return;
   const move = { ownDogDx: sendableUnits(state.unsentOwnDogDx), ownDogDy: sendableUnits(state.unsentOwnDogDy) };
-  if (!state.wantScene && move.ownDogDx === 0 && move.ownDogDy === 0) return;
-  state.asking = true;
-  state.wantScene = false;
+  const unsentMove = move.ownDogDx !== 0 || move.ownDogDy !== 0;
+  state.ask = askAfter(state.ask, "tick", performance.now());
+  if (!askingIsDue(state.ask, unsentMove, performance.now())) return;
+  state.ask = askAfter(state.ask, "sent", performance.now());
   state.unsentOwnDogDx -= move.ownDogDx;
   state.unsentOwnDogDy -= move.ownDogDy;
-  state.lastAskedMs = performance.now();
   const wrappedAtSend = { ...wrapped };
+  let answer;
   try {
-    take(await fetchScene(state.viewport, move), wrappedAtSend);
+    answer = await fetchScene(state.viewport, move);
   } catch (e) {
     // A failed request snaps the dog back to the last answer, dropping the
     // drag since; the next answer says whether the server applied it.
@@ -188,10 +248,11 @@ async function ask() {
       state.ownPlaneX = state.scene.own.plane_x;
       state.ownPlaneY = state.scene.own.plane_y;
     }
-    state.wantScene = true;
-  } finally {
-    state.asking = false;
+    state.ask = askAfter(state.ask, "failed", performance.now());
+    return;
   }
+  state.ask = askAfter(state.ask, "answered", performance.now());
+  take(answer, wrappedAtSend);
 }
 
 // ── drag ────────────────────────────────────────────────────────────────────
@@ -340,23 +401,18 @@ function fitCanvas(canvas) {
 function start() {
   const canvas = document.getElementById("park");
   fitCanvas(canvas);
-  window.addEventListener("resize", () => { fitCanvas(canvas); state.wantScene = true; });
+  window.addEventListener("resize", () => { fitCanvas(canvas); want(); });
   canvas.addEventListener("pointerdown", startDrag);
   canvas.addEventListener("pointermove", continueDrag);
   canvas.addEventListener("pointerup", endDrag);
   canvas.addEventListener("pointercancel", endDrag);
   setInterval(() => {
-    if (nearCoveredEdge()) state.wantScene = true;
-    if (performance.now() - state.lastAskedMs > idle_ask_every_ms) state.wantScene = true;
+    if (state.scene && nearCoveredEdge()) want();
     ask();
   }, ask_every_ms);
   const frame = () => {
     autoScroll();
-    if (state.noRoom) {
-      blit(canvas, [{ viewportX: state.viewport.width / 2, viewportY: state.viewport.height / 2, emoji: "🚫", own: false, faint: false }]);
-    } else {
-      blit(canvas, sprites());
-    }
+    blit(canvas, sprites());
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
