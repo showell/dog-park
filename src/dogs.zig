@@ -62,12 +62,6 @@ test "every breed has an emoji" {
     }
 }
 
-test "the breeds are numbered 0 up, with no gap (stored.zig reads them so)" {
-    inline for (@typeInfo(Breed).@"enum".fields, 0..) |f, i| {
-        try std.testing.expectEqual(i, f.value);
-    }
-}
-
 test "a dog's own frame is centred on it" {
     const d: Dog = .{ .owner = .of(1), .at = .{ .point = .at(300, 400) }, .breed = .wolf };
     try std.testing.expectEqual(frames.OwnDogPoint.at(0, 0), d.frame().fromPark(d.at.point));

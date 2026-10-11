@@ -16,6 +16,7 @@ pub const StoredDog = extern struct {
     /// A `dogs.Breed`'s number, kept as a byte: a record is not trusted to
     /// hold a breed this version knows.
     breed_byte: u8,
+    /// Zero in v1, and not read: a later format may give it meaning.
     reserved: [6]u8 = @splat(0),
     owner: u64,
     park_x: frames.Coord,

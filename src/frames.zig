@@ -20,8 +20,9 @@ pub const Frame = enum {
 };
 
 /// The number inside a coordinate or a displacement. Arithmetic on it
-/// saturates rather than wrapping; the wire's checks (wire.zig) keep what
-/// comes in far enough from the edge that saturating never happens.
+/// saturates rather than wrapping. The park's longest side, the wire's
+/// checks and the longest drag keep every point a request makes within
+/// a few million of the origin, so saturating is a backstop, never a path.
 pub const Coord = i32;
 
 /// One coordinate in `frame`: a number that says its frame, so it cannot be
@@ -119,8 +120,8 @@ pub const Viewport = struct {
 };
 
 /// Where the human's own dog stands in the park: the conversion between the
-/// own-dog frame and the park's. Made from the dog (dogs.Dog.frame), not
-/// from any park point.
+/// own-dog frame and the park's. Made by `dogs.Dog.frame`: one from any
+/// other park point is the bug, visible by name.
 pub const OwnDogFrame = struct {
     dog_at: ParkPoint,
 

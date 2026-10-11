@@ -82,10 +82,12 @@ pub const WireScene = struct {
     /// drag, or puts the dog where `own` says.
     move: WireMoveOutcome,
 
-    /// `s` for the wire, its others written into `others_into` (as long as
-    /// `s.others`, or longer).
+    /// `s` for the wire, its others written into `others_into`: as many as
+    /// fit, and if not all did, the scene says more were not sent.
     pub fn of(s: scene.Scene, others_into: []WireDog) WireScene {
-        for (s.others, others_into[0..s.others.len]) |d, *w| w.* = .of(d.drawn());
+        const sent = @min(s.others.len, others_into.len);
+        for (s.others[0..sent], others_into[0..sent]) |d, *w| w.* = .of(d.drawn());
+        const all_sent: WireCompleteness = if (sent == s.others.len) .all else .more_not_sent;
         const c = s.covers();
         return .{
             .covers_park_x = c.top_left.x.number(),
@@ -95,14 +97,14 @@ pub const WireScene = struct {
             .park_width = s.park_size.width,
             .park_height = s.park_size.height,
             .own = .of(s.own),
-            .others = others_into[0..s.others.len],
+            .others = others_into[0..sent],
             .others_complete = switch (s.others_completeness) {
-                .all_in_region => .all,
+                .all_in_region => all_sent,
                 .more_in_region => .more_not_sent,
             },
             .move = switch (s.move) {
                 .stayed => .stayed,
-                .moved => |c2| switch (c2) {
+                .moved => |clamped| switch (clamped) {
                     .inside => .moved,
                     .clamped => .clamped,
                 },
@@ -122,8 +124,20 @@ pub const WireMoveOutcome = enum { stayed, moved, clamped, refused_too_far_at_on
 /// What the browser gets: a scene, or why its dog could not be placed.
 pub const WireAnswer = union(enum) {
     scene: WireScene,
-    no_room: enum { park_full, population_full },
+    no_room: WirePlacementRefusal,
+
+    pub fn of(a: scene.SceneAnswer, others_into: []WireDog) WireAnswer {
+        return switch (a) {
+            .scene => |s| .{ .scene = .of(s, others_into) },
+            .no_room => |r| .{ .no_room = switch (r) {
+                .park_full => .park_full,
+                .population_full => .population_full,
+            } },
+        };
+    }
 };
+
+pub const WirePlacementRefusal = enum { park_full, population_full };
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
@@ -182,4 +196,9 @@ test "a scene on the wire: park-frame dogs, no owners, the clamped move and wher
     try testing.expectEqual(@as(frames.Coord, 40), w.others[0].park_x);
     try testing.expectEqualStrings("🦊", w.others[0].emoji);
     try testing.expect(!@hasField(WireDog, "owner"));
+    // A buffer too short for the others sends what fits, and says so.
+    const short = WireScene.of(s, into[0..0]);
+    try testing.expectEqual(@as(usize, 0), short.others.len);
+    try testing.expectEqual(WireCompleteness.more_not_sent, short.others_complete);
+    try testing.expectEqual(WirePlacementRefusal.park_full, WireAnswer.of(.{ .no_room = .park_full }, &into).no_room);
 }

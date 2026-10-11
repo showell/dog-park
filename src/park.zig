@@ -1,10 +1,9 @@
 //! The park: a finite rectangle of the park's frame, from (0, 0) to its size,
 //! and the lattice the dogs are first placed on.
 //!
-//! **TWO NAMING FENCES.** Zig has no private fields, so a literal can build
-//! anything. `InParkPoint` and `LatticeSpot` are made by `Park` alone
-//! (`clamp`, `spot`, `pointOf`), and a literal of either outside this file is
-//! the bug, visible by name in review.
+//! **A NAMING FENCE.** Zig has no private fields, so a literal can build
+//! anything. `InParkPoint` is made by `Park` alone (`clamp`, `pointOf`), and
+//! a literal of one outside this file is the bug, visible by name in review.
 
 const std = @import("std");
 const frames = @import("frames.zig");
@@ -18,7 +17,8 @@ pub const ParkRect = struct {
     top_left: ParkPoint,
     size: Size,
 
-    /// The corner just past the rectangle: itself outside it.
+    /// The corner just past the rectangle: itself outside it (for any
+    /// rectangle near the park; one at the coordinate's edge saturates).
     pub fn pastBottomRight(self: ParkRect) ParkPoint {
         return self.top_left.plus(.{ .dx = self.size.width, .dy = self.size.height });
     }
@@ -72,18 +72,23 @@ pub const InParkPoint = struct {
     point: ParkPoint,
 };
 
+/// The longest side a park may have: with it, no coordinate built from a
+/// park, a checked request (wire.zig) and a drag comes near saturating.
+pub const longest_side: u31 = 1 << 20;
+
 /// How far apart the lattice's spots are, and how big the smallest park is
 /// (one spot). One lattice for every park, so a spacing of 0 is not a value.
 pub const lattice_spacing: u31 = 100;
 
 /// The park. Its frame's origin is its top-left corner, so its bounds are
 /// (0, 0) to its size; a park has no other top-left. Made by `Park.of`,
-/// which refuses a park too small to hold one lattice spot.
+/// which refuses a park too small to hold one lattice spot, or too large.
 pub const Park = struct {
     size: Size,
 
     pub fn of(size: Size) Sized {
         if (size.width < lattice_spacing or size.height < lattice_spacing) return .too_small;
+        if (size.width > longest_side or size.height > longest_side) return .too_large;
         return .{ .park = .{ .size = size } };
     }
 
@@ -114,28 +119,23 @@ pub const Park = struct {
         return .{ .columns = self.size.width / lattice_spacing, .rows = self.size.height / lattice_spacing };
     }
 
-    /// The spot at `column` and `row`, if the park reaches that far.
-    pub fn spot(self: Park, column: u31, row: u31) SpotOrOff {
+    /// Where a spot stands, if this park reaches it: half a spacing in from
+    /// its cell's corner, so no spot is on an edge.
+    pub fn pointOf(self: Park, s: LatticeSpot) SpotPoint {
         const e = self.extent();
-        if (column >= e.columns or row >= e.rows) return .off_park;
-        return .{ .on = .{ .column = column, .row = row } };
-    }
-
-    /// Where a spot stands: half a spacing in from its cell's corner, so no
-    /// spot is on an edge.
-    pub fn pointOf(self: Park, s: LatticeSpot) InParkPoint {
-        _ = self;
+        if (s.column >= e.columns or s.row >= e.rows) return .off_park;
         const half = lattice_spacing / 2;
-        return .{ .point = .at(
-            half + @as(Coord, s.column) *| lattice_spacing,
-            half + @as(Coord, s.row) *| lattice_spacing,
-        ) };
+        return .{ .on = .{ .point = .at(
+            half + @as(Coord, s.column) * lattice_spacing,
+            half + @as(Coord, s.row) * lattice_spacing,
+        ) } };
     }
 };
 
 pub const Sized = union(enum) {
     park: Park,
     too_small,
+    too_large,
 };
 
 /// A point brought inside the park: already inside, or moved to its edge.
@@ -160,15 +160,15 @@ pub const Clamping = struct {
 
 pub const LatticeExtent = struct { columns: u31, rows: u31 };
 
-/// A spot on the lattice, by column and row from the park's top-left.
-/// Made only by `Park.spot`.
+/// A spot on the lattice, by column and row from the park's top-left. Any
+/// park's: `Park.pointOf` says whether this one reaches it.
 pub const LatticeSpot = struct {
     column: u31,
     row: u31,
 };
 
-pub const SpotOrOff = union(enum) {
-    on: LatticeSpot,
+pub const SpotPoint = union(enum) {
+    on: InParkPoint,
     off_park,
 };
 
@@ -181,6 +181,8 @@ const small: Park = (Park.of(.{ .width = 1000, .height = 600 })).park;
 test "a park too small for one lattice spot is not made" {
     try testing.expectEqual(Sized.too_small, Park.of(.{ .width = 0, .height = 600 }));
     try testing.expectEqual(Sized.too_small, Park.of(.{ .width = 1000, .height = lattice_spacing - 1 }));
+    try testing.expectEqual(Sized.too_large, Park.of(.{ .width = longest_side + 1, .height = 600 }));
+    try testing.expect(Park.of(.{ .width = longest_side, .height = longest_side }) == .park);
 }
 
 test "a point inside the park, and one past two of its edges, by how much" {
@@ -209,14 +211,16 @@ test "clamping says whether it moved the point, and keeps it in the park" {
 
 test "the lattice: spots 100 apart, the first half a spacing in, every one inside" {
     try testing.expectEqual(LatticeExtent{ .columns = 10, .rows = 6 }, small.extent());
-    try testing.expectEqual(ParkPoint.at(50, 50), small.pointOf(small.spot(0, 0).on).point);
-    try testing.expectEqual(ParkPoint.at(950, 550), small.pointOf(small.spot(9, 5).on).point);
-    try testing.expectEqual(SpotOrOff.off_park, small.spot(10, 0));
+    try testing.expectEqual(ParkPoint.at(50, 50), small.pointOf(.{ .column = 0, .row = 0 }).on.point);
+    try testing.expectEqual(ParkPoint.at(950, 550), small.pointOf(.{ .column = 9, .row = 5 }).on.point);
+    try testing.expectEqual(SpotPoint.off_park, small.pointOf(.{ .column = 10, .row = 0 }));
+    // A spot of a bigger park, or at the column's edge, is off this one.
+    try testing.expectEqual(SpotPoint.off_park, small.pointOf(.{ .column = std.math.maxInt(u31), .row = 0 }));
     var column: u31 = 0;
     while (column < small.extent().columns) : (column += 1) {
         var row: u31 = 0;
         while (row < small.extent().rows) : (row += 1) {
-            try testing.expect(small.holds(small.pointOf(small.spot(column, row).on).point) == .inside);
+            try testing.expect(small.holds(small.pointOf(.{ .column = column, .row = row }).on.point) == .inside);
         }
     }
 }

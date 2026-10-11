@@ -9,7 +9,6 @@ const scene = @import("scene.zig");
 /// A move's outcome. Kept moves say, by type, whether the park clamped them.
 /// Made by `decide`, so an outcome cannot disagree with its move.
 pub const MoveOutcome = union(enum) {
-    /// The move was a stay: the dog is where it was.
     stayed,
     /// Moved: the dog's new place, inside the park or clamped to its edge.
     moved: park.Clamped,
@@ -35,7 +34,8 @@ pub const MoveRefusal = enum {
 pub fn decide(p: park.Park, was: park.InParkPoint, move: scene.Move) MoveOutcome {
     return switch (move) {
         .stay => .stayed,
-        .drag => |d| switch (dragLength(d)) {
+        // A drag of nothing, though Move.of never makes one, is a stay.
+        .drag => |d| if (std.meta.eql(d, frames.Displacement.none)) .stayed else switch (dragLength(d)) {
             .too_far => .{ .refused = .too_far_at_once },
             .within_limit => .{ .moved = p.clamp(was.point.plus(d)) },
         },
@@ -53,8 +53,8 @@ pub fn dragLength(d: frames.Displacement) DragLength {
 
 pub const DragLength = enum { within_limit, too_far };
 
-/// A new human's dog: placed on a lattice spot (its point is the park's
-/// `pointOf` that spot), or not, and why.
+/// A new human's dog: placed on a lattice spot of the park (its point is
+/// the park's `pointOf` it), or not, and why.
 pub const Placement = union(enum) {
     placed: park.LatticeSpot,
     refused: PlacementRefusal,
@@ -76,6 +76,7 @@ const start: park.InParkPoint = .{ .point = .at(10, 10) };
 
 test "a stay stays, and a refused move leaves the dog where it start" {
     try testing.expectEqual(MoveOutcome.stayed, decide(small, start, .stay));
+    try testing.expectEqual(MoveOutcome.stayed, decide(small, start, .{ .drag = .none }));
     try testing.expectEqual(start, decide(small, start, .stay).dogAt(start));
     const far = decide(small, start, .{ .drag = .{ .dx = longest_drag + 1, .dy = 0 } });
     try testing.expectEqual(MoveOutcome{ .refused = .too_far_at_once }, far);
@@ -102,6 +103,6 @@ test "a drag's length, at the limit and past it" {
 }
 
 test "a placed dog stands on its spot's point" {
-    const placed: Placement = .{ .placed = small.spot(2, 1).on };
-    try testing.expectEqual(frames.ParkPoint.at(250, 150), small.pointOf(placed.placed).point);
+    const placed: Placement = .{ .placed = .{ .column = 2, .row = 1 } };
+    try testing.expectEqual(frames.ParkPoint.at(250, 150), small.pointOf(placed.placed).on.point);
 }
