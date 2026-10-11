@@ -15,12 +15,14 @@
 // position waiting for its ack. The leash is let go when you press another
 // dog, or 5 s after you let go of the dog. Holding a dog near any edge of
 // the screen scrolls the viewport that way, the dog going with it.
-// Dragging anywhere else pans the park, like a tablecloth. The server keeps
+// Dragging anywhere else pans the park, like a tablecloth; holding the
+// pointer near an edge keeps the cloth moving that way. The server keeps
 // your viewport and your leash, so a reload shows the same place.
 //
 // "z" toggles the OVERVIEW: the whole world on the screen, the tiles you
 // know white and blue and the rest red, the dogs you know as dots (the dog
-// you leashed last ringed), and your view as a rectangle you can drag.
+// you leashed last ringed), and your view as a rectangle you can drag by
+// pressing inside it.
 //
 // The dev console says what the server acks: tiles, leashes, releases,
 // moves.
@@ -147,13 +149,13 @@ function bandSpeed(depthPx) {
   return slowest_px_per_frame + Math.min(depth, 1) * (fastest_px_per_frame - slowest_px_per_frame);
 }
 
-// How far the viewport moves this frame along one axis, toward the far
-// edge (negative: toward the near one), for a dog held at `dogViewportAt`
-// on a screen `length` long that way: 0 outside both bands.
-function axisScroll(dogViewportAt, length) {
-  const half = dog_px / 2;
-  const near = bandSpeed(half + band_px - dogViewportAt);
-  const far = bandSpeed(dogViewportAt - (length - half - band_px));
+// How far the band moves the viewport this frame along one axis, toward the
+// far edge (negative: toward the near one), for something at `viewportAt` on
+// a screen `length` long that way, which comes no nearer an edge than
+// `reachPx` (a dog's half-size; 0 for the pointer): 0 outside both bands.
+function axisScroll(viewportAt, length, reachPx) {
+  const near = bandSpeed(reachPx + band_px - viewportAt);
+  const far = bandSpeed(viewportAt - (length - reachPx - band_px));
   return far - near;
 }
 
@@ -440,7 +442,12 @@ async function start() {
   canvas.addEventListener("pointerdown", (e) => {
     canvas.setPointerCapture(e.pointerId);
     if (mode === "overview") {
-      hold = { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY };
+      // The view's rectangle moves only when it is pressed.
+      const o = overviewFrame(viewport.width, viewport.height);
+      const corner = overviewFromPark(o, viewport.parkX, viewport.parkY);
+      const inside = e.offsetX >= corner.viewportX && e.offsetX <= corner.viewportX + viewport.width * o.scale &&
+        e.offsetY >= corner.viewportY && e.offsetY <= corner.viewportY + viewport.height * o.scale;
+      hold = inside ? { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY } : { kind: "resting" };
       return;
     }
     const g = grabbed(viewport, [...known.values()], e.offsetX, e.offsetY);
@@ -489,11 +496,24 @@ async function start() {
       requestAnimationFrame(frame);
       return;
     }
+    if (hold.kind === "panning") {
+      // The cloth keeps moving while the pointer is held near an edge: the
+      // park toward that edge, so the viewport away from it.
+      const want = {
+        parkX: viewport.parkX - axisScroll(hold.lastViewportX, viewport.width, 0),
+        parkY: viewport.parkY - axisScroll(hold.lastViewportY, viewport.height, 0),
+      };
+      const kept = viewportKeptOnWorld(viewport, want.parkX, want.parkY);
+      if (kept.parkX !== viewport.parkX || kept.parkY !== viewport.parkY) {
+        Object.assign(viewport, kept);
+        sendViewport(viewport);
+      }
+    }
     if (hold.kind === "holding") {
       const dog = hold.dog;
       const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
-      const eastward = axisScroll(at.viewportX, viewport.width);
-      const southward = axisScroll(at.viewportY, viewport.height);
+      const eastward = axisScroll(at.viewportX, viewport.width, dog_px / 2);
+      const southward = axisScroll(at.viewportY, viewport.height, dog_px / 2);
       // The viewport and the dog move together: the dog stays put on screen
       // while it travels through the park.
       // The dog stops at the world's edge, and the scroll with it.
