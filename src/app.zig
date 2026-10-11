@@ -26,6 +26,12 @@ pub const park_js = @embedFile("park.js");
 /// The longest `POST /scene` body: a request is under 200 bytes.
 pub const longest_body = 1024;
 
+/// The most any route reads of a body (webbox's body rule): only `/scene`
+/// takes one, and it is small.
+pub fn bodyLimit(_: []const u8) u64 {
+    return longest_body;
+}
+
 /// The most other dogs one scene sends: enough for a screen of them.
 pub const most_others = 2000;
 

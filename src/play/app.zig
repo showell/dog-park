@@ -34,6 +34,12 @@ const page_dir = "solo";
 /// The longest request body: fifty tiles at about 25 bytes each.
 pub const longest_body = 4096;
 
+/// The most any route reads of a body (webbox's body rule): every route's is
+/// the same, small.
+pub fn bodyLimit(_: []const u8) u64 {
+    return longest_body;
+}
+
 /// **A HUMAN IS A DEVICE**: a signed cookie naming its random id, for a year.
 pub const human_cookie: signed_cookie.Cookie = .{ .name = "dogpark_human", .kind = .{
     .label = "dogpark_human\n",
