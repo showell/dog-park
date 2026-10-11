@@ -85,8 +85,8 @@ function grabbed(viewport, dog, pointerViewportX, pointerViewportY) {
 // scrolls the viewport: from the dog's farthest place on screen (half its
 // size from the edge) `band_px` inward. Deeper in the band, faster.
 const band_px = 80;
-const slowest_px_per_frame = 2 / 3;
-const fastest_px_per_frame = 16 / 3;
+const slowest_px_per_frame = (2 / 3) * 0.7;
+const fastest_px_per_frame = (16 / 3) * 0.7;
 
 function bandSpeed(depthPx) {
   const depth = depthPx / band_px; // 0 at the band's inner edge, 1 at the screen's edge
@@ -102,6 +102,29 @@ function axisScroll(dogViewportAt, length) {
   const near = bandSpeed(half + band_px - dogViewportAt);
   const far = bandSpeed(dogViewportAt - (length - half - band_px));
   return far - near;
+}
+
+// ── re-centring ─────────────────────────────────────────────────────────────
+
+// A dog let go at (or within `near_edge_px` of) the farthest it can go on
+// screen is re-centred once the human has been idle `recentre_after_ms`: the
+// viewport snaps so the dog is in the middle. The dog doesn't move in the
+// park. A dog let go anywhere else stays where it is on screen.
+const near_edge_px = 24;
+const recentre_after_ms = 1200;
+
+function atAnEdge(viewport, dogViewportX, dogViewportY) {
+  const reach = dog_px / 2 + near_edge_px;
+  return dogViewportX <= reach || dogViewportY <= reach ||
+    dogViewportX >= viewport.width - reach || dogViewportY >= viewport.height - reach;
+}
+
+// The viewport's top-left (a park point) that puts the dog in the middle.
+function centredOn(viewport, dog) {
+  return {
+    parkX: dog.parkX - viewport.width / 2,
+    parkY: dog.parkY - viewport.height / 2,
+  };
 }
 
 // ── the blitter: owns no logic ──────────────────────────────────────────────
@@ -138,7 +161,9 @@ function start() {
   const canvas = document.getElementById("park");
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
   let dogs = null;
-  let hold = { kind: "idle" };
+  // What the human's hand is doing: holding the dog; let go at a time (a
+  // re-centre may be due); or resting (nothing due).
+  let hold = { kind: "resting" };
   // The pointer's last viewport point while holding: a still pointer in
   // the band keeps scrolling.
   const pointer = { viewportX: 0, viewportY: 0 };
@@ -176,11 +201,17 @@ function start() {
     pointer.viewportY = e.offsetY;
     follow();
   });
-  const letGo = () => { hold = { kind: "idle" }; };
+  const letGo = () => { if (hold.kind === "holding") hold = { kind: "let_go", atMs: performance.now() }; };
   canvas.addEventListener("pointerup", letGo);
   canvas.addEventListener("pointercancel", letGo);
 
-  const frame = () => {
+  const frame = (nowMs) => {
+    if (hold.kind === "let_go" && nowMs - hold.atMs >= recentre_after_ms) {
+      const dog = own();
+      const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
+      if (atAnEdge(viewport, at.viewportX, at.viewportY)) Object.assign(viewport, centredOn(viewport, dog));
+      hold = { kind: "resting" };
+    }
     if (hold.kind === "holding") {
       const dog = own();
       const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
