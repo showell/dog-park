@@ -21,6 +21,14 @@ pub const Holding = union(enum) {
     holds_none,
 };
 
+/// Whether the asker's device has been here before: a request that came back
+/// with the cookie an earlier one set, or a device's first, with none.
+/// **A FIRST VISIT'S CLAIM IS SHOWN, NOT KEPT** (docs/FIXED-DOGS.md): the
+/// dog shows as theirs, but nothing is written and nobody loses a dog, so a
+/// loop of cookie-less requests cannot churn real humans' claims. Their
+/// next request, with the cookie, claims for real.
+pub const Standing = enum { returning, first_visit };
+
 /// What a request changed.
 pub const Change = union(enum) {
     nothing,
@@ -61,7 +69,7 @@ pub const Room = struct {
 /// claims one first (claiming.claimFor), then the move is decided, then the
 /// others are found in what the scene covers, piece by piece across the
 /// seam. `all[i]` is dog `i`; `pop` indexes the same dogs by where they are.
-pub fn answer(p: park.Park, pop: population.Population, all: []const dogs.Dog, human: HumanId, holding: Holding, now: dogs.Instant, request: scene.SceneRequest, room: Room) Answered {
+pub fn answer(p: park.Park, pop: population.Population, all: []const dogs.Dog, human: HumanId, standing: Standing, holding: Holding, now: dogs.Instant, request: scene.SceneRequest, room: Room) Answered {
     const touched: dogs.Claim = .{ .claimed = .{ .by = human, .touched = now } };
     var move: outcomes.MoveOutcome = undefined;
     var after: dogs.Dog = undefined;
@@ -89,7 +97,10 @@ pub fn answer(p: park.Park, pop: population.Population, all: []const dogs.Dog, h
             move = .stayed;
             after = all[id.number()];
             after.claim = touched;
-            change = .{ .claimed = .{ .dog = after, .from = from } };
+            change = switch (standing) {
+                .returning => .{ .claimed = .{ .dog = after, .from = from } },
+                .first_visit => .nothing,
+            };
         },
     }
     // **THE WIRE IS THE GATE**: `request` comes through wire.WireSceneRequest.read,
@@ -174,7 +185,7 @@ const Rig = struct {
     }
 
     fn ask(self: *Rig, human: HumanId, now: dogs.Instant, r: scene.SceneRequest) Answered {
-        const a = answer(small, self.list.population(), self.all[0..self.count], human, self.holding(human), now, r, .{ .others = &self.others, .found = &self.found });
+        const a = answer(small, self.list.population(), self.all[0..self.count], human, .returning, self.holding(human), now, r, .{ .others = &self.others, .found = &self.found });
         switch (a.change) {
             .moved, .touched => |d| self.keep(d),
             .claimed => |c| self.keep(c.dog),
@@ -274,7 +285,18 @@ test "the others cut at the room given, and the scene says more are there" {
     rig.add(550, 550, .dog, .{ .claimed = .{ .by = alice, .touched = noon } });
     for (0..5) |i| rig.add(@intCast(400 + 10 * i), 400, .dog, .unclaimed);
     var others: [3]dogs.Drawn = undefined;
-    const a = answer(small, rig.list.population(), rig.all[0..rig.count], alice, rig.holding(alice), noon, asking(.at(300, 300), .stay), .{ .others = &others, .found = &rig.found });
+    const a = answer(small, rig.list.population(), rig.all[0..rig.count], alice, .returning, rig.holding(alice), noon, asking(.at(300, 300), .stay), .{ .others = &others, .found = &rig.found });
     try testing.expectEqual(@as(usize, 3), a.scene.others.len);
     try testing.expectEqual(population.Completeness.more_in_region, a.scene.others_completeness);
+}
+
+test "a first visit is shown a dog as its own, but keeps nothing and takes nobody's" {
+    var rig: Rig = .{};
+    rig.add(550, 550, .dog, .{ .claimed = .{ .by = alice, .touched = .of(100) } });
+    const carol: HumanId = .of(3);
+    const a = answer(small, rig.list.population(), rig.all[0..rig.count], carol, .first_visit, .holds_none, noon, asking(.at(300, 300), .stay), .{ .others = &rig.others, .found = &rig.found });
+    try testing.expectEqual(Change.nothing, a.change);
+    try testing.expectEqual(frames.PlanePoint.at(550, 550), a.scene.own.at);
+    // Alice still holds it.
+    try testing.expectEqual(Holding{ .holds = .of(0) }, rig.holding(alice));
 }

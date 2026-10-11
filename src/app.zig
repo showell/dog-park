@@ -138,16 +138,16 @@ fn scene(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
     };
     // A new device becomes a human only once its request reads.
     const who: Who = switch (visitor.visitor) {
-        .known => |h| .{ .human = h, .set_cookie = visitor.renewal },
+        .known => |h| .{ .human = h, .standing = .returning, .set_cookie = visitor.renewal },
         .new_device => blk: {
             const h = try the_world.newHuman(io, alloc);
             var name: [20]u8 = undefined;
             const issued = (try signed_cookie.issue(device_cookie, io, alloc, auth_dir, nameOf(h, &name), now)) orelse return error.NoSecret;
-            break :blk .{ .human = h, .set_cookie = .{ .header = issued } };
+            break :blk .{ .human = h, .standing = .first_visit, .set_cookie = .{ .header = issued } };
         },
     };
     const room: answering.Room = .{ .others = try alloc.alloc(dogs.Drawn, most_others), .found = try alloc.alloc(dogs.Dog, most_others) };
-    const answered = answering.answer(the_world.park, the_world.population(), the_world.all, who.human, the_world.holding(who.human), .of(now), request, room);
+    const answered = answering.answer(the_world.park, the_world.population(), the_world.all, who.human, who.standing, the_world.holding(who.human), .of(now), request, room);
     try the_world.keep(io, alloc, answered.change);
     const out = try std.json.Stringify.valueAlloc(alloc, wire.WireAnswer.of(answered.scene, try alloc.alloc(wire.WireDog, most_others)), .{});
     const json: std.http.Header = .{ .name = "content-type", .value = "application/json" };
@@ -164,6 +164,7 @@ const SetCookie = union(enum) {
 
 const Who = struct {
     human: HumanId,
+    standing: answering.Standing,
     set_cookie: SetCookie,
 };
 
@@ -260,40 +261,45 @@ const stay_body =
     \\{"viewport_plane_x":2300,"viewport_plane_y":2300,"viewport_width":400,"viewport_height":300,"move":{"stay":{}}}
 ;
 
-test "the first request makes a human who claims a dog; the second, with its cookie, is the same human" {
+test "a first visit is shown a dog and keeps nothing; the next, with its cookie, claims it; then it drags" {
     var rig: Rig = undefined;
     try rig.init();
     defer rig.deinit();
     try testing.expectEqual(.created, rig.report.secret);
     try testing.expectEqual(.made_now, rig.report.made);
+    const a = rig.arena.allocator();
     const first = try rig.post("", stay_body);
     try testing.expect(std.mem.startsWith(u8, first.head, "HTTP/1.1 200"));
     const cookie = cookieSet(first.head);
     try testing.expect(std.mem.startsWith(u8, cookie, "dogpark_human=1."));
-    const a = rig.arena.allocator();
+    try testing.expectEqual(answering.Holding.holds_none, the_world.holding(.of(1)));
+    const shown = (try std.json.parseFromSliceLeaky(std.json.Value, a, first.body, .{})).object.get("scene").?.object.get("own").?.object;
+
+    const second = try rig.post(cookie, stay_body);
+    try testing.expect(std.mem.indexOf(u8, second.head, "set-cookie") == null);
     const claimed = the_world.holding(.of(1)).holds;
     const at = the_world.all[claimed.number()].at.point;
-    const answer = try std.json.parseFromSliceLeaky(std.json.Value, a, first.body, .{});
-    const own = answer.object.get("scene").?.object.get("own").?.object;
-    try testing.expectEqual(@as(i64, at.x.number()), own.get("plane_x").?.integer);
-    try testing.expectEqualStrings("stayed", answer.object.get("scene").?.object.get("move").?.string);
+    // The dog the first visit was shown is the one claimed, nobody having
+    // claimed it between.
+    try testing.expectEqual(@as(i64, at.x.number()), shown.get("plane_x").?.integer);
 
     const drag =
         \\{"viewport_plane_x":2300,"viewport_plane_y":2300,"viewport_width":400,"viewport_height":300,"move":{"drag":{"own_dog_dx":30,"own_dog_dy":-20}}}
     ;
-    const second = try rig.post(cookie, drag);
-    try testing.expect(std.mem.indexOf(u8, second.head, "set-cookie") == null);
-    const moved = try std.json.parseFromSliceLeaky(std.json.Value, a, second.body, .{});
-    const scene_ = moved.object.get("scene").?.object;
+    const third = try rig.post(cookie, drag);
+    const scene_ = (try std.json.parseFromSliceLeaky(std.json.Value, a, third.body, .{})).object.get("scene").?.object;
     try testing.expectEqualStrings("moved", scene_.get("move").?.string);
     try testing.expectEqual(@as(i64, at.x.number() + 30), scene_.get("own").?.object.get("plane_x").?.integer);
     try testing.expectEqual(@as(i64, at.y.number() - 20), scene_.get("own").?.object.get("plane_y").?.integer);
-    // Kept: the world holds it, and so does the disk.
     try testing.expectEqual(at.plus(.{ .dx = 30, .dy = -20 }), @import("frames.zig").homeCopy(the_world.all[claimed.number()].at.point));
-    // A second device is a second human, and claims another dog.
-    const other = try rig.post("", stay_body);
-    try testing.expect(std.mem.startsWith(u8, cookieSet(other.head), "dogpark_human=2."));
-    try testing.expect(the_world.holding(.of(2)).holds != claimed);
+}
+
+test "cookie-less requests churn no claim: a loop of first visits leaves every dog unclaimed" {
+    var rig: Rig = undefined;
+    try rig.init();
+    defer rig.deinit();
+    for (0..20) |_| _ = try rig.post("", stay_body);
+    for (the_world.all) |d| try testing.expectEqual(dogs.Claim.unclaimed, d.claim);
 }
 
 test "a forged cookie is a new device, never the human it names" {
@@ -343,7 +349,7 @@ test "a second start finds the secret and the dogs" {
     var rig: Rig = undefined;
     try rig.init();
     defer rig.deinit();
-    _ = try rig.post("", stay_body);
+    _ = try rig.post(cookieSet((try rig.post("", stay_body)).head), stay_body);
     the_world.close(testing.allocator);
     const a = rig.arena.allocator();
     const root = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &rig.tmp.sub_path });
