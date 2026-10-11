@@ -16,7 +16,7 @@ const frames = @import("frames.zig");
 const park = @import("park.zig");
 const dogs = @import("dogs.zig");
 const contract = @import("population.zig");
-const HumanId = @import("humans.zig").HumanId;
+const DogId = dogs.DogId;
 
 /// The smallest cell's side: about half a viewport, so a scene touches a
 /// handful of cells.
@@ -34,7 +34,7 @@ pub const GridPopulation = struct {
     heads: []Slot,
     entries: []Entry,
     used: u32,
-    by_owner: std.AutoHashMapUnmanaged(HumanId, Slot),
+    by_dog: std.AutoHashMapUnmanaged(DogId, Slot),
 
     /// An entry's place in `entries`, or none: a list's end.
     const Slot = enum(u32) { none = std.math.maxInt(u32), _ };
@@ -56,15 +56,15 @@ pub const GridPopulation = struct {
         @memset(heads, .none);
         const entries = try allocator.alloc(Entry, capacity);
         errdefer allocator.free(entries);
-        var by_owner: std.AutoHashMapUnmanaged(HumanId, Slot) = .empty;
-        try by_owner.ensureTotalCapacity(allocator, capacity);
-        return .{ .park = p, .cell_side = cell_side, .columns = columns, .rows = rows, .heads = heads, .entries = entries, .used = 0, .by_owner = by_owner };
+        var by_dog: std.AutoHashMapUnmanaged(DogId, Slot) = .empty;
+        try by_dog.ensureTotalCapacity(allocator, capacity);
+        return .{ .park = p, .cell_side = cell_side, .columns = columns, .rows = rows, .heads = heads, .entries = entries, .used = 0, .by_dog = by_dog };
     }
 
     pub fn deinit(self: *GridPopulation, allocator: std.mem.Allocator) void {
         allocator.free(self.heads);
         allocator.free(self.entries);
-        self.by_owner.deinit(allocator);
+        self.by_dog.deinit(allocator);
     }
 
     pub fn population(self: *GridPopulation) contract.Population {
@@ -118,7 +118,7 @@ pub const GridPopulation = struct {
                 var slot = self.heads[@intCast(row * self.columns + column)];
                 while (slot != .none) : (slot = self.entries[@intFromEnum(slot)].next) {
                     const d = self.entries[@intFromEnum(slot)].dog;
-                    if (d.owner == q.except or q.region.holds(d.at.point) == .outside) continue;
+                    if (d.id == q.except or q.region.holds(d.at.point) == .outside) continue;
                     if (count == into.len) return .{ .count = count, .completeness = .more_in_region };
                     into[count] = d;
                     count += 1;
@@ -128,9 +128,9 @@ pub const GridPopulation = struct {
         return .{ .count = count, .completeness = .all_in_region };
     }
 
-    fn lookup(ptr: *anyopaque, owner: HumanId) contract.Lookup {
+    fn lookup(ptr: *anyopaque, id: DogId) contract.Lookup {
         const self = of(ptr);
-        const slot = self.by_owner.get(owner) orelse return .no_dog;
+        const slot = self.by_dog.get(id) orelse return .no_dog;
         return .{ .found = self.entries[@intFromEnum(slot)].dog };
     }
 
@@ -140,7 +140,7 @@ pub const GridPopulation = struct {
         // wrong cell: `InParkPoint` is a naming fence, and a literal can skip it.
         std.debug.assert(self.park.holds(dog.at.point) == .inside);
         const cell = self.cellOf(dog.at);
-        if (self.by_owner.get(dog.owner)) |slot| {
+        if (self.by_dog.get(dog.id)) |slot| {
             const e = &self.entries[@intFromEnum(slot)];
             const was = e.dog.at;
             e.dog = dog;
@@ -155,7 +155,7 @@ pub const GridPopulation = struct {
         self.used += 1;
         self.entries[@intFromEnum(slot)].dog = dog;
         self.link(slot, cell);
-        self.by_owner.putAssumeCapacityNoClobber(dog.owner, slot);
+        self.by_dog.putAssumeCapacityNoClobber(dog.id, slot);
         return .added;
     }
 };
@@ -164,13 +164,13 @@ pub const GridPopulation = struct {
 
 const testing = std.testing;
 
-fn byOwner(_: void, a: dogs.Dog, b: dogs.Dog) bool {
-    return a.owner.number() < b.owner.number();
+fn byId(_: void, a: dogs.Dog, b: dogs.Dog) bool {
+    return a.id.number() < b.id.number();
 }
 
 /// The same operations on the grid and on the list, the oracle; every
 /// answer the same (`near`'s as a set: the contract promises no order).
-fn agree(seed: u64, size: frames.Size, capacity: comptime_int, owners: u64, operations: usize) !void {
+fn agree(seed: u64, size: frames.Size, capacity: comptime_int, ids: u32, operations: usize) !void {
     const p = (park.Park.of(size)).park;
     var grid = try GridPopulation.init(testing.allocator, p, capacity);
     defer grid.deinit(testing.allocator);
@@ -200,12 +200,12 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, owners: u64, oper
         switch (random.uintLessThan(u8, 3)) {
             0 => {
                 const at = p.wrap(.at(edgy.coord(random, width, cell), edgy.coord(random, height, cell)));
-                const dog: dogs.Dog = .{ .owner = .of(random.uintLessThan(u64, owners)), .at = at, .breed = random.enumValue(dogs.Breed) };
+                const dog: dogs.Dog = .{ .id = .of(random.uintLessThan(u32, ids)), .at = at, .breed = random.enumValue(dogs.Breed), .claim = .unclaimed };
                 try testing.expectEqual(l.put(dog), g.put(dog));
             },
             1 => {
-                const owner: HumanId = .of(random.uintLessThan(u64, owners));
-                try testing.expectEqual(l.lookup(owner), g.lookup(owner));
+                const id: DogId = .of(random.uintLessThan(u32, ids));
+                try testing.expectEqual(l.lookup(id), g.lookup(id));
             },
             else => {
                 // Any rectangle: on cell edges, reaching past the park, or
@@ -214,7 +214,7 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, owners: u64, oper
                     .top_left = .at(edgy.coord(random, width, cell) - random.uintLessThan(u31, 3) * width, edgy.coord(random, height, cell)),
                     .size = .{ .width = random.uintLessThan(u31, 3 * p.size.width), .height = random.uintLessThan(u31, p.size.height + 400) },
                 };
-                const q: contract.Near = .{ .region = region, .except = .of(random.uintLessThan(u64, owners)) };
+                const q: contract.Near = .{ .region = region, .except = .of(random.uintLessThan(u32, ids)) };
                 const most = random.uintAtMost(usize, capacity);
                 const found_grid = g.near(q, into_grid[0..most]);
                 const found_list = l.near(q, into_list[0..most]);
@@ -224,8 +224,8 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, owners: u64, oper
                 const got = into_grid[0..found_grid.count];
                 switch (found_grid.completeness) {
                     .all_in_region => {
-                        std.mem.sort(dogs.Dog, got, {}, byOwner);
-                        std.mem.sort(dogs.Dog, into_list[0..found_list.count], {}, byOwner);
+                        std.mem.sort(dogs.Dog, got, {}, byId);
+                        std.mem.sort(dogs.Dog, into_list[0..found_list.count], {}, byId);
                         try testing.expectEqualSlices(dogs.Dog, into_list[0..found_list.count], got);
                     },
                     // Cut: as many as asked, each one of the region's, none twice.
@@ -233,10 +233,10 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, owners: u64, oper
                         for (every) |e| {
                             if (std.meta.eql(d, e)) break;
                         } else return error.TestUnexpectedResult;
-                        for (got[0..i]) |earlier| try testing.expect(earlier.owner != d.owner);
+                        for (got[0..i]) |earlier| try testing.expect(earlier.id != d.id);
                     },
                 }
-                for (got) |d| try testing.expect(d.owner != q.except);
+                for (got) |d| try testing.expect(d.id != q.except);
             },
         }
     }
@@ -268,9 +268,9 @@ test "the grid's memory: cells at most most_cells_across a side, and full at cap
     try testing.expect(grid.columns <= most_cells_across and grid.rows <= most_cells_across);
     const pop = grid.population();
     const at = p.wrap(.at(0, 0));
-    try testing.expectEqual(contract.Put.added, pop.put(.{ .owner = .of(1), .at = at, .breed = .dog }));
-    try testing.expectEqual(contract.Put.added, pop.put(.{ .owner = .of(2), .at = at, .breed = .dog }));
-    try testing.expectEqual(contract.Put.refused_full, pop.put(.{ .owner = .of(3), .at = at, .breed = .dog }));
+    try testing.expectEqual(contract.Put.added, pop.put(.{ .id = .of(1), .at = at, .breed = .dog, .claim = .unclaimed }));
+    try testing.expectEqual(contract.Put.added, pop.put(.{ .id = .of(2), .at = at, .breed = .dog, .claim = .unclaimed }));
+    try testing.expectEqual(contract.Put.refused_full, pop.put(.{ .id = .of(3), .at = at, .breed = .dog, .claim = .unclaimed }));
     // A full grid still moves the dogs it holds.
-    try testing.expectEqual(contract.Put{ .replaced = at }, pop.put(.{ .owner = .of(2), .at = p.wrap(.at(-1, -1)), .breed = .dog }));
+    try testing.expectEqual(contract.Put{ .replaced = at }, pop.put(.{ .id = .of(2), .at = p.wrap(.at(-1, -1)), .breed = .dog, .claim = .unclaimed }));
 }

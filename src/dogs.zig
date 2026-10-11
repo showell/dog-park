@@ -1,7 +1,7 @@
-//! Dogs. **A DOG IS KNOWN BY ITS OWNER.** Every human owns exactly one dog,
-//! so a dog's id is its owner's: there is no dog without an owner, and no
-//! way to name a second dog for one human. A population keyed by owner
-//! (population.zig) holds at most one dog per human by construction.
+//! Dogs. **THE DOGS ARE FIXED** (docs/FIXED-DOGS.md): a park has a number
+//! of them, made once with its data and never made or destroyed after, each
+//! with its own id. A human does not bring a dog: they claim one, and a dog
+//! changes hands when every dog is claimed and its claim is the stalest.
 
 const std = @import("std");
 const frames = @import("frames.zig");
@@ -28,11 +28,53 @@ pub const Breed = enum(u8) {
     }
 };
 
-/// A dog where it stands: its owner, its place in the park, its look.
+/// A dog's id: `0 ..< count`, fixed when the park's dogs are made.
+pub const DogId = enum(u32) {
+    _,
+
+    pub fn of(n: u32) DogId {
+        return @enumFromInt(n);
+    }
+
+    pub fn number(self: DogId) u32 {
+        return @intFromEnum(self);
+    }
+};
+
+/// A moment, in the wall clock's Unix seconds: when a claim was last
+/// touched. Not a duration, and not the monotonic clock's: a claim's
+/// staleness is compared across restarts.
+pub const Instant = enum(i64) {
+    _,
+
+    pub fn of(unix_seconds: i64) Instant {
+        return @enumFromInt(unix_seconds);
+    }
+
+    pub fn seconds(self: Instant) i64 {
+        return @intFromEnum(self);
+    }
+};
+
+/// Who holds a dog: nobody, or a human, as of when they last asked for a
+/// scene (a move or a stay: a human who only looks still holds their dog).
+pub const Claim = union(enum) {
+    unclaimed,
+    claimed: Claimed,
+};
+
+pub const Claimed = struct {
+    by: HumanId,
+    touched: Instant,
+};
+
+/// A dog where it stands: its id, its place in the park, its look, and
+/// who holds it.
 pub const Dog = struct {
-    owner: HumanId,
+    id: DogId,
     at: park.InParkPoint,
     breed: Breed,
+    claim: Claim,
 
     /// The dog with its owner left out, drawn at its copy nearest `near`.
     pub fn drawnNear(self: Dog, p: park.Park, near: frames.PlanePoint) Drawn {
@@ -60,7 +102,7 @@ test "every breed has an emoji" {
 
 test "a dog is drawn at its copy nearest a plane point, and its frame is centred there" {
     const p = (park.Park.of(.{ .width = 1000, .height = 600 })).park;
-    const d: Dog = .{ .owner = .of(1), .at = p.wrap(.at(30, 400)), .breed = .poodle };
+    const d: Dog = .{ .id = .of(1), .at = p.wrap(.at(30, 400)), .breed = .poodle, .claim = .unclaimed };
     const drawn = d.drawnNear(p, .at(980, 400));
     try std.testing.expectEqual(frames.PlanePoint.at(1030, 400), drawn.at);
     try std.testing.expectEqual(frames.OwnDogPoint.at(0, 0), drawn.frame().fromPlane(drawn.at));

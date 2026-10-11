@@ -130,23 +130,16 @@ pub const WireCompleteness = enum { all, more_not_sent };
 
 pub const WireMoveOutcome = enum { stayed, moved, refused_too_far_at_once };
 
-/// What the browser gets: a scene, or why its dog could not be placed.
+/// What the browser gets: a scene. A request always ends with its human
+/// holding a dog (claiming.zig), so there is no other answer; the union is
+/// the wire's shape, `{"scene": ...}`, kept for a later one.
 pub const WireAnswer = union(enum) {
     scene: WireScene,
-    no_room: WirePlacementRefusal,
 
-    pub fn of(a: scene.SceneAnswer, others_into: []WireDog) WireAnswer {
-        return switch (a) {
-            .scene => |s| .{ .scene = .of(s, others_into) },
-            .no_room => |r| .{ .no_room = switch (r) {
-                .park_full => .park_full,
-                .population_full => .population_full,
-            } },
-        };
+    pub fn of(s: scene.Scene, others_into: []WireDog) WireAnswer {
+        return .{ .scene = .of(s, others_into) };
     }
 };
-
-pub const WirePlacementRefusal = enum { park_full, population_full };
 
 // ── tests ────────────────────────────────────────────────────────────────────
 
@@ -200,8 +193,8 @@ test "a scene on the wire: plane copies, no owners, a move across the seam" {
     const start: park.InParkPoint = small.wrap(.at(10, 10));
     const move = outcomes.decide(small, start, .{ .drag = .{ .dx = -50, .dy = 0 } });
     const viewport: frames.Viewport = .{ .origin = .at(-300, 0), .size = .{ .width = 300, .height = 200 } };
-    const other: dogs.Dog = .{ .owner = .of(3), .at = small.wrap(.at(940, 50)), .breed = .poodle };
-    const own: dogs.Dog = .{ .owner = .of(4), .at = move.dogAt(start), .breed = .dog_face };
+    const other: dogs.Dog = .{ .id = .of(3), .at = small.wrap(.at(940, 50)), .breed = .poodle, .claim = .unclaimed };
+    const own: dogs.Dog = .{ .id = .of(4), .at = move.dogAt(start), .breed = .dog_face, .claim = .unclaimed };
     const s: scene.Scene = .{
         .viewport = viewport,
         .own = own.drawnNear(small, viewport.centre()),
@@ -225,5 +218,4 @@ test "a scene on the wire: plane copies, no owners, a move across the seam" {
     const short = WireScene.of(s, into[0..0]);
     try testing.expectEqual(@as(usize, 0), short.others.len);
     try testing.expectEqual(WireCompleteness.more_not_sent, short.others_complete);
-    try testing.expectEqual(WirePlacementRefusal.park_full, WireAnswer.of(.{ .no_room = .park_full }, &into).no_room);
 }

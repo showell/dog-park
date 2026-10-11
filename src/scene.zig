@@ -55,14 +55,6 @@ pub const Scene = struct {
     }
 };
 
-/// What a request gets: its scene, or, for a human with no dog yet whose
-/// dog could not be placed, why not. A human with no dog has one placed
-/// before the scene, so a scene always has an own dog.
-pub const SceneAnswer = union(enum) {
-    scene: Scene,
-    no_room: outcomes.PlacementRefusal,
-};
-
 /// The region a scene covers, for the viewport it was asked with.
 pub fn coverFor(v: frames.Viewport) park.PlaneRect {
     return (park.PlaneRect{ .top_left = v.origin, .size = v.size }).grownBy(margin);

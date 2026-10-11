@@ -1,5 +1,4 @@
-//! What the server decides, and why: a move kept or refused, a new human's
-//! dog placed or not.
+//! What the server decides of a move, and why: kept or refused.
 
 const std = @import("std");
 const frames = @import("frames.zig");
@@ -53,20 +52,6 @@ pub fn dragLength(d: frames.Displacement) DragLength {
 
 pub const DragLength = enum { within_limit, too_far };
 
-/// A new human's dog: placed on a lattice spot of the park (its point is
-/// the park's `pointOf` it), or not, and why.
-pub const Placement = union(enum) {
-    placed: park.LatticeSpot,
-    refused: PlacementRefusal,
-};
-
-pub const PlacementRefusal = enum {
-    /// Every lattice spot is taken.
-    park_full,
-    /// The population's memory is full (population.Put.refused_full).
-    population_full,
-};
-
 // ── tests ────────────────────────────────────────────────────────────────────
 
 const testing = std.testing;
@@ -99,9 +84,4 @@ test "a drag's length, at the limit and past it" {
     try testing.expectEqual(DragLength.within_limit, dragLength(.{ .dx = longest_drag, .dy = -@as(frames.Coord, longest_drag) }));
     try testing.expectEqual(DragLength.too_far, dragLength(.{ .dx = longest_drag + 1, .dy = 0 }));
     try testing.expectEqual(DragLength.too_far, dragLength(.{ .dx = std.math.minInt(frames.Coord), .dy = std.math.minInt(frames.Coord) }));
-}
-
-test "a placed dog stands on its spot's point" {
-    const placed: Placement = .{ .placed = .{ .column = 2, .row = 1 } };
-    try testing.expectEqual(frames.ParkPoint.at(250, 150), small.pointOf(placed.placed).on.point);
 }

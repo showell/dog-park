@@ -54,12 +54,11 @@ first = json.load(open(sys.argv[1]))["scene"]
 second = json.load(open(sys.argv[2]))["scene"]
 assert first["move"] == "stayed", first
 assert second["move"] == "moved", second
-# The same human's dog, moved by the drag: placed at the park's centre.
-assert (first["own"]["plane_x"], first["own"]["plane_y"]) == (2550, 2550), first["own"]
-assert (second["own"]["plane_x"], second["own"]["plane_y"]) == (2575, 2535), second["own"]
+# The same human's dog, the one claimed, moved by the drag.
+assert (second["own"]["plane_x"], second["own"]["plane_y"]) == (first["own"]["plane_x"] + 25, first["own"]["plane_y"] - 15), (first["own"], second["own"])
 assert second["park_width"] == 5000 and second["park_height"] == 5000
-assert second["others_complete"] == "all" and second["others"] == []
+assert second["others_complete"] == "all"
 PY
 
-[ -f "$WORK/data/dogs/1" ] || fail "the dog was not kept"
+[ "$(ls "$WORK/data/dogs" | wc -l)" = 400 ] || fail "the park's 400 dogs were not made"
 echo "smoke: ok (port $PORT)"
