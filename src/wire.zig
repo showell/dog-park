@@ -33,6 +33,10 @@ pub const WireSceneRequest = struct {
     pub fn read(self: WireSceneRequest, p: park.Park) ReadRequest {
         if (self.viewport_width == 0 or self.viewport_height == 0) return .{ .refused = .viewport_empty };
         if (self.viewport_width > widest_viewport or self.viewport_height > widest_viewport) return .{ .refused = .viewport_too_large };
+        // A scene covers at most twice the park on an axis, so it is cut into
+        // at most nine pieces (park.PlaneRect.pieces), however small the park.
+        if (@as(u32, self.viewport_width) + 2 * scene.margin > 2 * @as(u32, p.size.width) or
+            @as(u32, self.viewport_height) + 2 * scene.margin > 2 * @as(u32, p.size.height)) return .{ .refused = .viewport_too_large };
         const origin: frames.PlanePoint = .at(self.viewport_plane_x, self.viewport_plane_y);
         const home: park.PlaneRect = .{ .top_left = .at(0, 0), .size = p.size };
         if (home.grownBy(widest_viewport).holds(origin) == .outside) return .{ .refused = .viewport_far_from_park };
@@ -81,7 +85,10 @@ pub const WireScene = struct {
     others: []const WireDog,
     others_complete: WireCompleteness,
     /// What became of this request's move: the browser keeps its optimistic
-    /// drag, or, refused, puts the dog where `own` says.
+    /// drag, or, refused, puts the dog where `own` says. `own` is the copy
+    /// nearest the viewport's centre; the browser draws the copy nearest its
+    /// own optimistic place (and, on a screen wider than the park, every
+    /// copy in view), from `park_width` and `park_height`.
     move: WireMoveOutcome,
 
     /// `s` for the wire, its others written into `others_into`: as many as
@@ -166,6 +173,12 @@ test "a viewport empty, too large, or far from the park is refused, never carrie
     w = request(.stay);
     w.viewport_height = widest_viewport + 1;
     try testing.expectEqual(RequestRefusal.viewport_too_large, w.read(small).refused);
+    // Against the park: a scene would cover more than twice it (600 tall).
+    w = request(.stay);
+    w.viewport_height = 801;
+    try testing.expectEqual(RequestRefusal.viewport_too_large, w.read(small).refused);
+    w.viewport_height = 800;
+    try testing.expect(w.read(small) == .request);
     w = request(.stay);
     w.viewport_plane_x = std.math.maxInt(frames.Coord);
     try testing.expectEqual(RequestRefusal.viewport_far_from_park, w.read(small).refused);

@@ -17,7 +17,7 @@ const Coord = frames.Coord;
 
 /// A rectangle in `frame` (the park's, or the plane's): its top-left corner
 /// and its size. Half-open: a point on the right or bottom edge is outside.
-pub fn Rect(comptime frame: frames.Frame) type {
+fn Rect(comptime frame: frames.Frame) type {
     return struct {
         top_left: P,
         size: Size,
@@ -66,7 +66,10 @@ pub const PlaneRect = struct {
 
     /// The park rectangles this covers, one for each tile it meets, each
     /// with the offset that carries its dogs back to this rectangle's copy:
-    /// at most four for a rectangle no bigger than the park.
+    /// at most four for a rectangle no bigger than the park, nine for one no
+    /// more than twice its size (what `wire` allows a scene to cover). For a
+    /// rectangle within a few park sizes of the origin, as every checked
+    /// request's is: one near the coordinate's edge overflows.
     pub fn pieces(self: PlaneRect, p: Park) Pieces {
         const first = p.tileOf(self.top_left);
         return .{ .rect = self, .park = p, .first = first, .next = first };
@@ -75,10 +78,15 @@ pub const PlaneRect = struct {
 
 /// One tile's share of a plane rectangle: the park rectangle the index is
 /// asked about, and the offset from a park point in it to the copy the
-/// plane rectangle holds (`ParkPoint.plus(offset)`).
+/// plane rectangle holds.
 pub const Piece = struct {
     region: ParkRect,
     offset: Displacement,
+
+    /// The copy of a park point of this piece in the plane rectangle cut.
+    pub fn toPlane(self: Piece, p: ParkPoint) PlanePoint {
+        return p.plus(self.offset);
+    }
 };
 
 /// A tile of the plane, by column and row from the park's own (0, 0).
@@ -182,12 +190,12 @@ pub const Park = struct {
         ) };
     }
 
-    /// The copy of `p` nearest `near`: within half the park's size of it on
-    /// each axis.
+    /// The copy of `p` nearest `near`: on each axis, `near` minus the copy
+    /// is in [-size/2, size/2), so a tie goes to the copy east or south.
     pub fn nearestCopy(self: Park, p: InParkPoint, near: PlanePoint) PlanePoint {
         const width: Coord = self.size.width;
         const height: Coord = self.size.height;
-        const home = frames.onHomeTile(p.point);
+        const home = frames.homeCopy(p.point);
         const d = near.minus(home);
         return home.plus(.{
             .dx = @divFloor(d.dx + @divFloor(width, 2), width) * width,
@@ -303,6 +311,9 @@ test "the copy of a park point nearest a plane point, across a seam or tiles awa
     // Just past the east edge, the dog's copy one tile east is nearer.
     try testing.expectEqual(PlanePoint.at(1010, 300), small.nearestCopy(dog, .at(990, 300)));
     try testing.expectEqual(PlanePoint.at(-2990, -900), small.nearestCopy(dog, .at(-3000, -800)));
+    // A tie, half a park away, goes east.
+    try testing.expectEqual(PlanePoint.at(1010, 300), small.nearestCopy(dog, .at(510, 300)));
+    try testing.expectEqual(PlanePoint.at(10, 300), small.nearestCopy(dog, .at(509, 300)));
     // Every copy wraps back to the dog.
     try testing.expectEqual(dog, small.wrap(small.nearestCopy(dog, .at(-3000, -800))));
 }
@@ -349,8 +360,8 @@ test "every piece is inside the park, and its offset carries it back into the re
             try testing.expect(small.holds(p.region.top_left) == .inside);
             const last: ParkPoint = .at(p.region.top_left.x.number() + p.region.size.width - 1, p.region.top_left.y.number() + p.region.size.height - 1);
             try testing.expect(small.holds(last) == .inside);
-            try testing.expect(r.holds(p.region.top_left.plus(p.offset)) == .inside);
-            try testing.expect(r.holds(last.plus(p.offset)) == .inside);
+            try testing.expect(r.holds(p.toPlane(p.region.top_left)) == .inside);
+            try testing.expect(r.holds(p.toPlane(last)) == .inside);
             area += @as(u64, p.region.size.width) * p.region.size.height;
         }
         try testing.expectEqual(@as(u64, r.size.width) * r.size.height, area);

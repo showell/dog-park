@@ -117,8 +117,9 @@ pub const Size = struct {
 };
 
 /// The copy of a park point on the plane's home tile, where the two frames'
-/// origins agree.
-pub fn onHomeTile(p: ParkPoint) PlanePoint {
+/// origins agree: chosen without regard to where anything else is, so it
+/// is seldom the copy meant (`park.Park.nearestCopy`, `park.Piece.toPlane`).
+pub fn homeCopy(p: ParkPoint) PlanePoint {
     return .at(p.x.number(), p.y.number());
 }
 
@@ -177,7 +178,7 @@ test "a park point plus a displacement is a plane point: a move may leave the pa
     const a: ParkPoint = .at(100, 200);
     try testing.expect(@TypeOf(a.plus(.none)) == PlanePoint);
     try testing.expectEqual(PlanePoint.at(-5, 200), a.plus(.{ .dx = -105, .dy = 0 }));
-    try testing.expectEqual(onHomeTile(a), a.plus(.none));
+    try testing.expectEqual(homeCopy(a), a.plus(.none));
     try testing.expectEqual(Displacement{ .dx = 3, .dy = 4 }, ParkPoint.at(103, 204).minus(a));
 }
 
