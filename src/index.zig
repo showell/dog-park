@@ -6,6 +6,10 @@
 //! cells under it, with no tree to balance. The cells are at most
 //! `most_cells_across` on a side, so the grid's memory is bounded by its
 //! own constant and the dogs' by `capacity`, all of it taken at `init`.
+//! Its worst case is a crowd: every dog dragged into one cell, and a region
+//! that clips that cell scans them all (at most `capacity`), where a tree
+//! would split it. A `near` cut short fills from the region's north-west,
+//! row by row of cells, not around its middle: the contract allows it.
 
 const std = @import("std");
 const frames = @import("frames.zig");
@@ -132,6 +136,9 @@ pub const GridPopulation = struct {
 
     fn put(ptr: *anyopaque, dog: dogs.Dog) contract.Put {
         const self = of(ptr);
+        // **A DOG OUTSIDE THE PARK IS A BUG**, said here and not filed in a
+        // wrong cell: `InParkPoint` is a naming fence, and a literal can skip it.
+        std.debug.assert(self.park.holds(dog.at.point) == .inside);
         const cell = self.cellOf(dog.at);
         if (self.by_owner.get(dog.owner)) |slot| {
             const e = &self.entries[@intFromEnum(slot)];
@@ -177,10 +184,22 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, owners: u64, oper
     var all: [capacity + 1]dogs.Dog = undefined;
     const width: frames.Coord = p.size.width;
     const height: frames.Coord = p.size.height;
+    // Draws skewed toward the edges that matter: a cell's, and the park's.
+    const cell: frames.Coord = grid.cell_side;
+    const edgy = struct {
+        fn coord(r: std.Random, side: frames.Coord, cell_side: frames.Coord) frames.Coord {
+            return switch (r.uintLessThan(u8, 4)) {
+                0 => r.intRangeLessThan(frames.Coord, -side, 2 * side),
+                1 => @as(frames.Coord, r.intRangeAtMost(frames.Coord, 0, @divFloor(side, cell_side))) * cell_side + r.intRangeAtMost(frames.Coord, -1, 1),
+                2 => side + r.intRangeAtMost(frames.Coord, -2, 1),
+                else => r.intRangeAtMost(frames.Coord, -2, 1),
+            };
+        }
+    };
     for (0..operations) |_| {
         switch (random.uintLessThan(u8, 3)) {
             0 => {
-                const at = p.wrap(.at(random.intRangeLessThan(frames.Coord, -width, 2 * width), random.intRangeLessThan(frames.Coord, -height, 2 * height)));
+                const at = p.wrap(.at(edgy.coord(random, width, cell), edgy.coord(random, height, cell)));
                 const dog: dogs.Dog = .{ .owner = .of(random.uintLessThan(u64, owners)), .at = at, .breed = random.enumValue(dogs.Breed) };
                 try testing.expectEqual(l.put(dog), g.put(dog));
             },
@@ -189,10 +208,11 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, owners: u64, oper
                 try testing.expectEqual(l.lookup(owner), g.lookup(owner));
             },
             else => {
-                // Any rectangle, some reaching past the park (the index cuts them).
+                // Any rectangle: on cell edges, reaching past the park, or
+                // wholly outside it on any side (the index cuts them).
                 const region: park.ParkRect = .{
-                    .top_left = .at(random.intRangeLessThan(frames.Coord, -200, width), random.intRangeLessThan(frames.Coord, -200, height)),
-                    .size = .{ .width = random.uintLessThan(u31, p.size.width + 400), .height = random.uintLessThan(u31, p.size.height + 400) },
+                    .top_left = .at(edgy.coord(random, width, cell) - random.uintLessThan(u31, 3) * width, edgy.coord(random, height, cell)),
+                    .size = .{ .width = random.uintLessThan(u31, 3 * p.size.width), .height = random.uintLessThan(u31, p.size.height + 400) },
                 };
                 const q: contract.Near = .{ .region = region, .except = .of(random.uintLessThan(u64, owners)) };
                 const most = random.uintAtMost(usize, capacity);
@@ -208,11 +228,12 @@ fn agree(seed: u64, size: frames.Size, capacity: comptime_int, owners: u64, oper
                         std.mem.sort(dogs.Dog, into_list[0..found_list.count], {}, byOwner);
                         try testing.expectEqualSlices(dogs.Dog, into_list[0..found_list.count], got);
                     },
-                    // Cut: as many as asked, each one of the region's.
-                    .more_in_region => for (got) |d| {
+                    // Cut: as many as asked, each one of the region's, none twice.
+                    .more_in_region => for (got, 0..) |d, i| {
                         for (every) |e| {
                             if (std.meta.eql(d, e)) break;
                         } else return error.TestUnexpectedResult;
+                        for (got[0..i]) |earlier| try testing.expect(earlier.owner != d.owner);
                     },
                 }
                 for (got) |d| try testing.expect(d.owner != q.except);
@@ -228,6 +249,16 @@ test "the grid answers as the list does: a 5,000 park, fuller than its capacity"
 test "the grid answers as the list does: a park of one cell, and a long thin one" {
     for (0..10) |seed| try agree(100 + seed, .{ .width = 300, .height = 300 }, 12, 16, 300);
     for (0..10) |seed| try agree(200 + seed, .{ .width = 20_000, .height = 100 }, 30, 40, 400);
+}
+
+test "the grid's memory: init fails whole, leaking nothing, wherever it fails" {
+    const p = (park.Park.of(.{ .width = 5000, .height = 5000 })).park;
+    try testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn initAndFree(allocator: std.mem.Allocator, pk: park.Park) !void {
+            var g = try GridPopulation.init(allocator, pk, 50);
+            g.deinit(allocator);
+        }
+    }.initAndFree, .{p});
 }
 
 test "the grid's memory: cells at most most_cells_across a side, and full at capacity" {
