@@ -7,6 +7,10 @@
 // corner. Each dog shows its park
 // point under it.
 //
+// Dragging anywhere else pans the park, like a tablecloth under the dogs:
+// every dog moves with your pointer, yours too. Only your dog can be picked
+// up.
+//
 // TWO FRAMES, both in CSS pixels: a PARK point (parkX, parkY) is where a
 // dog stands in the world; a VIEWPORT point (viewportX, viewportY) is
 // where it is on the screen, from the screen's top-left. The viewport's
@@ -104,29 +108,6 @@ function axisScroll(dogViewportAt, length) {
   return far - near;
 }
 
-// ── re-centring ─────────────────────────────────────────────────────────────
-
-// A dog let go at (or within `near_edge_px` of) the farthest it can go on
-// screen is re-centred once the human has been idle `recentre_after_ms`: the
-// viewport snaps so the dog is in the middle. The dog doesn't move in the
-// park. A dog let go anywhere else stays where it is on screen.
-const near_edge_px = 24;
-const recentre_after_ms = 1200;
-
-function atAnEdge(viewport, dogViewportX, dogViewportY) {
-  const reach = dog_px / 2 + near_edge_px;
-  return dogViewportX <= reach || dogViewportY <= reach ||
-    dogViewportX >= viewport.width - reach || dogViewportY >= viewport.height - reach;
-}
-
-// The viewport's top-left (a park point) that puts the dog in the middle.
-function centredOn(viewport, dog) {
-  return {
-    parkX: dog.parkX - viewport.width / 2,
-    parkY: dog.parkY - viewport.height / 2,
-  };
-}
-
 // ── the blitter: owns no logic ──────────────────────────────────────────────
 
 // Draws each sprite at its viewport point, its label under it; the own dog
@@ -161,8 +142,8 @@ function start() {
   const canvas = document.getElementById("park");
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
   let dogs = null;
-  // What the human's hand is doing: holding the dog; let go at a time (a
-  // re-centre may be due); or resting (nothing due).
+  // What the human's hand is doing: holding their dog, panning the park
+  // (from the pointer's last viewport point), or resting.
   let hold = { kind: "resting" };
   // The pointer's last viewport point while holding: a still pointer in
   // the band keeps scrolling.
@@ -189,29 +170,30 @@ function start() {
 
   canvas.addEventListener("pointerdown", (e) => {
     const g = grabbed(viewport, own(), e.offsetX, e.offsetY);
-    if (g.kind === "missed") return;
-    hold = g;
+    hold = g.kind === "holding" ? g : { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY };
     pointer.viewportX = e.offsetX;
     pointer.viewportY = e.offsetY;
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
+    if (hold.kind === "panning") {
+      // The park moves with the pointer, so the viewport moves against it.
+      viewport.parkX -= e.offsetX - hold.lastViewportX;
+      viewport.parkY -= e.offsetY - hold.lastViewportY;
+      hold.lastViewportX = e.offsetX;
+      hold.lastViewportY = e.offsetY;
+      return;
+    }
     if (hold.kind !== "holding") return;
     pointer.viewportX = e.offsetX;
     pointer.viewportY = e.offsetY;
     follow();
   });
-  const letGo = () => { if (hold.kind === "holding") hold = { kind: "let_go", atMs: performance.now() }; };
+  const letGo = () => { hold = { kind: "resting" }; };
   canvas.addEventListener("pointerup", letGo);
   canvas.addEventListener("pointercancel", letGo);
 
-  const frame = (nowMs) => {
-    if (hold.kind === "let_go" && nowMs - hold.atMs >= recentre_after_ms) {
-      const dog = own();
-      const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
-      if (atAnEdge(viewport, at.viewportX, at.viewportY)) Object.assign(viewport, centredOn(viewport, dog));
-      hold = { kind: "resting" };
-    }
+  const frame = () => {
     if (hold.kind === "holding") {
       const dog = own();
       const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
