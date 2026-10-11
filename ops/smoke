@@ -28,12 +28,16 @@ DOGPARK_PORT="$PORT" DOGPARK_BIND=127.0.0.1 DOGPARK_CONFIG="$WORK/config" \
 SERVER_PID=$!
 
 URL="http://127.0.0.1:$PORT"
+fail() { echo "smoke: FAIL: $*"; echo "--- server log:"; cat "$WORK/log"; exit 1; }
+# Every request has five seconds: a server that accepts and never answers
+# fails the smoke, never hangs it.
+curl() { command curl -m 5 "$@"; }
 for _ in $(seq 1 100); do
+    kill -0 "$SERVER_PID" 2>/dev/null || fail "the server stopped as it started (the port taken?)"
     curl -s -o /dev/null "$URL/" && break
     sleep 0.05
 done
-
-fail() { echo "smoke: FAIL: $*"; echo "--- server log:"; cat "$WORK/log"; exit 1; }
+kill -0 "$SERVER_PID" 2>/dev/null || fail "the server is not running"
 
 curl -sf "$URL/" | grep -q '<script src="/park.js?h=' || fail "GET / does not name its script"
 curl -sf -o /dev/null "$URL/park.js" || fail "GET /park.js"
