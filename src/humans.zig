@@ -8,6 +8,8 @@ const std = @import("std");
 pub const HumanId = enum(u64) {
     _,
 
+    /// The id a verified cookie carries: the one place a number becomes
+    /// a human, so a forged one can be looked for.
     pub fn of(n: u64) HumanId {
         return @enumFromInt(n);
     }
@@ -28,4 +30,17 @@ test "an id round-trips, and is not a plain number" {
     const h = HumanId.of(42);
     try std.testing.expectEqual(@as(u64, 42), h.number());
     try std.testing.expect(HumanId != u64);
+}
+
+test "a request is from a known human or a new device, and nothing between" {
+    const visitors = [_]Visitor{ .{ .known = .of(5) }, .new_device };
+    var known: u32 = 0;
+    for (visitors) |v| switch (v) {
+        .known => |h| {
+            try std.testing.expectEqual(@as(u64, 5), h.number());
+            known += 1;
+        },
+        .new_device => {},
+    };
+    try std.testing.expectEqual(@as(u32, 1), known);
 }

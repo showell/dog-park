@@ -1,5 +1,7 @@
 //! Frames of reference. Every point says, by its type, which frame it is in,
-//! so a viewport point where a park point is meant does not compile.
+//! and so does each of its coordinates: a viewport point where a park point
+//! is meant does not compile, and neither does a park point built from a
+//! viewport point's numbers.
 //!
 //! **ONE SCALE.** A park unit is one CSS pixel at the browser's zoom 1: the
 //! frames differ only by where their origin is, never by scale or axes
@@ -17,28 +19,54 @@ pub const Frame = enum {
     own_dog,
 };
 
-/// A coordinate. Wide enough for any park; arithmetic saturates rather than
-/// wrapping, and the park clamps what saturates (park.zig).
+/// The number inside a coordinate or a displacement. Arithmetic on it
+/// saturates rather than wrapping; the wire's checks (wire.zig) keep what
+/// comes in far enough from the edge that saturating never happens.
 pub const Coord = i32;
+
+/// One coordinate in `frame`: a number that says its frame, so it cannot be
+/// copied into another frame's point, nor done arithmetic with directly.
+pub fn Coordinate(comptime frame: Frame) type {
+    return enum(Coord) {
+        _,
+
+        pub const frame_of = frame;
+
+        pub fn of(n: Coord) @This() {
+            return @enumFromInt(n);
+        }
+
+        pub fn number(self: @This()) Coord {
+            return @intFromEnum(self);
+        }
+    };
+}
 
 /// A position in `frame`. Points in different frames are different types.
 /// A point plus a displacement is a point; a point minus a point is a
 /// displacement; a point plus a point has no meaning, and no function.
 pub fn Point(comptime frame: Frame) type {
     return struct {
-        x: Coord,
-        y: Coord,
+        x: C,
+        y: C,
 
         pub const frame_of = frame;
+        const C = Coordinate(frame);
         const Self = @This();
 
+        /// The point at these numbers, which are in this frame: the one
+        /// place a raw number becomes a point, so it can be looked for.
+        pub fn at(x: Coord, y: Coord) Self {
+            return .{ .x = .of(x), .y = .of(y) };
+        }
+
         pub fn plus(self: Self, d: Displacement) Self {
-            return .{ .x = self.x +| d.dx, .y = self.y +| d.dy };
+            return at(self.x.number() +| d.dx, self.y.number() +| d.dy);
         }
 
         /// The displacement that takes `from` to `self`.
         pub fn minus(self: Self, from: Self) Displacement {
-            return .{ .dx = self.x -| from.x, .dy = self.y -| from.y };
+            return .{ .dx = self.x.number() -| from.x.number(), .dy = self.y.number() -| from.y.number() };
         }
     };
 }
@@ -77,12 +105,11 @@ pub const Viewport = struct {
     size: Size,
 
     pub fn toPark(self: Viewport, p: ViewportPoint) ParkPoint {
-        return self.origin.plus(.{ .dx = p.x, .dy = p.y });
+        return self.origin.plus(p.minus(.at(0, 0)));
     }
 
     pub fn fromPark(self: Viewport, p: ParkPoint) ViewportPoint {
-        const d = p.minus(self.origin);
-        return .{ .x = d.dx, .y = d.dy };
+        return ViewportPoint.at(0, 0).plus(p.minus(self.origin));
     }
 
     /// The viewport moved by `d`, its size kept: what auto-scrolling does.
@@ -92,17 +119,17 @@ pub const Viewport = struct {
 };
 
 /// Where the human's own dog stands in the park: the conversion between the
-/// own-dog frame and the park's.
+/// own-dog frame and the park's. Made from the dog (dogs.Dog.frame), not
+/// from any park point.
 pub const OwnDogFrame = struct {
     dog_at: ParkPoint,
 
     pub fn toPark(self: OwnDogFrame, p: OwnDogPoint) ParkPoint {
-        return self.dog_at.plus(.{ .dx = p.x, .dy = p.y });
+        return self.dog_at.plus(p.minus(.at(0, 0)));
     }
 
     pub fn fromPark(self: OwnDogFrame, p: ParkPoint) OwnDogPoint {
-        const d = p.minus(self.dog_at);
-        return .{ .x = d.dx, .y = d.dy };
+        return OwnDogPoint.at(0, 0).plus(p.minus(self.dog_at));
     }
 };
 
@@ -111,44 +138,55 @@ pub const OwnDogFrame = struct {
 const testing = std.testing;
 
 test "a point plus a displacement, and a point minus a point" {
-    const a: ParkPoint = .{ .x = 100, .y = 200 };
+    const a: ParkPoint = .at(100, 200);
     const d: Displacement = .{ .dx = 7, .dy = -3 };
-    try testing.expectEqual(ParkPoint{ .x = 107, .y = 197 }, a.plus(d));
+    try testing.expectEqual(ParkPoint.at(107, 197), a.plus(d));
     try testing.expectEqual(d, a.plus(d).minus(a));
     try testing.expectEqual(Displacement.none, a.minus(a));
 }
 
-test "the frames are distinct types" {
+test "the frames are distinct types, and so are their coordinates" {
     try testing.expect(ParkPoint != ViewportPoint);
     try testing.expect(ParkPoint != OwnDogPoint);
     try testing.expect(ViewportPoint != OwnDogPoint);
+    // `.{ .x = seen.x }` for a park point does not compile: the fields differ.
+    try testing.expect(@FieldType(ParkPoint, "x") != @FieldType(ViewportPoint, "x"));
+    try testing.expect(@FieldType(ParkPoint, "x") != Coord);
+}
+
+test "one scale: two viewport points' difference moves a park point as far" {
+    const a: ViewportPoint = .at(10, 10);
+    const b: ViewportPoint = .at(40, 30);
+    try testing.expectEqual(ParkPoint.at(130, 120), ParkPoint.at(100, 100).plus(b.minus(a)));
 }
 
 test "the viewport's frame and the park's, both ways" {
-    const v: Viewport = .{ .origin = .{ .x = 1000, .y = 500 }, .size = .{ .width = 800, .height = 600 } };
-    const seen: ViewportPoint = .{ .x = 40, .y = 60 };
-    try testing.expectEqual(ParkPoint{ .x = 1040, .y = 560 }, v.toPark(seen));
+    const v: Viewport = .{ .origin = .at(1000, 500), .size = .{ .width = 800, .height = 600 } };
+    const seen: ViewportPoint = .at(40, 60);
+    try testing.expectEqual(ParkPoint.at(1040, 560), v.toPark(seen));
     try testing.expectEqual(seen, v.fromPark(v.toPark(seen)));
+    const dog: ParkPoint = .at(1234, 987);
+    try testing.expectEqual(dog, v.toPark(v.fromPark(dog)));
     // The viewport's own corner is the origin in its frame.
-    try testing.expectEqual(ViewportPoint{ .x = 0, .y = 0 }, v.fromPark(v.origin));
+    try testing.expectEqual(ViewportPoint.at(0, 0), v.fromPark(v.origin));
 }
 
 test "the own-dog frame and the park's, both ways" {
-    const f: OwnDogFrame = .{ .dog_at = .{ .x = 300, .y = 400 } };
-    try testing.expectEqual(OwnDogPoint{ .x = 0, .y = 0 }, f.fromPark(f.dog_at));
-    const near: OwnDogPoint = .{ .x = -50, .y = 25 };
-    try testing.expectEqual(ParkPoint{ .x = 250, .y = 425 }, f.toPark(near));
+    const f: OwnDogFrame = .{ .dog_at = .at(300, 400) };
+    try testing.expectEqual(OwnDogPoint.at(0, 0), f.fromPark(f.dog_at));
+    const near: OwnDogPoint = .at(-50, 25);
+    try testing.expectEqual(ParkPoint.at(250, 425), f.toPark(near));
     try testing.expectEqual(near, f.fromPark(f.toPark(near)));
 }
 
 test "scrolling moves the origin, and what a park point looks like moves the other way" {
-    const v: Viewport = .{ .origin = .{ .x = 0, .y = 0 }, .size = .{ .width = 100, .height = 100 } };
-    const dog: ParkPoint = .{ .x = 50, .y = 50 };
+    const v: Viewport = .{ .origin = .at(0, 0), .size = .{ .width = 100, .height = 100 } };
+    const dog: ParkPoint = .at(50, 50);
     const after = v.scrolled(.{ .dx = 10, .dy = 0 });
-    try testing.expectEqual(ViewportPoint{ .x = 40, .y = 50 }, after.fromPark(dog));
+    try testing.expectEqual(ViewportPoint.at(40, 50), after.fromPark(dog));
 }
 
 test "arithmetic saturates at the coordinate's edge, never wraps" {
-    const far: ParkPoint = .{ .x = std.math.maxInt(Coord), .y = 0 };
-    try testing.expectEqual(std.math.maxInt(Coord), far.plus(.{ .dx = 1, .dy = 0 }).x);
+    const far: ParkPoint = .at(std.math.maxInt(Coord), 0);
+    try testing.expectEqual(std.math.maxInt(Coord), far.plus(.{ .dx = 1, .dy = 0 }).x.number());
 }
