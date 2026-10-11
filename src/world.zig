@@ -45,6 +45,9 @@ pub const the_park: park.Park = (park.Park.of(.{ .width = 5000, .height = 5000 }
 /// crash loses at most this much of who looked when.
 pub const touch_written_every_seconds: i64 = 60 * 60;
 
+/// How far past now a stored touch may be, for a clock that was ahead.
+pub const clock_skew_seconds: i64 = 24 * 60 * 60;
+
 pub const World = struct {
     park: park.Park,
     grid: index.GridPopulation,
@@ -67,7 +70,7 @@ pub const World = struct {
     /// there are none, or loaded and checked; or what stops it, named.
     /// `base` holds what lives as long as the world; `scratch` what opening
     /// needs.
-    pub fn open(io: Io, base: std.mem.Allocator, scratch: std.mem.Allocator, data_dir: []const u8, auth_dir: []const u8, p: park.Park, count: u32, seed: u64) !Opened {
+    pub fn open(io: Io, base: std.mem.Allocator, scratch: std.mem.Allocator, data_dir: []const u8, auth_dir: []const u8, p: park.Park, count: u32, seed: u64, now: dogs.Instant) !Opened {
         const folder = try std.fs.path.join(scratch, &.{ data_dir, "dogs" });
         const next_human = try webbox.counter.peek(io, scratch, try std.fs.path.join(scratch, &.{ auth_dir, "next-human" }));
         const all = try base.alloc(dogs.Dog, count);
@@ -82,7 +85,7 @@ pub const World = struct {
             // A stop inside `store.replace` leaves its temporary sibling (a
             // file, `~` and eight hex digits, `.tmp`, in either case on FAT);
             // the next replace of that dog writes over it.
-            if (entry.kind == .file and entry.name.len == 13 and entry.name[0] == '~' and std.ascii.endsWithIgnoreCase(entry.name, ".tmp")) {
+            if (entry.kind == .file and isReplaceTemporary(entry.name)) {
                 left_over += 1;
                 continue;
             }
@@ -115,6 +118,12 @@ pub const World = struct {
                     // **A CLAIM NAMES A HUMAN THE COUNTER HAS HANDED OUT**:
                     // one past it would be handed to a new device, dog and all.
                     if (c.by.number() >= next_human) return refused(entry.name, .claim_past_next_human);
+                    // The counter starts at 1: no human is 0.
+                    if (c.by.number() == 0) return refused(entry.name, .claim_by_no_human);
+                    // **A TOUCH IS A TIME THAT HAS BEEN**: one from before the
+                    // epoch, or past now and a day of clock skew, would never be
+                    // the stalest (its dog never taken over), or overflow.
+                    if (c.touched.seconds() < 1 or c.touched.seconds() > now.seconds() + clock_skew_seconds) return refused(entry.name, .touched_at_no_real_time);
                     if (holders.fetchPutAssumeCapacity(c.by, id) != null) return refused(entry.name, .human_holds_two);
                 },
             }
@@ -131,9 +140,23 @@ pub const World = struct {
             @memcpy(all, fresh);
             for (all) |d| try writeDog(io, scratch, data_dir, d);
             break :blk .made_now;
-        } else if (found != count) {
-            // Some dogs and not others: a partial state, not a guess.
-            return .{ .refused = .{ .dogs_folder = .{ .found = @intCast(found), .count = count } } };
+        } else if (found != count) blk: {
+            // **A MAKING CUT SHORT IS FINISHED**: if every dog there is
+            // unclaimed and the very dog the seed makes, a fresh park was
+            // being written when the machine stopped, and the rest are
+            // written now. Anything else is a partial state, not a guess.
+            const fresh = switch (try claiming.makeDogs(scratch, p, count, seed)) {
+                .made => |m| m,
+                .no_dogs, .more_dogs_than_spots => return .{ .refused = .{ .dog_count = .{ .count = count, .spots = @as(u32, p.extent().columns) * p.extent().rows } } },
+            };
+            var it = have.iterator(.{});
+            while (it.next()) |i| if (!std.meta.eql(all[i], fresh[i])) return .{ .refused = .{ .dogs_folder = .{ .found = @intCast(found), .count = count } } };
+            var missing = have.iterator(.{ .kind = .unset });
+            while (missing.next()) |i| {
+                all[i] = fresh[i];
+                try writeDog(io, scratch, data_dir, fresh[i]);
+            }
+            break :blk .made_now;
         } else .found;
         var grid = try index.GridPopulation.init(base, p, count);
         errdefer grid.deinit(base);
@@ -176,6 +199,23 @@ pub const World = struct {
         return if (self.holders.get(human)) |id| .{ .holds = id } else .holds_none;
     }
 
+    /// Whether the counter has handed `human` out: an id at or past the next
+    /// one (an `auth/` restored from an older backup, its secret the same)
+    /// names no human yet, whatever a cookie says.
+    pub fn handedOut(self: *const World, io: Io, scratch: std.mem.Allocator, human: HumanId) !HandedOut {
+        const next = try webbox.counter.peek(io, scratch, try std.fs.path.join(scratch, &.{ self.auth_dir, "next-human" }));
+        return if (human.number() >= 1 and human.number() < next) .handed_out else .not_yet;
+    }
+
+    /// **AN ID A COOKIE NAMES IS NEVER HANDED OUT AGAIN**: the counter moved
+    /// past `human`, if it has not reached them (an `auth/` restored from an
+    /// older backup, its secret the same, took it back). The cookie keeps
+    /// its human, and no new device is given that id after.
+    pub fn reserveThrough(self: *World, io: Io, scratch: std.mem.Allocator, human: HumanId) !void {
+        const path = try std.fs.path.join(scratch, &.{ self.auth_dir, "next-human" });
+        while (try webbox.counter.peek(io, scratch, path) <= human.number()) _ = try webbox.counter.next(io, scratch, path);
+    }
+
     /// A new human's id, handed out once (webbox.counter, beside the secret).
     pub fn newHuman(self: *World, io: Io, scratch: std.mem.Allocator) !HumanId {
         const n = try webbox.counter.next(io, scratch, try std.fs.path.join(scratch, &.{ self.auth_dir, "next-human" }));
@@ -198,7 +238,10 @@ pub const World = struct {
             },
             .touched => |d| {
                 const touched = d.claim.claimed.touched;
-                if (touched.seconds() - self.written[d.id.number()].seconds() >= touch_written_every_seconds) {
+                const since = touched.seconds() -| self.written[d.id.number()].seconds();
+                // An hour since the last write, or the clock gone back past it
+                // (which would otherwise starve the write until it caught up).
+                if (since >= touch_written_every_seconds or since < 0) {
                     try writeDog(io, scratch, self.data_dir, d);
                     self.written[d.id.number()] = touched;
                 }
@@ -232,6 +275,8 @@ fn writeDog(io: Io, scratch: std.mem.Allocator, data_dir: []const u8, d: dogs.Do
     try webbox.store.replace(io, scratch, path, std.mem.asBytes(&stored.StoredDog.of(d)), .{});
 }
 
+pub const HandedOut = enum { handed_out, not_yet };
+
 pub const Opened = union(enum) {
     world: World,
     refused: Refused,
@@ -256,8 +301,18 @@ pub const RecordRefusal = enum {
     outside_park,
     id_not_its_name,
     claim_past_next_human,
+    claim_by_no_human,
+    touched_at_no_real_time,
     human_holds_two,
 };
+
+/// A temporary `store.replace` leaves when a stop interrupts it: `~`, eight
+/// hex digits, `.tmp`, in either case on FAT.
+pub fn isReplaceTemporary(name: []const u8) bool {
+    if (name.len != 13 or name[0] != '~' or !std.ascii.endsWithIgnoreCase(name, ".tmp")) return false;
+    for (name[1..9]) |c| if (!std.ascii.isHex(c)) return false;
+    return true;
+}
 
 pub const NameAsDog = union(enum) {
     id: DogId,
@@ -320,7 +375,7 @@ const Fixture = struct {
     }
 
     fn open(self: *Fixture) !Opened {
-        return World.open(self.io(), testing.allocator, self.arena.allocator(), self.data_dir, self.auth_dir, small, few, claiming.dogs_seed);
+        return World.open(self.io(), testing.allocator, self.arena.allocator(), self.data_dir, self.auth_dir, small, few, claiming.dogs_seed, noon);
     }
 
     fn dogFile(self: *Fixture, name: []const u8) ![]const u8 {
@@ -474,8 +529,8 @@ test "a park cannot be made with no dogs, or more than its spots" {
     try f.init();
     defer f.deinit();
     const a = f.arena.allocator();
-    try testing.expectEqual(Refused{ .dog_count = .{ .count = 0, .spots = 100 } }, (try World.open(f.io(), testing.allocator, a, f.data_dir, f.auth_dir, small, 0, 1)).refused);
-    try testing.expectEqual(Refused{ .dog_count = .{ .count = 101, .spots = 100 } }, (try World.open(f.io(), testing.allocator, a, f.data_dir, f.auth_dir, small, 101, 1)).refused);
+    try testing.expectEqual(Refused{ .dog_count = .{ .count = 0, .spots = 100 } }, (try World.open(f.io(), testing.allocator, a, f.data_dir, f.auth_dir, small, 0, 1, noon)).refused);
+    try testing.expectEqual(Refused{ .dog_count = .{ .count = 101, .spots = 100 } }, (try World.open(f.io(), testing.allocator, a, f.data_dir, f.auth_dir, small, 101, 1, noon)).refused);
 }
 
 test "a file's name is a dog's id, canonical, below the count" {
@@ -483,5 +538,74 @@ test "a file's name is a dog's id, canonical, below the count" {
     try testing.expectEqual(NameAsDog{ .id = .of(0) }, dogIdOfName("0", few));
     for ([_][]const u8{ "", "05", "6", "4x", "-1", "18446744073709551616" }) |bad| {
         try testing.expectEqual(NameAsDog.not_a_dog, dogIdOfName(bad, few));
+    }
+}
+
+test "a stored touch that is no real time, or a claim by human 0, stops the open" {
+    for ([_]struct { by: u64, touched: i64, why: RecordRefusal }{
+        .{ .by = 1, .touched = std.math.minInt(i64), .why = .touched_at_no_real_time },
+        .{ .by = 1, .touched = 0, .why = .touched_at_no_real_time },
+        .{ .by = 1, .touched = noon.seconds() + clock_skew_seconds + 1, .why = .touched_at_no_real_time },
+        .{ .by = 0, .touched = noon.seconds(), .why = .claim_by_no_human },
+    }) |case| {
+        var f: Fixture = undefined;
+        try f.init();
+        defer f.deinit();
+        const a = f.arena.allocator();
+        var w = (try f.open()).world;
+        _ = try w.newHuman(f.io(), a);
+        var r = stored.StoredDog.of(w.all[0]);
+        w.close(testing.allocator);
+        r.claim_tag = .claimed;
+        r.claimed_by = case.by;
+        r.touched = case.touched;
+        try f.file("0", std.mem.asBytes(&r));
+        try testing.expectEqual(case.why, (try f.open()).refused.dog_record.why);
+    }
+}
+
+test "a fresh park whose making was cut short is finished on the next open; a changed dog is not guessed" {
+    var f: Fixture = undefined;
+    try f.init();
+    defer f.deinit();
+    const a = f.arena.allocator();
+    var w = (try f.open()).world;
+    const made = try a.dupe(dogs.Dog, w.all);
+    w.close(testing.allocator);
+    // Half the dogs, as a stop half-way through writing them would leave.
+    for (few / 2..few) |i| {
+        var name: [10]u8 = undefined;
+        try webbox.store.remove(f.io(), a, try f.dogFile(std.fmt.bufPrint(&name, "{d}", .{i}) catch unreachable));
+    }
+    var finished = (try f.open()).world;
+    try testing.expectEqual(.made_now, finished.made);
+    try testing.expectEqualSlices(dogs.Dog, made, finished.all);
+    // A dog changed, then half gone: not a making cut short, so not guessed.
+    const bob: HumanId = try finished.newHuman(f.io(), a);
+    try finished.keep(f.io(), a, .{ .claimed = .{ .dog = claimedBy(finished.all[0], bob, noon), .from = .nobody } });
+    finished.close(testing.allocator);
+    try webbox.store.remove(f.io(), a, try f.dogFile("5"));
+    try testing.expectEqual(Refused{ .dogs_folder = .{ .found = few - 1, .count = few } }, (try f.open()).refused);
+}
+
+test "a touch earlier than the last write (the clock gone back) is written, not starved" {
+    var f: Fixture = undefined;
+    try f.init();
+    defer f.deinit();
+    const a = f.arena.allocator();
+    var w = (try f.open()).world;
+    defer w.close(testing.allocator);
+    const alice = try w.newHuman(f.io(), a);
+    try w.keep(f.io(), a, .{ .claimed = .{ .dog = claimedBy(w.all[0], alice, noon), .from = .nobody } });
+    const back: dogs.Instant = .of(noon.seconds() - 24 * 60 * 60);
+    try w.keep(f.io(), a, .{ .touched = claimedBy(w.all[0], alice, back) });
+    try testing.expectEqual(back, (try f.readDog(0)).claim.claimed.touched);
+}
+
+test "a replace's temporary is ~, eight hex digits and .tmp, in either case, and nothing else" {
+    try testing.expect(isReplaceTemporary("~0badf00d.tmp"));
+    try testing.expect(isReplaceTemporary("~0BADF00D.TMP"));
+    for ([_][]const u8{ "~0badf00x.tmp", "~0badf00d.tmq", "0badf00d.tmp", "~badf00d.tmp", "~0badf00d0.tmp" }) |name| {
+        try testing.expect(!isReplaceTemporary(name));
     }
 }
