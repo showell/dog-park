@@ -17,8 +17,7 @@ pub const ParkRect = struct {
     top_left: ParkPoint,
     size: Size,
 
-    /// The corner just past the rectangle: itself outside it (for any
-    /// rectangle near the park; one at the coordinate's edge saturates).
+    /// The corner just past the rectangle: itself outside it.
     pub fn pastBottomRight(self: ParkRect) ParkPoint {
         return self.top_left.plus(.{ .dx = self.size.width, .dy = self.size.height });
     }
@@ -43,7 +42,7 @@ pub const ParkRect = struct {
     pub fn grownBy(self: ParkRect, margin: u31) ParkRect {
         return .{
             .top_left = self.top_left.plus(.{ .dx = -@as(Coord, margin), .dy = -@as(Coord, margin) }),
-            .size = .{ .width = self.size.width +| margin +| margin, .height = self.size.height +| margin +| margin },
+            .size = .{ .width = self.size.width + margin + margin, .height = self.size.height + margin + margin },
         };
     }
 };
@@ -73,7 +72,7 @@ pub const InParkPoint = struct {
 };
 
 /// The longest side a park may have: with it, no coordinate built from a
-/// park, a checked request (wire.zig) and a drag comes near saturating.
+/// park, a checked request (wire.zig) and a drag comes near overflowing.
 pub const longest_side: u31 = 1 << 20;
 
 /// How far apart the lattice's spots are, and how big the smallest park is
@@ -230,6 +229,4 @@ test "a rectangle grown by a margin keeps its centre" {
     const g = r.grownBy(10);
     try testing.expectEqual(ParkPoint.at(90, 90), g.top_left);
     try testing.expectEqual(Size{ .width = 70, .height = 60 }, g.size);
-    // A margin as wide as any saturates, without overflowing.
-    _ = r.grownBy(std.math.maxInt(u31));
 }

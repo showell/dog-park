@@ -74,7 +74,7 @@ const testing = std.testing;
 const small: park.Park = (park.Park.of(.{ .width = 1000, .height = 600 })).park;
 const start: park.InParkPoint = .{ .point = .at(10, 10) };
 
-test "a stay stays, and a refused move leaves the dog where it start" {
+test "a stay stays, and a refused move leaves the dog where it started" {
     try testing.expectEqual(MoveOutcome.stayed, decide(small, start, .stay));
     try testing.expectEqual(MoveOutcome.stayed, decide(small, start, .{ .drag = .none }));
     try testing.expectEqual(start, decide(small, start, .stay).dogAt(start));

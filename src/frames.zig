@@ -19,10 +19,11 @@ pub const Frame = enum {
     own_dog,
 };
 
-/// The number inside a coordinate or a displacement. Arithmetic on it
-/// saturates rather than wrapping. The park's longest side, the wire's
-/// checks and the longest drag keep every point a request makes within
-/// a few million of the origin, so saturating is a backstop, never a path.
+/// The number inside a coordinate or a displacement. **ARITHMETIC ON IT IS
+/// PLAIN, AND OVERFLOW IS A PANIC**: the park's longest side, the wire's
+/// checks and the longest drag keep every point a request makes within a few
+/// million of the origin, so an overflow is a bug, and it is said, never
+/// saturated away.
 pub const Coord = i32;
 
 /// One coordinate in `frame`: a number that says its frame, so it cannot be
@@ -62,12 +63,12 @@ pub fn Point(comptime frame: Frame) type {
         }
 
         pub fn plus(self: Self, d: Displacement) Self {
-            return at(self.x.number() +| d.dx, self.y.number() +| d.dy);
+            return at(self.x.number() + d.dx, self.y.number() + d.dy);
         }
 
         /// The displacement that takes `from` to `self`.
         pub fn minus(self: Self, from: Self) Displacement {
-            return .{ .dx = self.x.number() -| from.x.number(), .dy = self.y.number() -| from.y.number() };
+            return .{ .dx = self.x.number() - from.x.number(), .dy = self.y.number() - from.y.number() };
         }
     };
 }
@@ -85,11 +86,11 @@ pub const Displacement = struct {
     pub const none: Displacement = .{ .dx = 0, .dy = 0 };
 
     pub fn plus(self: Displacement, other: Displacement) Displacement {
-        return .{ .dx = self.dx +| other.dx, .dy = self.dy +| other.dy };
+        return .{ .dx = self.dx + other.dx, .dy = self.dy + other.dy };
     }
 
     pub fn reversed(self: Displacement) Displacement {
-        return .{ .dx = 0 -| self.dx, .dy = 0 -| self.dy };
+        return .{ .dx = -self.dx, .dy = -self.dy };
     }
 };
 
@@ -185,9 +186,4 @@ test "scrolling moves the origin, and what a park point looks like moves the oth
     const dog: ParkPoint = .at(50, 50);
     const after = v.scrolled(.{ .dx = 10, .dy = 0 });
     try testing.expectEqual(ViewportPoint.at(40, 50), after.fromPark(dog));
-}
-
-test "arithmetic saturates at the coordinate's edge, never wraps" {
-    const far: ParkPoint = .at(std.math.maxInt(Coord), 0);
-    try testing.expectEqual(std.math.maxInt(Coord), far.plus(.{ .dx = 1, .dy = 0 }).x.number());
 }

@@ -18,7 +18,7 @@ const outcomes = @import("outcomes.zig");
 
 /// The widest and tallest viewport a request may ask for, and how far past
 /// the park its origin may be: enough for any screen, small enough that no
-/// coordinate built from a request comes near saturating.
+/// coordinate built from a request comes near overflowing.
 pub const widest_viewport: u31 = 10_000;
 
 /// The browser's request: its viewport in the park, and its dog's move.
@@ -160,7 +160,7 @@ test "a request's stay, and its drag of nothing, are both a stay" {
     try testing.expectEqual(scene.Move.stay, request(.{ .drag = .{ .own_dog_dx = 0, .own_dog_dy = 0 } }).read(small).request.move);
 }
 
-test "a viewport empty, too large, or far off the park is refused, not saturated" {
+test "a viewport empty, too large, or far off the park is refused, never carried into arithmetic" {
     var w = request(.stay);
     w.viewport_width = 0;
     try testing.expectEqual(RequestRefusal.viewport_empty, w.read(small).refused);
@@ -179,10 +179,10 @@ test "a viewport empty, too large, or far off the park is refused, not saturated
 test "a scene on the wire: park-frame dogs, no owners, the clamped move and where it left the dog" {
     const was: park.InParkPoint = .{ .point = .at(10, 10) };
     const move = outcomes.decide(small, was, .{ .drag = .{ .dx = -50, .dy = 0 } });
-    const other: dogs.Dog = .{ .owner = .of(3), .at = .{ .point = .at(40, 50) }, .breed = .fox };
+    const other: dogs.Dog = .{ .owner = .of(3), .at = .{ .point = .at(40, 50) }, .breed = .poodle };
     const s: scene.Scene = .{
         .viewport = .{ .origin = .at(0, 0), .size = .{ .width = 300, .height = 200 } },
-        .own = .{ .at = move.dogAt(was), .breed = .wolf },
+        .own = .{ .at = move.dogAt(was), .breed = .dog_face },
         .others = &.{other},
         .others_completeness = .all_in_region,
         .park_size = small.size,
@@ -194,7 +194,7 @@ test "a scene on the wire: park-frame dogs, no owners, the clamped move and wher
     try testing.expectEqual(@as(frames.Coord, 0), w.own.park_x);
     try testing.expectEqual(@as(frames.Coord, -200), w.covers_park_x);
     try testing.expectEqual(@as(frames.Coord, 40), w.others[0].park_x);
-    try testing.expectEqualStrings("🦊", w.others[0].emoji);
+    try testing.expectEqualStrings("🐩", w.others[0].emoji);
     try testing.expect(!@hasField(WireDog, "owner"));
     // A buffer too short for the others sends what fits, and says so.
     const short = WireScene.of(s, into[0..0]);

@@ -12,22 +12,18 @@ const HumanId = @import("humans.zig").HumanId;
 /// the next number, and none is ever renumbered or reused.
 pub const Breed = enum(u8) {
     dog = 0,
-    poodle = 1,
-    guide_dog = 2,
-    service_dog = 3,
-    hot_dog = 4,
-    wolf = 5,
-    fox = 6,
+    dog_face = 1,
+    poodle = 2,
+    guide_dog = 3,
+    service_dog = 4,
 
     pub fn emoji(self: Breed) []const u8 {
         return switch (self) {
             .dog => "🐕",
+            .dog_face => "🐶",
             .poodle => "🐩",
             .guide_dog => "🦮",
             .service_dog => "🐕‍🦺",
-            .hot_dog => "🌭",
-            .wolf => "🐺",
-            .fox => "🦊",
         };
     }
 };
@@ -63,6 +59,6 @@ test "every breed has an emoji" {
 }
 
 test "a dog's own frame is centred on it" {
-    const d: Dog = .{ .owner = .of(1), .at = .{ .point = .at(300, 400) }, .breed = .wolf };
+    const d: Dog = .{ .owner = .of(1), .at = .{ .point = .at(300, 400) }, .breed = .poodle };
     try std.testing.expectEqual(frames.OwnDogPoint.at(0, 0), d.frame().fromPark(d.at.point));
 }

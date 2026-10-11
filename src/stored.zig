@@ -1,7 +1,9 @@
 //! What the store keeps of a dog. **A FIXED LAYOUT** (an extern struct, 24
 //! bytes, no padding the compiler chose), each field named for its frame,
 //! with a format number first, so a record written today is read the same
-//! by any later version that knows its format. Bytes in the host's order.
+//! by any later version that knows its format. **LITTLE-ENDIAN**, asserted:
+//! every host Dog Park runs on (a Linux droplet, the bare-metal host) is
+//! x86_64, so the host's order is the record's.
 
 const std = @import("std");
 const frames = @import("frames.zig");
@@ -24,6 +26,7 @@ pub const StoredDog = extern struct {
 
     comptime {
         std.debug.assert(@sizeOf(StoredDog) == 24);
+        std.debug.assert(@import("builtin").cpu.arch.endian() == .little);
     }
 
     pub fn of(d: dogs.Dog) StoredDog {
