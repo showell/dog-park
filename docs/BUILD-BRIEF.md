@@ -5,6 +5,11 @@
 plain arithmetic that panics on overflow, the five dog emoji, little-endian
 asserted). Report in metal-vmm's FEEDBACK.md as usual.*
 
+**AMENDED (Steve, 2026-10-11): the park wraps around, Pac-Man style.**
+Read [WRAP-AMENDMENT.md](WRAP-AMENDMENT.md) first: it adds a frame (the
+plane the park tiles), changes the types as a milestone 0 before the index,
+and wins wherever it says otherwise.
+
 **The goal:** a human opens the page, gets a dog on the lattice, drags it
 around the park with auto-scroll, and the dog is where they left it after a
 reload. One human at a time is enough: **no SSE yet**; Bob's dog moving
