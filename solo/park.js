@@ -8,8 +8,8 @@
 // point under it.
 //
 // Dragging anywhere else pans the park, like a tablecloth under the dogs:
-// every dog moves with your pointer, yours too. Only your dog can be picked
-// up.
+// every dog moves with your pointer, yours too, though yours never leaves
+// the screen. Only your dog can be picked up.
 //
 // TWO FRAMES, both in CSS pixels: a PARK point (parkX, parkY) is where a
 // dog stands in the world; a VIEWPORT point (viewportX, viewportY) is
@@ -68,6 +68,17 @@ function keptOnScreen(viewport, parkX, parkY) {
   return {
     parkX: Math.min(Math.max(parkX, viewport.parkX + half), viewport.parkX + viewport.width - half),
     parkY: Math.min(Math.max(parkY, viewport.parkY + half), viewport.parkY + viewport.height - half),
+  };
+}
+
+// The viewport's top-left (a park point) nearest `want` that keeps the dog
+// on screen, a dog's half-size in from each edge: a pan never carries your
+// dog out of view.
+function viewportKeeping(viewport, dog, wantParkX, wantParkY) {
+  const half = dog_px / 2;
+  return {
+    parkX: Math.min(Math.max(wantParkX, dog.parkX - (viewport.width - half)), dog.parkX - half),
+    parkY: Math.min(Math.max(wantParkY, dog.parkY - (viewport.height - half)), dog.parkY - half),
   };
 }
 
@@ -177,9 +188,11 @@ function start() {
   });
   canvas.addEventListener("pointermove", (e) => {
     if (hold.kind === "panning") {
-      // The park moves with the pointer, so the viewport moves against it.
-      viewport.parkX -= e.offsetX - hold.lastViewportX;
-      viewport.parkY -= e.offsetY - hold.lastViewportY;
+      // The park moves with the pointer, so the viewport moves against it,
+      // as far as your dog stays in view.
+      Object.assign(viewport, viewportKeeping(viewport, own(),
+        viewport.parkX - (e.offsetX - hold.lastViewportX),
+        viewport.parkY - (e.offsetY - hold.lastViewportY)));
       hold.lastViewportX = e.offsetX;
       hold.lastViewportY = e.offsetY;
       return;
