@@ -1,22 +1,27 @@
 // Dog Park, played: one human, the server keeping the dogs.
 //
-// Any dog you see can be picked up. Pressing a dog leashes it (the server
-// is told, and acks); dragging it sends where it is to the server, never
-// more than one position waiting for its ack; the server keeps each one.
-// The leash is let go when you press another dog, or 5 s after you let go
-// of the dog (the page says so to the server). The server keeps where your
-// viewport is, and your leash, so a reload shows you the same place, and a
-// dog still on your leash still ringed.
-// Holding a dog near any edge of the screen scrolls the viewport that way,
-// the dog going with it at the same speed. Dragging anywhere else pans the
-// park, like a tablecloth under the dogs. Each dog shows its park point.
+// THE PARK IS A CHECKERBOARD of 800 px tiles, each named by its column and
+// row. The page subscribes to the tiles around its viewport (at most 25;
+// the page chooses which) and knows only the dogs in them. Each time the
+// tiles it wants change, it sends the whole set, each tile marked new or
+// held; the server replaces its set and answers with the dogs in the tiles
+// marked new.
 //
-// The dev console says what the server acks: each leash, release and move.
+// Any dog you see can be picked up. Pressing a dog leashes it (the server is
+// told, and acks); dragging it sends where it is, never more than one
+// position waiting for its ack. The leash is let go when you press another
+// dog, or 5 s after you let go of the dog. Holding a dog near any edge of
+// the screen scrolls the viewport that way, the dog going with it.
+// Dragging anywhere else pans the park, like a tablecloth. The server keeps
+// your viewport and your leash, so a reload shows the same place.
+//
+// The dev console says what the server acks: tiles, leashes, releases,
+// moves.
 //
 // TWO FRAMES, both in CSS pixels: a PARK point (parkX, parkY) is where a
-// dog stands in the world; a VIEWPORT point (viewportX, viewportY) is
-// where it is on the screen, from the screen's top-left. The viewport's
-// own top-left is a park point; north is smaller parkY.
+// dog stands in the world; a VIEWPORT point (viewportX, viewportY) is where
+// it is on the screen, from the screen's top-left. The viewport's own
+// top-left is a park point; north is smaller parkY.
 "use strict";
 
 const dog_px = 40;
@@ -31,8 +36,8 @@ function parkFromViewport(viewport, viewportX, viewportY) {
   return { parkX: viewport.parkX + viewportX, parkY: viewport.parkY + viewportY };
 }
 
-// The screen the server's first layout was drawn for: the viewport starts
-// centred on its middle.
+// The screen the server's first layout was drawn for: a first visit's
+// viewport is centred on its middle.
 const first_screen = { width: 1280, height: 800 };
 
 // A park point kept on screen, a dog's half-size in from each edge: a held
@@ -43,6 +48,44 @@ function keptOnScreen(viewport, parkX, parkY) {
     parkX: Math.min(Math.max(parkX, viewport.parkX + half), viewport.parkX + viewport.width - half),
     parkY: Math.min(Math.max(parkY, viewport.parkY + half), viewport.parkY + viewport.height - half),
   };
+}
+
+// ── tiles ───────────────────────────────────────────────────────────────────
+
+const tile_px = 800;
+const most_tiles = 25;
+// How far past the viewport's edges the page subscribes, so a scroll finds
+// its dogs already known.
+const tile_margin_px = tile_px / 2;
+
+function tileOf(parkX, parkY) {
+  return { col: Math.floor(parkX / tile_px), row: Math.floor(parkY / tile_px) };
+}
+
+function tileKey(t) { return `${t.col},${t.row}`; }
+
+// Every tile meeting the park rectangle from (parkX, parkY), `width` by
+// `height`.
+function tilesMeeting(parkX, parkY, width, height) {
+  const first = tileOf(parkX, parkY);
+  const last = tileOf(parkX + width - 1, parkY + height - 1);
+  const out = [];
+  for (let row = first.row; row <= last.row; row++) {
+    for (let col = first.col; col <= last.col; col++) out.push({ col, row });
+  }
+  return out;
+}
+
+// The tiles the page wants: those within `tile_margin_px` of the viewport,
+// or, on a screen too big for that, those it shows.
+function wantedTiles(viewport) {
+  const m = tile_margin_px;
+  const near = tilesMeeting(viewport.parkX - m, viewport.parkY - m, viewport.width + 2 * m, viewport.height + 2 * m);
+  if (near.length <= most_tiles) return near;
+  const shown = tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height);
+  if (shown.length <= most_tiles) return shown;
+  console.error(`a screen this big shows ${shown.length} tiles, past the ${most_tiles} a page may subscribe`);
+  return shown.slice(0, most_tiles);
 }
 
 // ── drag ────────────────────────────────────────────────────────────────────
@@ -98,36 +141,37 @@ async function post(path, body) {
   return response.json();
 }
 
-async function fetchDogs() {
-  const response = await fetch("/dogs");
-  if (!response.ok) throw new Error(`/dogs: ${response.status}`);
-  return (await response.json()).dogs.map((d) => ({ id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y }));
-}
-
 async function fetchMe() {
   const response = await fetch("/me");
   if (!response.ok) throw new Error(`/me: ${response.status}`);
   return response.json();
 }
 
+// ── what the page knows ─────────────────────────────────────────────────────
+
+// The dogs in the tiles subscribed, by id.
+const known = new Map();
+// The tiles the server has acked as subscribed, by key.
+let subscribed = new Map();
+
 // ── the leash ───────────────────────────────────────────────────────────────
 
 // How long a dog stays on your leash after you let go of it.
 const leash_kept_ms = 5000;
 
-// The dog on your leash: none, or a dog held in your hand, or a dog let go
-// of and kept on the leash until a timer lets it go.
+// The dog on your leash, by id: none, or one held in your hand, or one let
+// go of and kept on the leash until a timer lets it go.
 let leashed = { kind: "none" };
 
 // A leash is asked for and the dog moved at once (optimistic); the ack is
 // only said, for now.
-function leashTo(dog) {
-  if (leashed.kind !== "none" && leashed.dog !== dog) releaseLeash();
+function leashTo(dogId) {
+  if (leashed.kind !== "none" && leashed.dogId !== dogId) releaseLeash();
   if (leashed.kind === "kept") clearTimeout(leashed.timer);
-  const already = leashed.kind !== "none" && leashed.dog === dog;
-  leashed = { kind: "in_hand", dog };
+  const already = leashed.kind !== "none" && leashed.dogId === dogId;
+  leashed = { kind: "in_hand", dogId };
   if (already) return;
-  post("/leash", { dog: dog.id }).then(
+  post("/leash", { dog: dogId }).then(
     (ack) => console.log("leashed", ack),
     (e) => console.error("leash failed:", e.message),
   );
@@ -136,24 +180,22 @@ function leashTo(dog) {
 // Let go of the dog in your hand: it stays on the leash `leash_kept_ms`.
 function keepOnLeash() {
   if (leashed.kind !== "in_hand") return;
-  const dog = leashed.dog;
-  leashed = { kind: "kept", dog, timer: setTimeout(releaseLeash, leash_kept_ms) };
+  leashed = { kind: "kept", dogId: leashed.dogId, timer: setTimeout(releaseLeash, leash_kept_ms) };
 }
 
 function releaseLeash() {
   if (leashed.kind === "none") return;
   if (leashed.kind === "kept") clearTimeout(leashed.timer);
-  const dog = leashed.dog;
+  const dogId = leashed.dogId;
   leashed = { kind: "none" };
-  post("/release", { dog: dog.id }).then(
+  post("/release", { dog: dogId }).then(
     (ack) => console.log("released", ack),
     (e) => console.error("release failed:", e.message),
   );
 }
 
-// Moves to the server: at most one waiting for its ack. Each send carries
-// where the dog is now, so the dogs moved while one waits are sent, each
-// at its latest place, as the acks come.
+// ── sends: at most one waiting each, the latest sent when it is acked ───────
+
 const moves = { waiting: "none", due: new Set() }; // waiting: "none" or a dog
 
 function sendMove(dog) {
@@ -175,8 +217,6 @@ function sendMove(dog) {
   });
 }
 
-// The viewport to the server, the same way: at most one waiting, the latest
-// sent when it is acked.
 const viewportSends = { waiting: false, due: false };
 
 function sendViewport(viewport) {
@@ -194,17 +234,55 @@ function sendViewport(viewport) {
   });
 }
 
+// The tiles: when none is waiting and the tiles wanted differ from those
+// subscribed, the whole set wanted is sent, each tile marked new (its dogs
+// wanted) or held (its dogs known). The answer brings the new tiles' dogs;
+// the dogs of tiles left out are forgotten, but for one on your leash or in
+// your hand.
+const tileSends = { waiting: false };
+
+function syncTiles(viewport, inHand) {
+  if (tileSends.waiting) return;
+  const wanted = new Map(wantedTiles(viewport).map((t) => [tileKey(t), t]));
+  const added = [...wanted.keys()].filter((k) => !subscribed.has(k)).length;
+  const dropped = [...subscribed.keys()].filter((k) => !wanted.has(k)).length;
+  if (added === 0 && dropped === 0) return;
+  tileSends.waiting = true;
+  const named = [...wanted].map(([k, t]) => ({ col: t.col, row: t.row, is: subscribed.has(k) ? "held" : "new" }));
+  post("/tiles", { tiles: named }).then(
+    (ack) => {
+      subscribed = wanted;
+      for (const d of ack.dogs) known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
+      let forgotten = 0;
+      for (const [id, d] of known) {
+        const kept = (leashed.kind !== "none" && leashed.dogId === id) || inHand() === d;
+        if (!kept && !subscribed.has(tileKey(tileOf(d.parkX, d.parkY)))) { known.delete(id); forgotten++; }
+      }
+      console.log(`tiles: ${added} new, ${dropped} dropped, ${ack.subscribed} subscribed; ${ack.dogs.length} dogs arrived, ${forgotten} forgotten, ${known.size} known`);
+    },
+    (e) => console.error("tiles failed:", e.message),
+  ).finally(() => { tileSends.waiting = false; });
+}
+
 // ── the blitter: owns no logic ──────────────────────────────────────────────
 
-// Draws each sprite at its viewport point, its label under it; a leashed
-// dog ringed.
-function blit(canvas, width, height, sprites) {
+// Draws the ground (each tile a square of its shade, its label in its
+// middle), then each dog at its viewport point with its label under it; a
+// leashed dog ringed.
+function blit(canvas, width, height, ground, sprites) {
   const ratio = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  for (const g of ground) {
+    ctx.fillStyle = g.shade;
+    ctx.fillRect(g.viewportX, g.viewportY, g.size, g.size);
+    ctx.font = "20px monospace";
+    ctx.fillStyle = "#9ab";
+    ctx.fillText(g.label, g.viewportX + g.size / 2, g.viewportY + g.size / 2);
+  }
   for (const s of sprites) {
     if (s.kind === "leashed") {
       ctx.beginPath();
@@ -227,11 +305,11 @@ function blit(canvas, width, height, sprites) {
 async function start() {
   const canvas = document.getElementById("park");
   const me = await fetchMe();
-  const dogs = await fetchDogs();
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
   // What the human's hand is doing: holding a dog, panning the park (from
   // the pointer's last viewport point), or resting.
   let hold = { kind: "resting" };
+  const inHand = () => (hold.kind === "holding" ? hold.dog : "none");
   // The pointer's last viewport point while holding: a still pointer in
   // the band keeps scrolling.
   const pointer = { viewportX: 0, viewportY: 0 };
@@ -255,8 +333,7 @@ async function start() {
   // A dog still on your leash from before the reload: kept on it the usual
   // time from now, then let go.
   if (me.leash.dog !== undefined) {
-    const dog = dogs.find((d) => d.id === me.leash.dog);
-    leashed = { kind: "kept", dog, timer: setTimeout(releaseLeash, leash_kept_ms) };
+    leashed = { kind: "kept", dogId: me.leash.dog, timer: setTimeout(releaseLeash, leash_kept_ms) };
   }
   window.addEventListener("resize", fit);
 
@@ -268,10 +345,10 @@ async function start() {
   }
 
   canvas.addEventListener("pointerdown", (e) => {
-    const g = grabbed(viewport, dogs, e.offsetX, e.offsetY);
+    const g = grabbed(viewport, [...known.values()], e.offsetX, e.offsetY);
     if (g.kind === "holding") {
       hold = g;
-      leashTo(g.dog);
+      leashTo(g.dog.id);
     } else {
       hold = { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY };
     }
@@ -318,14 +395,20 @@ async function start() {
         sendViewport(viewport);
       }
     }
-    const onLeash = leashed.kind === "none" ? "none" : leashed.dog;
-    const sprites = dogs.map((d) => ({
-      kind: d === onLeash ? "leashed" : "free",
+    syncTiles(viewport, inHand);
+    const ground = tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height).map((t) => ({
+      shade: (t.col + t.row) % 2 === 0 ? "#ffffff" : "#eaf3fc",
+      size: tile_px,
+      label: `(${t.col}, ${t.row})`,
+      ...viewportFromPark(viewport, t.col * tile_px, t.row * tile_px),
+    }));
+    const sprites = [...known.values()].map((d) => ({
+      kind: leashed.kind !== "none" && leashed.dogId === d.id ? "leashed" : "free",
       emoji: d.emoji,
       label: `(${Math.round(d.parkX)}, ${Math.round(d.parkY)})`,
       ...viewportFromPark(viewport, d.parkX, d.parkY),
     }));
-    blit(canvas, viewport.width, viewport.height, sprites);
+    blit(canvas, viewport.width, viewport.height, ground, sprites);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

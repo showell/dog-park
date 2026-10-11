@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const dogs = @import("dogs.zig");
+const tiles = @import("tiles.zig");
 
 /// 128 random bits, written as 32 lowercase hex digits (its cookie and its
 /// file's name).
@@ -50,6 +51,9 @@ pub const Leash = union(enum) { none, dog: dogs.DogId };
 pub const Human = struct {
     viewport: Viewport = .unknown,
     leash: Leash = .none,
+    /// The tiles whose dogs this human's page is told of: the whole set, as
+    /// its page last named them.
+    tiles: tiles.Subscribed = .{},
 };
 
 /// Who holds each dog.

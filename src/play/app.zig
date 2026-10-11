@@ -5,9 +5,11 @@
 //!
 //!   GET  /           solo/index.html, read from disk each time
 //!   GET  /park.js    solo/park.js, read from disk each time
-//!   GET  /dogs       every dog and its park point
 //!   GET  /me         your viewport and your leash (a first visit gets its
 //!                    cookie here)
+//!   POST /tiles      {"tiles": [{"col", "row", "is": "new" | "held"}]}: the
+//!                    whole set, replacing yours → the dogs in the tiles
+//!                    named new; refused past 25 tiles
 //!   POST /leash      {"dog"}                       → leashed, or held by another
 //!   POST /release    {"dog"}                       → released, or not held
 //!   POST /move       {"dog", "park_x", "park_y"}   → moved, kept
@@ -23,13 +25,14 @@ const http = webbox.http;
 const signed_cookie = webbox.signed_cookie;
 const dogs = @import("dogs.zig");
 const humans = @import("humans.zig");
+const tiles = @import("tiles.zig");
 const HumanId = humans.HumanId;
 
 /// Where the page lives, from the directory the server runs in.
 const page_dir = "solo";
 
-/// The longest request body: a move is under 100 bytes.
-pub const longest_body = 512;
+/// The longest request body: fifty tiles at about 25 bytes each.
+pub const longest_body = 4096;
 
 /// **A HUMAN IS A DEVICE**: a signed cookie naming its random id, for a year.
 pub const human_cookie: signed_cookie.Cookie = .{ .name = "dogpark_human", .kind = .{
@@ -93,10 +96,6 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     const path = http.pathOf(try http.target(req, alloc));
     if (std.mem.eql(u8, path, "/")) return pageFile(req, io, alloc, "index.html", "text/html; charset=utf-8");
     if (std.mem.eql(u8, path, "/park.js")) return pageFile(req, io, alloc, "park.js", "text/javascript; charset=utf-8");
-    if (std.mem.eql(u8, path, "/dogs")) {
-        if (req.head.method != .GET) return http.methodNotAllowed(req);
-        return json(req, try the_dogs.written(alloc), .none);
-    }
     if (std.mem.eql(u8, path, "/me")) {
         if (req.head.method != .GET) return http.methodNotAllowed(req);
         return me(req, io, alloc);
@@ -105,6 +104,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     if (std.mem.eql(u8, path, "/release")) return asHuman(req, io, alloc, release);
     if (std.mem.eql(u8, path, "/move")) return asHuman(req, io, alloc, move);
     if (std.mem.eql(u8, path, "/viewport")) return asHuman(req, io, alloc, viewport);
+    if (std.mem.eql(u8, path, "/tiles")) return asHuman(req, io, alloc, subscribe);
     return http.notFound(req);
 }
 
@@ -218,6 +218,35 @@ fn viewport(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, who
     human.viewport = .{ .at = at };
     try webbox.store.replace(io, alloc, try viewportPath(alloc, who), try std.json.Stringify.valueAlloc(alloc, at, .{}), .{});
     return json(req, try std.fmt.allocPrint(alloc, "{{\"viewport\":{{\"park_x\":{d},\"park_y\":{d}}}}}", .{ at.park_x, at.park_y }), .none);
+}
+
+const TilesRequest = struct { tiles: []const tiles.Named };
+
+/// `POST /tiles`: your subscriptions replaced by the tiles named, and the
+/// dogs standing in those named new.
+fn subscribe(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, who: HumanId) !void {
+    const asked = (try readJson(TilesRequest, req, alloc)) orelse return;
+    const human = try humanOf(io, alloc, who);
+    switch (human.tiles.replace(asked.tiles)) {
+        .too_many => |n| return req.respond(try std.fmt.allocPrint(alloc, "{{\"too_many\":{d},\"most\":{d}}}", .{ n, tiles.most_subscribed }), .{
+            .status = .bad_request,
+            .keep_alive = false,
+            .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
+        }),
+        .replaced => {
+            const Shown = struct { id: usize, emoji: []const u8, park_x: i32, park_y: i32 };
+            var shown: std.ArrayList(Shown) = .empty;
+            for (the_dogs.list, 0..) |dog, i| {
+                const t = tiles.Tile.of(dog.at);
+                for (asked.tiles) |n| if (n.is == .new and std.meta.eql(n.tile(), t)) {
+                    try shown.append(alloc, .{ .id = i, .emoji = dog.emoji, .park_x = dog.at.park_x, .park_y = dog.at.park_y });
+                    break;
+                };
+            }
+            const Answer = struct { subscribed: usize, dogs: []const Shown };
+            return json(req, try std.json.Stringify.valueAlloc(alloc, Answer{ .subscribed = human.tiles.len, .dogs = shown.items }, .{}), .none);
+        },
+    }
 }
 
 /// The dog a request names, or null with a 400 already answered.
