@@ -1,8 +1,9 @@
 // Dog Park, solo: one human, a few dogs, no server.
 //
-// Milestone 2: the park reaches north past the screen. Holding your dog
-// near the screen's top edge scrolls the viewport north, and your dog goes
-// with it at the same speed; the other dogs stay where they stand.
+// Milestone 3: the park reaches north and south past the screen. Holding
+// your dog near the screen's top or bottom edge scrolls the viewport that
+// way, and your dog goes with it at the same speed; the other dogs stay
+// where they stand. Each dog shows its park point under it.
 //
 // TWO FRAMES, both in CSS pixels: a PARK point (parkX, parkY) is where a
 // dog stands in the world; a VIEWPORT point (viewportX, viewportY) is
@@ -63,34 +64,39 @@ function grabbed(viewport, dog, pointerViewportX, pointerViewportY) {
   return { kind: "holding", grabDx: dx, grabDy: dy };
 }
 
-// ── scroll (north only, for now) ────────────────────────────────────────────
+// ── scroll (north and south, for now) ───────────────────────────────────────
 
-// The band along the top edge where a held dog scrolls the viewport: from
-// the dog's highest place on screen (half its size from the top) down to
-// `band_px` below that. Deeper in the band, faster.
+// A band along the top edge and one along the bottom, where a held dog
+// scrolls the viewport: from the dog's farthest place on screen (half its
+// size from the edge) `band_px` inward. Deeper in the band, faster.
 const band_px = 80;
-const slowest_px_per_frame = 2;
-const fastest_px_per_frame = 16;
+const slowest_px_per_frame = 2 / 3;
+const fastest_px_per_frame = 16 / 3;
 
-// How far north the viewport moves this frame for a dog held at
-// `dogViewportY`: 0 outside the band.
-function northScroll(dogViewportY) {
-  const top = dog_px / 2;
-  const depth = (top + band_px - dogViewportY) / band_px; // 0 at the band's inner edge, 1 at the top
+function bandSpeed(depthPx) {
+  const depth = depthPx / band_px; // 0 at the band's inner edge, 1 at the screen's edge
   if (depth <= 0) return 0;
-  const d = Math.min(depth, 1);
-  return Math.round(slowest_px_per_frame + d * (fastest_px_per_frame - slowest_px_per_frame));
+  return slowest_px_per_frame + Math.min(depth, 1) * (fastest_px_per_frame - slowest_px_per_frame);
+}
+
+// How far the viewport moves south this frame (negative: north) for a dog
+// held at `dogViewportY` on a screen `height` tall: 0 outside both bands.
+function verticalScroll(dogViewportY, height) {
+  const half = dog_px / 2;
+  const north = bandSpeed(half + band_px - dogViewportY);
+  const south = bandSpeed(dogViewportY - (height - half - band_px));
+  return south - north;
 }
 
 // ── the blitter: owns no logic ──────────────────────────────────────────────
 
-// Draws each sprite at its viewport point; the own dog ringed.
+// Draws each sprite at its viewport point, its label under it; the own dog
+// ringed.
 function blit(canvas, width, height, sprites) {
   const ratio = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  ctx.font = `${dog_px}px serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const s of sprites) {
@@ -101,7 +107,12 @@ function blit(canvas, width, height, sprites) {
       ctx.strokeStyle = "#d33";
       ctx.stroke();
     }
+    ctx.font = `${dog_px}px serif`;
+    ctx.fillStyle = "#000";
     ctx.fillText(s.emoji, s.viewportX, s.viewportY);
+    ctx.font = "11px monospace";
+    ctx.fillStyle = "#555";
+    ctx.fillText(s.label, s.viewportX, s.viewportY + dog_px * 0.85);
   }
 }
 
@@ -156,13 +167,18 @@ function start() {
   const frame = () => {
     if (hold.kind === "holding") {
       const dog = own();
-      const step = northScroll(viewportFromPark(viewport, dog.parkX, dog.parkY).viewportY);
-      // The viewport and the dog move north together: the dog stays put on
-      // screen while it travels through the park.
-      viewport.parkY -= step;
-      dog.parkY -= step;
+      const step = verticalScroll(viewportFromPark(viewport, dog.parkX, dog.parkY).viewportY, viewport.height);
+      // The viewport and the dog move together: the dog stays put on screen
+      // while it travels through the park.
+      viewport.parkY += step;
+      dog.parkY += step;
     }
-    const sprites = dogs.map((d) => ({ kind: d.kind, emoji: d.emoji, ...viewportFromPark(viewport, d.parkX, d.parkY) }));
+    const sprites = dogs.map((d) => ({
+      kind: d.kind,
+      emoji: d.emoji,
+      label: `(${Math.round(d.parkX)}, ${Math.round(d.parkY)})`,
+      ...viewportFromPark(viewport, d.parkX, d.parkY),
+    }));
     blit(canvas, viewport.width, viewport.height, sprites);
     requestAnimationFrame(frame);
   };
