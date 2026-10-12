@@ -14,10 +14,12 @@
 //!                    the tiles named new; refused past 25 tiles
 //!   POST /leash      {"dog"}                       → leashed, or held by another
 //!   POST /release    {"dog"}                       → released, or not held
-//!   POST /move       {"dog", "path": [[park_x, park_y], ...]}: the dog's
-//!                    path since the server last had it, at most 100 points
-//!                    → moved, kept, and the cows it scared, where they
-//!                    stepped to, the cows' rule replayed along the path
+//!   POST /move       {"dog", "back": [[park_x, park_y], ...], "path": [...]}:
+//!                    the dog's path since the server last had it, at most
+//!                    100 points, and at most 32 before it (ending where the
+//!                    server has the dog: the cows' headings) → moved, kept,
+//!                    and the cows it scared, where they stepped to, the
+//!                    cows' rule replayed along the path
 //!   POST /viewport   {"park_x", "park_y"}          → kept
 //!
 //! Every answer is JSON. **THE PAGE IS READ FROM DISK** (`solo/`, from where
@@ -247,28 +249,33 @@ fn move(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: Huma
     const dog = (try dogNamed(req, asked.dog)) orelse return;
     if (asked.path.len == 0) return badRequest(req, "A move needs a path.\n");
     if (asked.path.len > dogs.most_path_points) return badRequest(req, try std.fmt.allocPrint(alloc, "A path of {d} points is past the {d} a move may carry.\n", .{ asked.path.len, dogs.most_path_points }));
+    if (asked.back.len > cows.most_back_points) return badRequest(req, try std.fmt.allocPrint(alloc, "{d} points back is past the {d} a move may carry.\n", .{ asked.back.len, cows.most_back_points }));
     for (asked.path) |p| {
         if (tiles.where(.{ .park_x = p[0], .park_y = p[1] }) == .outside_world) return badRequest(req, "That is outside the world.\n");
     }
-    // **THE PAGE'S OWN STEPS**: the rule replayed segment by segment along
-    // the path, as the page predicted it.
+    // **THE PAGE'S OWN STEPS**: the trail the page sent before the path when
+    // it ends where this server has the dog (else only where it has it),
+    // then the path; the cows' rule replayed along it as the page did.
+    const from = the_dogs.at(dog);
+    const ends_here = asked.back.len > 0 and asked.back[asked.back.len - 1][0] == from.park_x and asked.back[asked.back.len - 1][1] == from.park_y;
+    const back_len = if (ends_here) asked.back.len else 1;
+    const points = try alloc.alloc(dogs.ParkPoint, back_len + asked.path.len);
+    if (ends_here) {
+        for (asked.back, points[0..back_len]) |p, *q| q.* = .{ .park_x = p[0], .park_y = p[1] };
+    } else points[0] = from;
+    for (asked.path, points[back_len..]) |p, *q| q.* = .{ .park_x = p[0], .park_y = p[1] };
     var stepped = [_]bool{false} ** cows.cow_count;
-    for (asked.path) |p| {
-        const from = the_dogs.at(dog);
-        const to: dogs.ParkPoint = .{ .park_x = p[0], .park_y = p[1] };
-        the_dogs.moveTo(dog, to);
-        const scared = the_cows.react(from, to);
-        for (scared.slice()) |c| stepped[@intFromEnum(c)] = true;
-    }
+    cows.replay(&the_cows.list, points, back_len, &stepped);
+    const end = points[points.len - 1];
+    the_dogs.moveTo(dog, end);
     try keepDogs(io, alloc);
-    const CowAt = struct { id: u16, park_x: i32, park_y: i32 };
+    const CowAt = struct { id: u16, park_x: f64, park_y: f64 };
     var moved: std.ArrayList(CowAt) = .empty;
     for (stepped, 0..) |was, i| if (was) {
         const at = the_cows.at(@enumFromInt(i));
         try moved.append(alloc, .{ .id = @intCast(i), .park_x = at.park_x, .park_y = at.park_y });
     };
     if (moved.items.len > 0) try keepCows(io, alloc);
-    const end = the_dogs.at(dog);
     const Answer = struct { moved: u16, park_x: i32, park_y: i32, cows: []const CowAt };
     return json(req, try std.json.Stringify.valueAlloc(alloc, Answer{ .moved = @intFromEnum(dog), .park_x = end.park_x, .park_y = end.park_y, .cows = moved.items }, .{}), .none);
 }
@@ -305,12 +312,12 @@ fn subscribe(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, wh
                     break;
                 };
             }
-            const CowShown = struct { id: usize, park_x: i32, park_y: i32 };
+            const CowShown = struct { id: usize, park_x: f64, park_y: f64 };
             var cows_shown: std.ArrayList(CowShown) = .empty;
             for (the_cows.list, 0..) |cow, i| {
-                const t = tiles.Tile.of(cow.at);
+                const t = tiles.Tile.of(.{ .park_x = @intFromFloat(@floor(cow.park_x)), .park_y = @intFromFloat(@floor(cow.park_y)) });
                 for (asked.tiles) |n| if (n.is == .new and std.meta.eql(n.tile(), t)) {
-                    try cows_shown.append(alloc, .{ .id = i, .park_x = cow.at.park_x, .park_y = cow.at.park_y });
+                    try cows_shown.append(alloc, .{ .id = i, .park_x = cow.park_x, .park_y = cow.park_y });
                     break;
                 };
             }

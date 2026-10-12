@@ -64,18 +64,23 @@ try {
   const seen = await post("/tiles", { tiles });
   const serverCows = new Map(seen.cows.map((c) => [c.id, { parkX: c.park_x, parkY: c.park_y }]));
   const dog0 = seen.dogs.find((d) => d.id === 0);
-  let serverDog = { parkX: dog0.park_x, parkY: dog0.park_y };
+  // The dog's trail, as the page keeps it: the last point is where the
+  // server has the dog.
+  let trail = [{ parkX: dog0.park_x, parkY: dog0.park_y }];
 
   const { instance } = await WebAssembly.instantiate(readFileSync(join(root, "zig-out/web/cows.wasm")));
   const rule = instance.exports;
-  const predict = (from, paths) => {
+  const predict = (paths) => {
     const ids = [...serverCows.keys()];
-    const at = new Int32Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
+    const at = new Float64Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
     ids.forEach((id, i) => { at[2 * i] = serverCows.get(id).parkX; at[2 * i + 1] = serverCows.get(id).parkY; });
-    let was = from;
-    for (const to of paths.flat()) {
-      if (was.parkX !== to.parkX || was.parkY !== to.parkY) rule.react(ids.length, was.parkX, was.parkY, to.parkX, to.parkY);
-      was = to;
+    const points = new Int32Array(rule.memory.buffer, rule.pathPoints(), 2 * rule.pathCapacity());
+    let back = trail;
+    for (const path of paths) {
+      const all = [...back, ...path];
+      all.forEach((p, i) => { points[2 * i] = p.parkX; points[2 * i + 1] = p.parkY; });
+      rule.replay(ids.length, all.length, back.length);
+      back = all.slice(-32);
     }
     return new Map(ids.map((id, i) => [id, { parkX: at[2 * i], parkY: at[2 * i + 1] }]));
   };
@@ -90,7 +95,7 @@ try {
     if (random() < 0.05) target = serverCows.get(cowIds[Math.floor(random() * cowIds.length)]);
     // Frames: 1 to 15 px each, a path of 1 to 12 of them a move.
     const batch = [];
-    let at = serverDog;
+    let at = trail[trail.length - 1];
     for (let k = 1 + Math.floor(random() * 3); k > 0; k--) {
       const path = [];
       for (let n = 1 + Math.floor(random() * 12); n > 0; n--) {
@@ -105,11 +110,12 @@ try {
       }
       batch.push(path);
     }
-    const predicted = predict(serverDog, batch);
+    const predicted = predict(batch);
+    const pairs = (points) => points.map((p) => [p.parkX, p.parkY]);
     for (const path of batch) {
-      const ack = await post("/move", { dog: 0, path: path.map((p) => [p.parkX, p.parkY]) });
+      const ack = await post("/move", { dog: 0, back: pairs(trail), path: pairs(path) });
       for (const c of ack.cows) { serverCows.set(c.id, { parkX: c.park_x, parkY: c.park_y }); scared++; }
-      serverDog = path[path.length - 1];
+      trail = [...trail, ...path].slice(-32);
       done++;
     }
     for (const [id, p] of predicted) {

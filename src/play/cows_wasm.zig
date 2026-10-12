@@ -1,35 +1,43 @@
 //! The cows' rule for the page (cows.wasm): cows.zig itself, compiled to
 //! wasm32, so the page predicts a cow exactly as the server moves it, the
-//! same arithmetic and the same rounding. The page writes the cows it knows
-//! into `positions` (park_x, park_y each), asks `react` for each move the
-//! server has yet to answer, in the order the server will take them, and
-//! reads them back.
+//! same arithmetic to the bit. The page writes the cows it knows into
+//! `cowPositions` (park_x, park_y each, f64) and a move's points into
+//! `pathPoints` (park_x, park_y each, i32: the trail before the move, ending
+//! where the server has the dog, then the path), calls `replay`, and reads
+//! the cows back.
 
+const dogs = @import("dogs.zig");
 const cows = @import("cows.zig");
 
-var positions: [cows.cow_count * 2]i32 = undefined;
+var positions: [cows.cow_count]cows.CowPoint = undefined;
+var raw_points: [cows.most_back_points + dogs.most_path_points][2]i32 = undefined;
+var points: [cows.most_back_points + dogs.most_path_points]dogs.ParkPoint = undefined;
 
-/// Where the page writes and reads the cows: `count` pairs of park_x, park_y.
-export fn cowPositions() [*]i32 {
-    return &positions;
+/// Where the page writes and reads the cows: pairs of f64.
+export fn cowPositions() [*]f64 {
+    return @ptrCast(&positions);
 }
 
-/// The most cows `positions` holds.
+/// The most cows `cowPositions` holds.
 export fn cowCapacity() u32 {
     return cows.cow_count;
 }
 
-/// A dog moved from (from_x, from_y) to (to_x, to_y): the first `count` cows
-/// react, as the server's `Cows.react` moves them.
-export fn react(count: u32, from_x: i32, from_y: i32, to_x: i32, to_y: i32) void {
-    const n = @min(count, cows.cow_count);
-    for (0..n) |i| {
-        switch (cows.reaction(.{ .park_x = from_x, .park_y = from_y }, .{ .park_x = to_x, .park_y = to_y }, .{ .park_x = positions[2 * i], .park_y = positions[2 * i + 1] })) {
-            .stays => {},
-            .steps_to => |p| {
-                positions[2 * i] = p.park_x;
-                positions[2 * i + 1] = p.park_y;
-            },
-        }
-    }
+/// Where the page writes a move's points: pairs of i32.
+export fn pathPoints() [*]i32 {
+    return @ptrCast(&raw_points);
+}
+
+/// The most points `pathPoints` holds.
+export fn pathCapacity() u32 {
+    return raw_points.len;
+}
+
+/// A move, as the server's /move replays it: the first `count` cows react to
+/// the `n` points' path from `first` (cows.replay).
+export fn replay(count: u32, n: u32, first: u32) void {
+    const m = @min(n, raw_points.len);
+    for (raw_points[0..m], points[0..m]) |r, *p| p.* = .{ .park_x = r[0], .park_y = r[1] };
+    if (first < 1 or first >= m) return;
+    cows.replay(positions[0..@min(count, cows.cow_count)], points[0..m], first, null);
 }

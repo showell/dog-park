@@ -200,9 +200,17 @@ const serverCows = new Map();
 // The cows as drawn: `serverCows` with the unanswered moves replayed
 // (predictCows), each frame.
 let knownCows = new Map();
-// Where the server has each dog, or will once the move in flight lands: a
-// move's begin point. Set by the tiles' answer and by each send.
-const serverDogAt = new Map();
+// Each dog's TRAIL, by id: the points the server has of it, or will once
+// the move in flight lands, the last its begin point (where a move starts).
+// At most `most_back_points`: a move sends them, for the cows' headings
+// (cows.zig's headingAt). Set by the tiles' answer and by each send.
+const trails = new Map();
+const most_back_points = 32;
+
+function beginPoint(id) {
+  const trail = trails.get(id);
+  return trail ? trail[trail.length - 1] : undefined;
+}
 // The tiles the server has acked as subscribed, by key.
 let subscribed = new Map();
 
@@ -268,7 +276,7 @@ function wholePoint(dog) {
 // The last point the server has, or will have once told, of a dog.
 function lastPoint(dog) {
   const pending = moves.pending.get(dog.id);
-  return pending ? pending.path[pending.path.length - 1] : serverDogAt.get(dog.id);
+  return pending ? pending.path[pending.path.length - 1] : beginPoint(dog.id);
 }
 
 // **THE PATH THE PAGE SAW**: where a dog is now joins its path when it has
@@ -294,19 +302,20 @@ function sendNext() {
   if (next === undefined) return;
   moves.pending.delete(next.dog.id);
   const { dog, path } = next;
-  const from = serverDogAt.get(dog.id) ?? path[0];
-  moves.waiting = { dog, from, path };
-  serverDogAt.set(dog.id, path[path.length - 1]);
+  const back = trails.get(dog.id) ?? [];
+  moves.waiting = { dog, back, path };
+  trails.set(dog.id, [...back, ...path].slice(-most_back_points));
   const sentMs = performance.now();
-  post("/move", { dog: dog.id, path: path.map((p) => [p.parkX, p.parkY]) }).then(
+  const pairs = (points) => points.map((p) => [p.parkX, p.parkY]);
+  post("/move", { dog: dog.id, back: pairs(back), path: pairs(path) }).then(
     (ack) => {
       for (const c of ack.cows) serverCows.set(c.id, { id: c.id, parkX: c.park_x, parkY: c.park_y });
-      const scared = ack.cows.length ? `, scaring ${ack.cows.map((c) => `cow ${c.id} to (${c.park_x}, ${c.park_y})`).join(", ")}` : "";
+      const scared = ack.cows.length ? `, scaring ${ack.cows.map((c) => `cow ${c.id} to (${c.park_x.toFixed(1)}, ${c.park_y.toFixed(1)})`).join(", ")}` : "";
       console.log(`moved ${ack.moved} along ${path.length} points to (${ack.park_x}, ${ack.park_y}) in ${Math.round(performance.now() - sentMs)} ms${scared}`);
     },
     (e) => {
       // Not moved: the server has the dog where it had it.
-      serverDogAt.set(dog.id, from);
+      trails.set(dog.id, back);
       console.error("move failed:", e.message);
     },
   ).finally(() => {
@@ -361,7 +370,7 @@ function syncTiles(viewport, inHand) {
         const kept = (leashed.kind !== "none" && leashed.dogId === d.id) || inHand() === known.get(d.id) || moving(d.id);
         if (kept) continue;
         known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
-        serverDogAt.set(d.id, { parkX: d.park_x, parkY: d.park_y });
+        trails.set(d.id, [{ parkX: d.park_x, parkY: d.park_y }]);
       }
       for (const [id, c] of serverCows) {
         if (fresh.has(tileKey(tileOf(c.parkX, c.parkY)))) serverCows.delete(id);
@@ -387,25 +396,29 @@ async function loadCowRule() {
 
 // The cows as the server will have them once it has taken every move the
 // page has made: the server's last word, then the path in flight, then each
-// path waiting, segment by segment, in the order the server will take them.
-// Each segment, once seen, never changes, so a frame only adds to this.
+// path waiting, in the order the server will take them, each replayed with
+// the trail before it (cows.zig's replay, in the wasm). Each segment, once
+// seen, never changes, so a frame only adds to this.
 function predictCows(rule) {
   const ids = [...serverCows.keys()].slice(0, rule.cowCapacity());
-  const at = new Int32Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
+  const at = new Float64Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
   ids.forEach((id, i) => {
     const c = serverCows.get(id);
     at[2 * i] = c.parkX;
     at[2 * i + 1] = c.parkY;
   });
-  const replay = (from, path) => {
-    let was = from;
-    for (const to of path) {
-      if (was.parkX !== to.parkX || was.parkY !== to.parkY) rule.react(ids.length, was.parkX, was.parkY, to.parkX, to.parkY);
-      was = to;
-    }
+  const points = new Int32Array(rule.memory.buffer, rule.pathPoints(), 2 * rule.pathCapacity());
+  const replay = (back, path) => {
+    if (back.length === 0) return; // a dog the server has not told of: nothing to start from
+    const all = [...back, ...path];
+    all.forEach((p, i) => {
+      points[2 * i] = p.parkX;
+      points[2 * i + 1] = p.parkY;
+    });
+    rule.replay(ids.length, all.length, back.length);
   };
-  if (moves.waiting !== "none") replay(moves.waiting.from, moves.waiting.path);
-  for (const { dog, path } of moves.pending.values()) replay(serverDogAt.get(dog.id) ?? path[0], path);
+  if (moves.waiting !== "none") replay(moves.waiting.back, moves.waiting.path);
+  for (const { dog, path } of moves.pending.values()) replay(trails.get(dog.id) ?? [], path);
   const out = new Map();
   ids.forEach((id, i) => out.set(id, { id, parkX: at[2 * i], parkY: at[2 * i + 1] }));
   return out;
@@ -652,7 +665,7 @@ async function start() {
       kind: "cow",
       emoji: cow_emoji,
       size: cow_px,
-      label: `(${c.parkX}, ${c.parkY})`,
+      label: `(${Math.round(c.parkX)}, ${Math.round(c.parkY)})`,
       ...viewportFromPark(viewport, c.parkX, c.parkY),
     }));
     const sprites = [...cowSprites, ...[...known.values()].map((d) => ({
