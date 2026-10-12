@@ -16,7 +16,11 @@ pub fn build(b: *std.Build) void {
     const webbox_dep = b.dependency("webbox", .{ .target = target, .optimize = optimize });
     const webbox = webbox_dep.module("webbox");
     const webbox_linux = webbox_dep.module("webbox_linux");
+    // `host_io`: the one file the application's sources take their `Io`
+    // from, std's here; a metal kernel hands the same files its own.
+    const host_io = webbox_dep.module("host_io");
     root.addImport("webbox", webbox);
+    root.addImport("host_io", host_io);
     const tests = b.addTest(.{ .root_module = root });
     b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
 
@@ -41,6 +45,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     play_main.addImport("webbox", webbox);
+    play_main.addImport("host_io", host_io);
     play_main.addImport("webbox_linux", webbox_linux);
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);

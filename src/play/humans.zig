@@ -3,6 +3,7 @@
 //! on disk, one small file a human.
 
 const std = @import("std");
+const Io = @import("host_io").Io;
 const dogs = @import("dogs.zig");
 const tiles = @import("tiles.zig");
 
@@ -13,7 +14,7 @@ pub const HumanId = enum(u128) {
 
     pub const hex_len = 32;
 
-    pub fn random(io: std.Io) HumanId {
+    pub fn random(io: Io) HumanId {
         var bytes: [16]u8 = undefined;
         io.random(&bytes);
         return @enumFromInt(std.mem.readInt(u128, &bytes, .little));

@@ -92,15 +92,15 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: *webbox.bus.Bus) !void {
     const path = http.pathOf(try http.target(req, alloc));
     if (std.mem.eql(u8, path, "/")) {
-        if (req.head.method != .GET) return http.methodNotAllowed(req);
+        if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return req.respond(try page(alloc), .{ .extra_headers = &.{.{ .name = "content-type", .value = "text/html; charset=utf-8" }} });
     }
     if (std.mem.eql(u8, path, "/park.js")) {
-        if (req.head.method != .GET) return http.methodNotAllowed(req);
+        if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return http.serveEmbedded(req, park_js, .{ .name = "content-type", .value = "text/javascript; charset=utf-8" });
     }
     if (std.mem.eql(u8, path, "/scene")) {
-        if (req.head.method != .POST) return http.methodNotAllowed(req);
+        if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
         return scene(req, io, alloc);
     }
     return http.notFound(req);

@@ -5,9 +5,9 @@
 
 const std = @import("std");
 const webbox = @import("webbox");
-const app = @import("app.zig");
+const hosted = @import("hosted.zig");
 
-pub const site = webbox.site.Site(app);
+pub const site = hosted.site;
 
 pub fn main(init: std.process.Init.Minimal) !void {
     try @import("webbox_linux").linux_host.Server(site).run(init, .{
@@ -33,13 +33,9 @@ fn unread(_: *const std.process.Environ.Map) webbox.free_space.FreeSpace {
 }
 
 fn report(started: *const site.Started) void {
-    const r = started.app;
-    switch (r.dogs) {
-        .loaded => std.debug.print("dog-park-play: the dogs loaded from {s}\n", .{r.dogs_path}),
-        .laid_out => std.debug.print("dog-park-play: no dogs were kept, so they were laid out afresh in {s}\n", .{r.dogs_path}),
-    }
-    switch (r.secret) {
-        .found => {},
-        .created => std.debug.print("dog-park-play: no signing secret was found, so one was created\n", .{}),
-    }
+    var buf: [1024]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    hosted.hosting.describeStart(started.app, &w) catch @panic("Dog Park's start report is past its 1 KiB buffer (hosted.hosting.describeStart)");
+    var lines = std.mem.splitScalar(u8, std.mem.trimEnd(u8, w.buffered(), "\n"), '\n');
+    while (lines.next()) |line| std.debug.print("dog-park-play: {s}\n", .{line});
 }

@@ -1,0 +1,9 @@
+// **WHAT DOG PARK SERVES BESIDES ITS CODE** (webbox's Phase B contract, as
+// angry-gopher's zig-server/assets.zon): `.embedded`, front-end files compiled
+// in by name (none: the page is read from disk), and `.site`, directories its
+// routes read at request time from where it runs, relative to this file
+// (solo/: the page and its script), each laid whole onto a machine's site disk.
+.{
+    .embedded = .{},
+    .site = .{"solo"},
+}

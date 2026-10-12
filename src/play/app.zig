@@ -15,11 +15,13 @@
 //!   POST /move       {"dog", "park_x", "park_y"}   → moved, kept
 //!   POST /viewport   {"park_x", "park_y"}          → kept
 //!
-//! Every answer is JSON. **THE PAGE IS READ FROM DISK** (the checkout's
-//! `solo/`), so an edit to it shows on a reload, with no rebuild.
+//! Every answer is JSON. **THE PAGE IS READ FROM DISK** (`solo/`, from where
+//! the server runs: the checkout on Linux, the site disk on metal, where
+//! assets.zon's `.site` lays it), so an edit to it shows on a reload, with
+//! no rebuild.
 
 const std = @import("std");
-const Io = std.Io;
+const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
 const signed_cookie = webbox.signed_cookie;
@@ -103,7 +105,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     if (std.mem.eql(u8, path, "/")) return pageFile(req, io, alloc, "index.html", "text/html; charset=utf-8");
     if (std.mem.eql(u8, path, "/park.js")) return pageFile(req, io, alloc, "park.js", "text/javascript; charset=utf-8");
     if (std.mem.eql(u8, path, "/me")) {
-        if (req.head.method != .GET) return http.methodNotAllowed(req);
+        if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return me(req, io, alloc);
     }
     if (std.mem.eql(u8, path, "/leash")) return asHuman(req, io, alloc, leash);
@@ -178,7 +180,7 @@ fn viewportPath(alloc: std.mem.Allocator, who: HumanId) ![]const u8 {
 
 /// A request only a human may make: a stranger is told to ask `/me` first.
 fn asHuman(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, comptime handle: fn (*std.http.Server.Request, Io, std.mem.Allocator, HumanId) anyerror!void) !void {
-    if (req.head.method != .POST) return http.methodNotAllowed(req);
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
     switch (try whoIs(req, io, alloc)) {
         .human => |h| {
             _ = try humanOf(io, alloc, h);
@@ -275,9 +277,9 @@ const SetCookie = union(enum) { none, header: []const u8 };
 
 /// A file of the page, read from disk on every request, never cached.
 fn pageFile(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, name: []const u8, content_type: []const u8) !void {
-    if (req.head.method != .GET) return http.methodNotAllowed(req);
+    if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     const path = try std.fs.path.join(alloc, &.{ page_dir, name });
-    const body = try Io.Dir.cwd().readFileAlloc(io, path, alloc, .limited(1024 * 1024));
+    const body = try webbox.store.read(io, alloc, path, .limited(1024 * 1024));
     return req.respond(body, .{ .extra_headers = &.{
         .{ .name = "content-type", .value = content_type },
         .{ .name = "cache-control", .value = "no-store" },
