@@ -251,28 +251,58 @@ function releaseLeash() {
 
 // ── sends: at most one waiting each, the latest sent when it is acked ───────
 
-// waiting: "none" or the move in flight, a dog and its begin and end points.
-const moves = { waiting: "none", due: new Set() };
+// waiting: "none", or the move in flight: its dog, where the server had the
+// dog (`from`), and the path sent. pending: each dog's path not sent yet,
+// by dog id, in the order the server will be sent them.
+const moves = { waiting: "none", pending: new Map() };
 
-// Where a move of `dog` goes: the whole pixel the server is sent.
-function sentPoint(dog) {
+// The most points one move's path holds (dogs.zig's most_path_points): past
+// it, the newest point takes the last one's place.
+const most_path_points = 100;
+
+// Where a dog is, as the whole pixel the server is told.
+function wholePoint(dog) {
   return { parkX: Math.round(dog.parkX), parkY: Math.round(dog.parkY) };
 }
 
+// The last point the server has, or will have once told, of a dog.
+function lastPoint(dog) {
+  const pending = moves.pending.get(dog.id);
+  return pending ? pending.path[pending.path.length - 1] : serverDogAt.get(dog.id);
+}
+
+// **THE PATH THE PAGE SAW**: where a dog is now joins its path when it has
+// moved a whole pixel, and the path goes when nothing is in flight. The
+// server replays the cows' rule along it, segment by segment, as the page
+// does (predictCows).
 function sendMove(dog) {
-  if (moves.waiting !== "none") { moves.due.add(dog); return; }
-  const to = sentPoint(dog);
-  const from = serverDogAt.get(dog.id) ?? to;
-  moves.waiting = { dog, from, to };
-  serverDogAt.set(dog.id, to);
-  const parkX = to.parkX;
-  const parkY = to.parkY;
+  const at = wholePoint(dog);
+  const last = lastPoint(dog);
+  if (last && last.parkX === at.parkX && last.parkY === at.parkY) return;
+  let pending = moves.pending.get(dog.id);
+  if (!pending) {
+    pending = { dog, path: [] };
+    moves.pending.set(dog.id, pending);
+  }
+  if (pending.path.length === most_path_points) pending.path[most_path_points - 1] = at;
+  else pending.path.push(at);
+  if (moves.waiting === "none") sendNext();
+}
+
+function sendNext() {
+  const [next] = moves.pending.values();
+  if (next === undefined) return;
+  moves.pending.delete(next.dog.id);
+  const { dog, path } = next;
+  const from = serverDogAt.get(dog.id) ?? path[0];
+  moves.waiting = { dog, from, path };
+  serverDogAt.set(dog.id, path[path.length - 1]);
   const sentMs = performance.now();
-  post("/move", { dog: dog.id, park_x: parkX, park_y: parkY }).then(
+  post("/move", { dog: dog.id, path: path.map((p) => [p.parkX, p.parkY]) }).then(
     (ack) => {
       for (const c of ack.cows) serverCows.set(c.id, { id: c.id, parkX: c.park_x, parkY: c.park_y });
       const scared = ack.cows.length ? `, scaring ${ack.cows.map((c) => `cow ${c.id} to (${c.park_x}, ${c.park_y})`).join(", ")}` : "";
-      console.log(`moved ${ack.moved} to (${ack.park_x}, ${ack.park_y}) in ${Math.round(performance.now() - sentMs)} ms${scared}`);
+      console.log(`moved ${ack.moved} along ${path.length} points to (${ack.park_x}, ${ack.park_y}) in ${Math.round(performance.now() - sentMs)} ms${scared}`);
     },
     (e) => {
       // Not moved: the server has the dog where it had it.
@@ -281,11 +311,7 @@ function sendMove(dog) {
     },
   ).finally(() => {
     moves.waiting = "none";
-    const [next] = moves.due;
-    if (next !== undefined) {
-      moves.due.delete(next);
-      sendMove(next);
-    }
+    sendNext();
   });
 }
 
@@ -349,7 +375,7 @@ function syncTiles(viewport, inHand) {
 
 // Whether a move of the dog `id` is in flight or waiting.
 function moving(id) {
-  return (moves.waiting !== "none" && moves.waiting.dog.id === id) || [...moves.due].some((d) => d.id === id);
+  return (moves.waiting !== "none" && moves.waiting.dog.id === id) || moves.pending.has(id);
 }
 
 // ── the cows' rule, the server's own ───────────────────────────────────────
@@ -360,9 +386,9 @@ async function loadCowRule() {
 }
 
 // The cows as the server will have them once it has taken every move the
-// page has made: the server's last word, then the move in flight, then each
-// move waiting (from the dog's begin point to where it is now), in the
-// order the server will take them.
+// page has made: the server's last word, then the path in flight, then each
+// path waiting, segment by segment, in the order the server will take them.
+// Each segment, once seen, never changes, so a frame only adds to this.
 function predictCows(rule) {
   const ids = [...serverCows.keys()].slice(0, rule.cowCapacity());
   const at = new Int32Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
@@ -371,14 +397,15 @@ function predictCows(rule) {
     at[2 * i] = c.parkX;
     at[2 * i + 1] = c.parkY;
   });
-  const replay = (from, to) => {
-    if (from.parkX !== to.parkX || from.parkY !== to.parkY) rule.react(ids.length, from.parkX, from.parkY, to.parkX, to.parkY);
+  const replay = (from, path) => {
+    let was = from;
+    for (const to of path) {
+      if (was.parkX !== to.parkX || was.parkY !== to.parkY) rule.react(ids.length, was.parkX, was.parkY, to.parkX, to.parkY);
+      was = to;
+    }
   };
-  if (moves.waiting !== "none") replay(moves.waiting.from, moves.waiting.to);
-  for (const dog of moves.due) {
-    const to = sentPoint(dog);
-    replay(serverDogAt.get(dog.id) ?? to, to);
-  }
+  if (moves.waiting !== "none") replay(moves.waiting.from, moves.waiting.path);
+  for (const { dog, path } of moves.pending.values()) replay(serverDogAt.get(dog.id) ?? path[0], path);
   const out = new Map();
   ids.forEach((id, i) => out.set(id, { id, parkX: at[2 * i], parkY: at[2 * i + 1] }));
   return out;

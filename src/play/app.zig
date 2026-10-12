@@ -14,8 +14,10 @@
 //!                    the tiles named new; refused past 25 tiles
 //!   POST /leash      {"dog"}                       → leashed, or held by another
 //!   POST /release    {"dog"}                       → released, or not held
-//!   POST /move       {"dog", "park_x", "park_y"}   → moved, kept, and the
-//!                    cows it scared, where they stepped to
+//!   POST /move       {"dog", "path": [[park_x, park_y], ...]}: the dog's
+//!                    path since the server last had it, at most 100 points
+//!                    → moved, kept, and the cows it scared, where they
+//!                    stepped to, the cows' rule replayed along the path
 //!   POST /viewport   {"park_x", "park_y"}          → kept
 //!
 //! Every answer is JSON. **THE PAGE IS READ FROM DISK** (`solo/`, from where
@@ -243,21 +245,32 @@ fn release(req: *std.http.Server.Request, _: Io, alloc: std.mem.Allocator, who: 
 fn move(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: HumanId) !void {
     const asked = (try readJson(dogs.MoveRequest, req, alloc)) orelse return;
     const dog = (try dogNamed(req, asked.dog)) orelse return;
-    const to: dogs.ParkPoint = .{ .park_x = asked.park_x, .park_y = asked.park_y };
-    if (tiles.where(to) == .outside_world) return badRequest(req, "That is outside the world.\n");
-    const from = the_dogs.at(dog);
-    the_dogs.moveTo(dog, to);
-    const scared = the_cows.react(from, to);
-    try keepDogs(io, alloc);
-    if (scared.len > 0) try keepCows(io, alloc);
-    const CowAt = struct { id: u16, park_x: i32, park_y: i32 };
-    var stepped: [cows.cow_count]CowAt = undefined;
-    for (scared.slice(), stepped[0..scared.len]) |c, *s| {
-        const at = the_cows.at(c);
-        s.* = .{ .id = @intFromEnum(c), .park_x = at.park_x, .park_y = at.park_y };
+    if (asked.path.len == 0) return badRequest(req, "A move needs a path.\n");
+    if (asked.path.len > dogs.most_path_points) return badRequest(req, try std.fmt.allocPrint(alloc, "A path of {d} points is past the {d} a move may carry.\n", .{ asked.path.len, dogs.most_path_points }));
+    for (asked.path) |p| {
+        if (tiles.where(.{ .park_x = p[0], .park_y = p[1] }) == .outside_world) return badRequest(req, "That is outside the world.\n");
     }
+    // **THE PAGE'S OWN STEPS**: the rule replayed segment by segment along
+    // the path, as the page predicted it.
+    var stepped = [_]bool{false} ** cows.cow_count;
+    for (asked.path) |p| {
+        const from = the_dogs.at(dog);
+        const to: dogs.ParkPoint = .{ .park_x = p[0], .park_y = p[1] };
+        the_dogs.moveTo(dog, to);
+        const scared = the_cows.react(from, to);
+        for (scared.slice()) |c| stepped[@intFromEnum(c)] = true;
+    }
+    try keepDogs(io, alloc);
+    const CowAt = struct { id: u16, park_x: i32, park_y: i32 };
+    var moved: std.ArrayList(CowAt) = .empty;
+    for (stepped, 0..) |was, i| if (was) {
+        const at = the_cows.at(@enumFromInt(i));
+        try moved.append(alloc, .{ .id = @intCast(i), .park_x = at.park_x, .park_y = at.park_y });
+    };
+    if (moved.items.len > 0) try keepCows(io, alloc);
+    const end = the_dogs.at(dog);
     const Answer = struct { moved: u16, park_x: i32, park_y: i32, cows: []const CowAt };
-    return json(req, try std.json.Stringify.valueAlloc(alloc, Answer{ .moved = @intFromEnum(dog), .park_x = to.park_x, .park_y = to.park_y, .cows = stepped[0..scared.len] }, .{}), .none);
+    return json(req, try std.json.Stringify.valueAlloc(alloc, Answer{ .moved = @intFromEnum(dog), .park_x = end.park_x, .park_y = end.park_y, .cows = moved.items }, .{}), .none);
 }
 
 fn viewport(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, who: HumanId) !void {

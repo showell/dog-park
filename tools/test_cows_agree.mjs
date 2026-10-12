@@ -1,10 +1,11 @@
 // The page's cows agree with the server's: the play server (zig-out/bin/
 // dog-park-play) is started in a scratch folder, a dog is dragged about at
 // random near the cows, and before each batch of moves the page's
-// prediction (zig-out/web/cows.wasm, replaying them from where the server
-// last said the cows are, as park.js's predictCows does) must equal where the
-// server's acks then put them, exactly. A batch is one to three moves, as a
-// page sends them when one is in flight and more wait.
+// prediction (zig-out/web/cows.wasm, replaying each move's path segment by
+// segment from where the server last said the cows are, as park.js's
+// predictCows does) must equal where the server's acks then put them,
+// exactly. A batch is one to three moves, as a page sends them when one is
+// in flight and more wait; a move is a path of 1 to 12 points.
 //
 //   zig build && node tools/test_cows_agree.mjs
 import { spawn } from "node:child_process";
@@ -67,12 +68,15 @@ try {
 
   const { instance } = await WebAssembly.instantiate(readFileSync(join(root, "zig-out/web/cows.wasm")));
   const rule = instance.exports;
-  const predict = (from, steps) => {
+  const predict = (from, paths) => {
     const ids = [...serverCows.keys()];
     const at = new Int32Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
     ids.forEach((id, i) => { at[2 * i] = serverCows.get(id).parkX; at[2 * i + 1] = serverCows.get(id).parkY; });
     let was = from;
-    for (const to of steps) { rule.react(ids.length, was.parkX, was.parkY, to.parkX, to.parkY); was = to; }
+    for (const to of paths.flat()) {
+      if (was.parkX !== to.parkX || was.parkY !== to.parkY) rule.react(ids.length, was.parkX, was.parkY, to.parkX, to.parkY);
+      was = to;
+    }
     return new Map(ids.map((id, i) => [id, { parkX: at[2 * i], parkY: at[2 * i + 1] }]));
   };
 
@@ -84,23 +88,28 @@ try {
   while (done < moves_wanted) {
     // Head for a cow, wobbling, 1 to 40 px a move; now and then a new cow.
     if (random() < 0.05) target = serverCows.get(cowIds[Math.floor(random() * cowIds.length)]);
+    // Frames: 1 to 15 px each, a path of 1 to 12 of them a move.
     const batch = [];
     let at = serverDog;
     for (let k = 1 + Math.floor(random() * 3); k > 0; k--) {
-      const dx = target.parkX - at.parkX, dy = target.parkY - at.parkY, len = Math.hypot(dx, dy) || 1;
-      const step = 1 + random() * 39;
-      const wobble = (random() - 0.5) * 30;
-      at = {
-        parkX: Math.min(2499, Math.max(0, Math.round(at.parkX + (dx / len) * step + wobble))),
-        parkY: Math.min(2499, Math.max(0, Math.round(at.parkY + (dy / len) * step - wobble))),
-      };
-      batch.push(at);
+      const path = [];
+      for (let n = 1 + Math.floor(random() * 12); n > 0; n--) {
+        const dx = target.parkX - at.parkX, dy = target.parkY - at.parkY, len = Math.hypot(dx, dy) || 1;
+        const step = 1 + random() * 14;
+        const wobble = (random() - 0.5) * 12;
+        at = {
+          parkX: Math.min(2499, Math.max(0, Math.round(at.parkX + (dx / len) * step + wobble))),
+          parkY: Math.min(2499, Math.max(0, Math.round(at.parkY + (dy / len) * step - wobble))),
+        };
+        path.push(at);
+      }
+      batch.push(path);
     }
     const predicted = predict(serverDog, batch);
-    for (const to of batch) {
-      const ack = await post("/move", { dog: 0, park_x: to.parkX, park_y: to.parkY });
+    for (const path of batch) {
+      const ack = await post("/move", { dog: 0, path: path.map((p) => [p.parkX, p.parkY]) });
       for (const c of ack.cows) { serverCows.set(c.id, { parkX: c.park_x, parkY: c.park_y }); scared++; }
-      serverDog = to;
+      serverDog = path[path.length - 1];
       done++;
     }
     for (const [id, p] of predicted) {

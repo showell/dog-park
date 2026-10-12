@@ -26,7 +26,16 @@ pub const dog_count = blue_tiles * in_blue.len + white_tiles * in_white.len;
 pub const Lookup = union(enum) { dog: DogId, no_such_dog };
 
 pub const LeashRequest = struct { dog: u32 };
-pub const MoveRequest = struct { dog: u32, park_x: i32, park_y: i32 };
+/// A move: the dog's path since the server last had it, each whole park
+/// pixel the page saw it at, in order (`[park_x, park_y]` each); it ends at
+/// the last. The server replays the cows' rule along it, segment by segment,
+/// as the page did.
+pub const MoveRequest = struct { dog: u32, path: []const [2]i32 };
+
+/// The most points one move's path holds: 100 at 12 bytes is well inside a
+/// body's 4 KiB (app.zig's longest_body). A page with more to say replaces
+/// its last point.
+pub const most_path_points = 100;
 
 /// How the dogs are written down: `{"dogs":[{"id","emoji","park_x","park_y"}, ...]}`.
 const Written = struct { dogs: []const struct { id: u32, emoji: []const u8, park_x: i32, park_y: i32 } };
