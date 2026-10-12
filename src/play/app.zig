@@ -83,12 +83,11 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     };
     const stored = try webbox.store.readOrNull(io, scratch.allocator(), dogs_path, .limited(1024 * 1024));
     if (stored) |bytes| {
-        the_dogs = dogs.Dogs.read(bytes) catch |e| {
-            // **A DOGS FILE THAT DOES NOT READ STOPS THE START, NAMED** (fail,
-            // never warn).
-            std.debug.print("dog-park: {s} does not read ({t}); not starting\n", .{ dogs_path, e });
-            return e;
-        };
+        // **A DOGS FILE THAT DOES NOT READ STOPS THE START, NAMED** (fail,
+        // never warn): the host prints a failed start's error, and this one
+        // says what. No print here: the application has no stderr of its own
+        // on every host (a kernel has none).
+        the_dogs = dogs.Dogs.read(bytes) catch return error.DogsFileDoesNotRead;
         return .{ .dogs_path = dogs_path, .dogs = .loaded, .secret = secret };
     }
     the_dogs = dogs.Dogs.laidOut();
@@ -163,10 +162,9 @@ fn humanOf(io: Io, alloc: std.mem.Allocator, who: HumanId) !*humans.Human {
     const human = try the_humans.of(long_lived, who);
     if (!known) {
         if (try webbox.store.readOrNull(io, alloc, try viewportPath(alloc, who), .limited(256))) |bytes| {
-            const at = std.json.parseFromSliceLeaky(dogs.ParkPoint, alloc, bytes, .{}) catch |e| {
-                std.debug.print("dog-park: {s} does not read ({t})\n", .{ try viewportPath(alloc, who), e });
-                return e;
-            };
+            // A viewport file that does not read is the route's error (the
+            // host answers 500 and logs its name), never printed here.
+            const at = std.json.parseFromSliceLeaky(dogs.ParkPoint, alloc, bytes, .{}) catch return error.ViewportFileDoesNotRead;
             human.viewport = .{ .at = at };
         }
     }
