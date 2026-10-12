@@ -30,13 +30,7 @@ pub const LeashRequest = struct { dog: u32 };
 /// pixel the page saw it at, in order (`[park_x, park_y]` each); it ends at
 /// the last. The server replays the cows' rule along it, segment by segment,
 /// as the page did.
-pub const MoveRequest = struct {
-    dog: u32,
-    /// The points before the path, ending where the server has the dog, for
-    /// the cows' headings (cows.zig's most_back_points of them at most).
-    back: []const [2]i32 = &.{},
-    path: []const [2]i32,
-};
+pub const MoveRequest = struct { dog: u32, path: []const [2]i32 };
 
 /// The most points one move's path holds: 100 at 12 bytes is well inside a
 /// body's 4 KiB (app.zig's longest_body). A page with more to say replaces

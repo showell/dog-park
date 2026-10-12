@@ -62,40 +62,40 @@ try {
   const tiles = [];
   for (let row = 0; row < 5; row++) for (let col = 0; col < 5; col++) tiles.push({ col, row, is: "new" });
   const seen = await post("/tiles", { tiles });
-  const serverCows = new Map(seen.cows.map((c) => [c.id, { parkX: c.park_x, parkY: c.park_y }]));
+  // In half pixels, as the server keeps them.
+  const serverCows = new Map(seen.cows.map((c) => [c.id, { halfX: c.half_x, halfY: c.half_y }]));
   const dog0 = seen.dogs.find((d) => d.id === 0);
-  // The dog's trail, as the page keeps it: the last point is where the
-  // server has the dog.
-  let trail = [{ parkX: dog0.park_x, parkY: dog0.park_y }];
+  // Where the server has the dog: the page's begin point.
+  let begin = { parkX: dog0.park_x, parkY: dog0.park_y };
 
   const { instance } = await WebAssembly.instantiate(readFileSync(join(root, "zig-out/web/cows.wasm")));
   const rule = instance.exports;
   const predict = (paths) => {
     const ids = [...serverCows.keys()];
-    const at = new Float64Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
-    ids.forEach((id, i) => { at[2 * i] = serverCows.get(id).parkX; at[2 * i + 1] = serverCows.get(id).parkY; });
+    const at = new Int32Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
+    ids.forEach((id, i) => { at[2 * i] = serverCows.get(id).halfX; at[2 * i + 1] = serverCows.get(id).halfY; });
     const points = new Int32Array(rule.memory.buffer, rule.pathPoints(), 2 * rule.pathCapacity());
-    let back = trail;
+    let from = begin;
     for (const path of paths) {
-      const all = [...back, ...path];
-      all.forEach((p, i) => { points[2 * i] = p.parkX; points[2 * i + 1] = p.parkY; });
-      rule.replay(ids.length, all.length, back.length);
-      back = all.slice(-32);
+      [from, ...path].forEach((p, i) => { points[2 * i] = p.parkX; points[2 * i + 1] = p.parkY; });
+      rule.replay(ids.length, 1 + path.length);
+      from = path[path.length - 1];
     }
-    return new Map(ids.map((id, i) => [id, { parkX: at[2 * i], parkY: at[2 * i + 1] }]));
+    return new Map(ids.map((id, i) => [id, { halfX: at[2 * i], halfY: at[2 * i + 1] }]));
   };
 
   const random = seeded(20261013);
   const cowIds = [...serverCows.keys()];
   let done = 0;
   let scared = 0;
-  let target = serverCows.get(cowIds[0]);
+  const parkOf = (c) => ({ parkX: c.halfX / 2, parkY: c.halfY / 2 });
+  let target = parkOf(serverCows.get(cowIds[0]));
   while (done < moves_wanted) {
     // Head for a cow, wobbling, 1 to 40 px a move; now and then a new cow.
-    if (random() < 0.05) target = serverCows.get(cowIds[Math.floor(random() * cowIds.length)]);
+    if (random() < 0.05) target = parkOf(serverCows.get(cowIds[Math.floor(random() * cowIds.length)]));
     // Frames: 1 to 15 px each, a path of 1 to 12 of them a move.
     const batch = [];
-    let at = trail[trail.length - 1];
+    let at = begin;
     for (let k = 1 + Math.floor(random() * 3); k > 0; k--) {
       const path = [];
       for (let n = 1 + Math.floor(random() * 12); n > 0; n--) {
@@ -113,16 +113,16 @@ try {
     const predicted = predict(batch);
     const pairs = (points) => points.map((p) => [p.parkX, p.parkY]);
     for (const path of batch) {
-      const ack = await post("/move", { dog: 0, back: pairs(trail), path: pairs(path) });
-      for (const c of ack.cows) { serverCows.set(c.id, { parkX: c.park_x, parkY: c.park_y }); scared++; }
-      trail = [...trail, ...path].slice(-32);
+      const ack = await post("/move", { dog: 0, path: pairs(path) });
+      for (const c of ack.cows) { serverCows.set(c.id, { halfX: c.half_x, halfY: c.half_y }); scared++; }
+      begin = path[path.length - 1];
       done++;
     }
     for (const [id, p] of predicted) {
       const s = serverCows.get(id);
-      if (s.parkX !== p.parkX || s.parkY !== p.parkY) {
+      if (s.halfX !== p.halfX || s.halfY !== p.halfY) {
         failed++;
-        if (failed <= 5) console.log(`FAIL move ${done}: cow ${id} predicted (${p.parkX}, ${p.parkY}), the server put it at (${s.parkX}, ${s.parkY})`);
+        if (failed <= 5) console.log(`FAIL move ${done}: cow ${id} predicted (${p.halfX}, ${p.halfY}) half pixels, the server put it at (${s.halfX}, ${s.halfY})`);
       }
     }
   }
