@@ -20,6 +20,11 @@ pub fn where(at: dogs.ParkPoint) Where {
     return if (in) .in_world else .outside_world;
 }
 
+/// A park point kept in the world: each axis clamped to it.
+pub fn keptInWorld(at: dogs.ParkPoint) dogs.ParkPoint {
+    return .{ .park_x = std.math.clamp(at.park_x, 0, world_px - 1), .park_y = std.math.clamp(at.park_y, 0, world_px - 1) };
+}
+
 pub const Tile = struct {
     col: i32,
     row: i32,

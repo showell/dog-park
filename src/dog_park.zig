@@ -19,6 +19,7 @@ pub const app = @import("app.zig");
 pub const play_dogs = @import("play/dogs.zig");
 pub const play_humans = @import("play/humans.zig");
 pub const play_tiles = @import("play/tiles.zig");
+pub const play_cows = @import("play/cows.zig");
 pub const play_app = @import("play/app.zig");
 
 test {

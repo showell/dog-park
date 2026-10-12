@@ -19,6 +19,10 @@
 // pointer near an edge keeps the cloth moving that way. The server keeps
 // your viewport and your leash, so a reload shows the same place.
 //
+// THE COWS, one to a white tile, half again a dog's size, are the server's:
+// a dog's move scares the cows ahead of it aside, and the move's ack says
+// where each scared cow stepped to. A cow can't be picked up.
+//
 // "z" toggles the OVERVIEW: the whole world on the screen, the tiles you
 // know white and blue and the rest red, the dogs you know as dots (the dog
 // you leashed last ringed), and your view as a rectangle you can drag by
@@ -34,6 +38,8 @@
 "use strict";
 
 const dog_px = 40;
+const cow_px = dog_px * 1.5;
+const cow_emoji = "🐄";
 
 // ── frames ──────────────────────────────────────────────────────────────────
 
@@ -182,6 +188,8 @@ async function fetchMe() {
 // Every dog the page has seen, by id, where it last saw it: live in a tile
 // subscribed, remembered (perhaps stale) in one that is not.
 const known = new Map();
+// Every cow the page has seen, by id, the same way.
+const knownCows = new Map();
 // The tiles the server has acked as subscribed, by key.
 let subscribed = new Map();
 
@@ -239,7 +247,11 @@ function sendMove(dog) {
   const parkY = Math.round(dog.parkY);
   const sentMs = performance.now();
   post("/move", { dog: dog.id, park_x: parkX, park_y: parkY }).then(
-    (ack) => console.log(`moved ${ack.moved} to (${ack.park_x}, ${ack.park_y}) in ${Math.round(performance.now() - sentMs)} ms`),
+    (ack) => {
+      for (const c of ack.cows) knownCows.set(c.id, { id: c.id, parkX: c.park_x, parkY: c.park_y });
+      const scared = ack.cows.length ? `, scaring ${ack.cows.map((c) => `cow ${c.id} to (${c.park_x}, ${c.park_y})`).join(", ")}` : "";
+      console.log(`moved ${ack.moved} to (${ack.park_x}, ${ack.park_y}) in ${Math.round(performance.now() - sentMs)} ms${scared}`);
+    },
     (e) => console.error("move failed:", e.message),
   ).finally(() => {
     moves.waiting = "none";
@@ -294,7 +306,11 @@ function syncTiles(viewport, inHand) {
         if (!kept && fresh.has(tileKey(tileOf(d.parkX, d.parkY)))) { known.delete(id); replaced++; }
       }
       for (const d of ack.dogs) known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
-      console.log(`tiles: ${added} new, ${dropped} dropped, ${ack.subscribed} subscribed; ${ack.dogs.length} dogs arrived for ${replaced} remembered, ${known.size} known`);
+      for (const [id, c] of knownCows) {
+        if (fresh.has(tileKey(tileOf(c.parkX, c.parkY)))) knownCows.delete(id);
+      }
+      for (const c of ack.cows) knownCows.set(c.id, { id: c.id, parkX: c.park_x, parkY: c.park_y });
+      console.log(`tiles: ${added} new, ${dropped} dropped, ${ack.subscribed} subscribed; ${ack.dogs.length} dogs arrived for ${replaced} remembered, ${known.size} known; ${ack.cows.length} cows arrived, ${knownCows.size} known`);
     },
     (e) => console.error("tiles failed:", e.message),
   ).finally(() => { tileSends.waiting = false; });
@@ -303,8 +319,8 @@ function syncTiles(viewport, inHand) {
 // ── the blitter: owns no logic ──────────────────────────────────────────────
 
 // Draws the ground (each tile a square of its shade, its label in its
-// middle), then each dog at its viewport point with its label under it; a
-// leashed dog ringed.
+// middle), then each sprite (cows first, so dogs are on top) at its
+// viewport point and size, with its label under it; a leashed dog ringed.
 function blit(canvas, width, height, ground, sprites) {
   const ratio = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d");
@@ -327,18 +343,18 @@ function blit(canvas, width, height, ground, sprites) {
       ctx.strokeStyle = "#d33";
       ctx.stroke();
     }
-    ctx.font = `${dog_px}px serif`;
+    ctx.font = `${s.size}px serif`;
     ctx.fillStyle = "#000";
     ctx.fillText(s.emoji, s.viewportX, s.viewportY);
     ctx.font = "11px monospace";
     ctx.fillStyle = "#555";
-    ctx.fillText(s.label, s.viewportX, s.viewportY + dog_px * 0.85);
+    ctx.fillText(s.label, s.viewportX, s.viewportY + s.size * 0.85);
   }
 }
 
 // The overview: each tile a square of its shade, each dog a dot (dark when
-// live, pale when remembered), a ringed dog with a ring, and the view a
-// rectangle. All in viewport points.
+// live, pale when remembered), a ringed dog with a ring, each cow a larger
+// brown dot, and the view a rectangle. All in viewport points.
 function blitOverview(canvas, width, height, squares, dots, view) {
   const ratio = window.devicePixelRatio || 1;
   const ctx = canvas.getContext("2d");
@@ -351,8 +367,8 @@ function blitOverview(canvas, width, height, squares, dots, view) {
   }
   for (const d of dots) {
     ctx.beginPath();
-    ctx.arc(d.viewportX, d.viewportY, 2.5, 0, 2 * Math.PI);
-    ctx.fillStyle = d.freshness === "live" ? "#333" : "#a88";
+    ctx.arc(d.viewportX, d.viewportY, d.kind === "cow" ? 4 : 2.5, 0, 2 * Math.PI);
+    ctx.fillStyle = d.kind === "cow" ? (d.freshness === "live" ? "#7a4a1a" : "#c9a37a") : d.freshness === "live" ? "#333" : "#a88";
     ctx.fill();
     if (d.kind === "ringed") {
       ctx.beginPath();
@@ -535,12 +551,20 @@ async function start() {
       label: `(${t.col}, ${t.row})`,
       ...viewportFromPark(viewport, t.col * tile_px, t.row * tile_px),
     }));
-    const sprites = [...known.values()].map((d) => ({
+    const cowSprites = [...knownCows.values()].map((c) => ({
+      kind: "cow",
+      emoji: cow_emoji,
+      size: cow_px,
+      label: `(${c.parkX}, ${c.parkY})`,
+      ...viewportFromPark(viewport, c.parkX, c.parkY),
+    }));
+    const sprites = [...cowSprites, ...[...known.values()].map((d) => ({
       kind: leashed.kind !== "none" && leashed.dogId === d.id ? "leashed" : "free",
       emoji: d.emoji,
+      size: dog_px,
       label: `(${Math.round(d.parkX)}, ${Math.round(d.parkY)})`,
       ...viewportFromPark(viewport, d.parkX, d.parkY),
-    }));
+    }))];
     blit(canvas, viewport.width, viewport.height, ground, sprites);
     requestAnimationFrame(frame);
   };
@@ -558,11 +582,16 @@ async function start() {
         squares.push({ shade, size: tile_px * o.scale, ...overviewFromPark(o, col * tile_px, row * tile_px) });
       }
     }
-    const dots = [...known.values()].map((d) => ({
+    const cowDots = [...knownCows.values()].map((c) => ({
+      kind: "cow",
+      freshness: subscribed.has(tileKey(tileOf(c.parkX, c.parkY))) ? "live" : "remembered",
+      ...overviewFromPark(o, c.parkX, c.parkY),
+    }));
+    const dots = [...cowDots, ...[...known.values()].map((d) => ({
       kind: lastLeashed.kind === "dog" && lastLeashed.dogId === d.id ? "ringed" : "plain",
       freshness: subscribed.has(tileKey(tileOf(d.parkX, d.parkY))) ? "live" : "remembered",
       ...overviewFromPark(o, d.parkX, d.parkY),
-    }));
+    }))];
     const corner = overviewFromPark(o, viewport.parkX, viewport.parkY);
     const view = { ...corner, width: viewport.width * o.scale, height: viewport.height * o.scale };
     blitOverview(canvas, viewport.width, viewport.height, squares, dots, view);

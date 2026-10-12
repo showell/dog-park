@@ -1,5 +1,6 @@
 //! Dog Park, played: the server for `solo/`, as webbox serves it
-//! (`webbox.site.Site(App)`). It knows the dogs and where they stand, who
+//! (`webbox.site.Site(App)`). It knows the dogs and the cows and where they
+//! stand (a dog's move scares the cows ahead of it aside: cows.zig), who
 //! each human is (a signed cookie naming a random id), where each human's
 //! viewport was, and who holds which dog on a leash.
 //!
@@ -8,11 +9,12 @@
 //!   GET  /me         your viewport and your leash (a first visit gets its
 //!                    cookie here)
 //!   POST /tiles      {"tiles": [{"col", "row", "is": "new" | "held"}]}: the
-//!                    whole set, replacing yours → the dogs in the tiles
-//!                    named new; refused past 25 tiles
+//!                    whole set, replacing yours → the dogs and the cows in
+//!                    the tiles named new; refused past 25 tiles
 //!   POST /leash      {"dog"}                       → leashed, or held by another
 //!   POST /release    {"dog"}                       → released, or not held
-//!   POST /move       {"dog", "park_x", "park_y"}   → moved, kept
+//!   POST /move       {"dog", "park_x", "park_y"}   → moved, kept, and the
+//!                    cows it scared, where they stepped to
 //!   POST /viewport   {"park_x", "park_y"}          → kept
 //!
 //! Every answer is JSON. **THE PAGE IS READ FROM DISK** (`solo/`, from where
@@ -28,6 +30,7 @@ const signed_cookie = webbox.signed_cookie;
 const dogs = @import("dogs.zig");
 const humans = @import("humans.zig");
 const tiles = @import("tiles.zig");
+const cows = @import("cows.zig");
 const HumanId = humans.HumanId;
 
 /// Where the page lives, from the directory the server runs in.
@@ -53,16 +56,22 @@ pub const human_cookie: signed_cookie.Cookie = .{ .name = "dogpark_human", .kind
 /// What this process holds: one handler runs at a time (webbox's hosts), so
 /// it is shared plainly.
 var the_dogs: dogs.Dogs = undefined;
+var the_cows: cows.Cows = undefined;
 var the_humans: humans.Humans = .{};
 /// Lives as long as the process: the humans' table.
 var long_lived: std.mem.Allocator = undefined;
 var dogs_path: []const u8 = undefined;
+var cows_path: []const u8 = undefined;
 var data_dir: []const u8 = undefined;
 var auth_dir: []const u8 = undefined;
 
+pub const Kept = enum { loaded, laid_out };
+
 pub const StartReport = struct {
     dogs_path: []const u8,
-    dogs: enum { loaded, laid_out },
+    dogs: Kept,
+    cows_path: []const u8,
+    cows: Kept,
     secret: enum { found, created },
 };
 
@@ -81,22 +90,36 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
         try webbox.site_secret.create(io, scratch.allocator(), r.auth_dir);
         break :blk .created;
     };
-    const stored = try webbox.store.readOrNull(io, scratch.allocator(), dogs_path, .limited(1024 * 1024));
-    if (stored) |bytes| {
-        // **A DOGS FILE THAT DOES NOT READ STOPS THE START, NAMED** (fail,
-        // never warn): the host prints a failed start's error, and this one
-        // says what. No print here: the application has no stderr of its own
-        // on every host (a kernel has none).
+    cows_path = try std.fs.path.join(base, &.{ r.data_dir, "cows.json" });
+    // **A DOGS OR COWS FILE THAT DOES NOT READ STOPS THE START, NAMED**
+    // (fail, never warn): the host prints a failed start's error, and this
+    // one says what. No print here: the application has no stderr of its
+    // own on every host (a kernel has none).
+    const dogs_kept: Kept = if (try webbox.store.readOrNull(io, scratch.allocator(), dogs_path, .limited(1024 * 1024))) |bytes| blk: {
         the_dogs = dogs.Dogs.read(bytes) catch return error.DogsFileDoesNotRead;
-        return .{ .dogs_path = dogs_path, .dogs = .loaded, .secret = secret };
-    }
-    the_dogs = dogs.Dogs.laidOut();
-    try keepDogs(io, scratch.allocator());
-    return .{ .dogs_path = dogs_path, .dogs = .laid_out, .secret = secret };
+        break :blk .loaded;
+    } else blk: {
+        the_dogs = dogs.Dogs.laidOut();
+        try keepDogs(io, scratch.allocator());
+        break :blk .laid_out;
+    };
+    const cows_kept: Kept = if (try webbox.store.readOrNull(io, scratch.allocator(), cows_path, .limited(1024 * 1024))) |bytes| blk: {
+        the_cows = cows.Cows.read(bytes) catch return error.CowsFileDoesNotRead;
+        break :blk .loaded;
+    } else blk: {
+        the_cows = cows.Cows.laidOut();
+        try keepCows(io, scratch.allocator());
+        break :blk .laid_out;
+    };
+    return .{ .dogs_path = dogs_path, .dogs = dogs_kept, .cows_path = cows_path, .cows = cows_kept, .secret = secret };
 }
 
 fn keepDogs(io: Io, alloc: std.mem.Allocator) !void {
     try webbox.store.replace(io, alloc, dogs_path, try the_dogs.written(alloc), .{});
+}
+
+fn keepCows(io: Io, alloc: std.mem.Allocator) !void {
+    try webbox.store.replace(io, alloc, cows_path, try the_cows.written(alloc), .{});
 }
 
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: *webbox.bus.Bus) !void {
@@ -214,10 +237,19 @@ fn move(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: Huma
     const dog = (try dogNamed(req, asked.dog)) orelse return;
     const to: dogs.ParkPoint = .{ .park_x = asked.park_x, .park_y = asked.park_y };
     if (tiles.where(to) == .outside_world) return badRequest(req, "That is outside the world.\n");
-    the_dogs.moveTo(dog, .{ .park_x = asked.park_x, .park_y = asked.park_y });
+    const from = the_dogs.at(dog);
+    the_dogs.moveTo(dog, to);
+    const scared = the_cows.react(from, to);
     try keepDogs(io, alloc);
-    const at = the_dogs.at(dog);
-    return json(req, try std.fmt.allocPrint(alloc, "{{\"moved\":{d},\"park_x\":{d},\"park_y\":{d}}}", .{ @intFromEnum(dog), at.park_x, at.park_y }), .none);
+    if (scared.len > 0) try keepCows(io, alloc);
+    const CowAt = struct { id: u16, park_x: i32, park_y: i32 };
+    var stepped: [cows.cow_count]CowAt = undefined;
+    for (scared.slice(), stepped[0..scared.len]) |c, *s| {
+        const at = the_cows.at(c);
+        s.* = .{ .id = @intFromEnum(c), .park_x = at.park_x, .park_y = at.park_y };
+    }
+    const Answer = struct { moved: u16, park_x: i32, park_y: i32, cows: []const CowAt };
+    return json(req, try std.json.Stringify.valueAlloc(alloc, Answer{ .moved = @intFromEnum(dog), .park_x = to.park_x, .park_y = to.park_y, .cows = stepped[0..scared.len] }, .{}), .none);
 }
 
 fn viewport(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, who: HumanId) !void {
@@ -252,8 +284,17 @@ fn subscribe(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, wh
                     break;
                 };
             }
-            const Answer = struct { subscribed: usize, dogs: []const Shown };
-            return json(req, try std.json.Stringify.valueAlloc(alloc, Answer{ .subscribed = human.tiles.len, .dogs = shown.items }, .{}), .none);
+            const CowShown = struct { id: usize, park_x: i32, park_y: i32 };
+            var cows_shown: std.ArrayList(CowShown) = .empty;
+            for (the_cows.list, 0..) |cow, i| {
+                const t = tiles.Tile.of(cow.at);
+                for (asked.tiles) |n| if (n.is == .new and std.meta.eql(n.tile(), t)) {
+                    try cows_shown.append(alloc, .{ .id = i, .park_x = cow.at.park_x, .park_y = cow.at.park_y });
+                    break;
+                };
+            }
+            const Answer = struct { subscribed: usize, dogs: []const Shown, cows: []const CowShown };
+            return json(req, try std.json.Stringify.valueAlloc(alloc, Answer{ .subscribed = human.tiles.len, .dogs = shown.items, .cows = cows_shown.items }, .{}), .none);
         },
     }
 }

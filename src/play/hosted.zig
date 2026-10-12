@@ -22,6 +22,10 @@ pub const hosting = struct {
             .loaded => try w.print("the dogs loaded from {s}\n", .{r.dogs_path}),
             .laid_out => try w.print("no dogs were kept, so they were laid out afresh in {s}\n", .{r.dogs_path}),
         }
+        switch (r.cows) {
+            .loaded => try w.print("the cows loaded from {s}\n", .{r.cows_path}),
+            .laid_out => try w.print("no cows were kept, so they were laid out afresh in {s}\n", .{r.cows_path}),
+        }
         switch (r.secret) {
             .found => {},
             .created => try w.writeAll("no signing secret was found, so one was created\n"),
