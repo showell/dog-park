@@ -21,7 +21,14 @@
 //
 // THE COWS, one to a white tile, half again a dog's size, are the server's:
 // a dog's move scares the cows ahead of it aside, and the move's ack says
-// where each scared cow stepped to. A cow can't be picked up.
+// where each scared cow stepped to. A cow can't be picked up. **THE PAGE
+// PREDICTS THEM WITH THE SERVER'S OWN RULE** (/cows.wasm, the server's
+// cows.zig): every frame, from where the server last said the cows are, it
+// replays each move the server has yet to answer, in the order the server
+// will take them: the one in flight, then each one waiting, from where the
+// server has that dog (its BEGIN point, which moves only when a move is
+// sent) to where the dog is now. When nothing is lost on the way, the ack
+// says what the page already shows.
 //
 // "z" toggles the OVERVIEW: the whole world on the screen, the tiles you
 // know white and blue and the rest red, the dogs you know as dots (the dog
@@ -188,8 +195,14 @@ async function fetchMe() {
 // Every dog the page has seen, by id, where it last saw it: live in a tile
 // subscribed, remembered (perhaps stale) in one that is not.
 const known = new Map();
-// Every cow the page has seen, by id, the same way.
-const knownCows = new Map();
+// Every cow the page has seen, by id, where the SERVER last said it is.
+const serverCows = new Map();
+// The cows as drawn: `serverCows` with the unanswered moves replayed
+// (predictCows), each frame.
+let knownCows = new Map();
+// Where the server has each dog, or will once the move in flight lands: a
+// move's begin point. Set by the tiles' answer and by each send.
+const serverDogAt = new Map();
 // The tiles the server has acked as subscribed, by key.
 let subscribed = new Map();
 
@@ -238,21 +251,34 @@ function releaseLeash() {
 
 // ── sends: at most one waiting each, the latest sent when it is acked ───────
 
-const moves = { waiting: "none", due: new Set() }; // waiting: "none" or a dog
+// waiting: "none" or the move in flight, a dog and its begin and end points.
+const moves = { waiting: "none", due: new Set() };
+
+// Where a move of `dog` goes: the whole pixel the server is sent.
+function sentPoint(dog) {
+  return { parkX: Math.round(dog.parkX), parkY: Math.round(dog.parkY) };
+}
 
 function sendMove(dog) {
   if (moves.waiting !== "none") { moves.due.add(dog); return; }
-  moves.waiting = dog;
-  const parkX = Math.round(dog.parkX);
-  const parkY = Math.round(dog.parkY);
+  const to = sentPoint(dog);
+  const from = serverDogAt.get(dog.id) ?? to;
+  moves.waiting = { dog, from, to };
+  serverDogAt.set(dog.id, to);
+  const parkX = to.parkX;
+  const parkY = to.parkY;
   const sentMs = performance.now();
   post("/move", { dog: dog.id, park_x: parkX, park_y: parkY }).then(
     (ack) => {
-      for (const c of ack.cows) knownCows.set(c.id, { id: c.id, parkX: c.park_x, parkY: c.park_y });
+      for (const c of ack.cows) serverCows.set(c.id, { id: c.id, parkX: c.park_x, parkY: c.park_y });
       const scared = ack.cows.length ? `, scaring ${ack.cows.map((c) => `cow ${c.id} to (${c.park_x}, ${c.park_y})`).join(", ")}` : "";
       console.log(`moved ${ack.moved} to (${ack.park_x}, ${ack.park_y}) in ${Math.round(performance.now() - sentMs)} ms${scared}`);
     },
-    (e) => console.error("move failed:", e.message),
+    (e) => {
+      // Not moved: the server has the dog where it had it.
+      serverDogAt.set(dog.id, from);
+      console.error("move failed:", e.message);
+    },
   ).finally(() => {
     moves.waiting = "none";
     const [next] = moves.due;
@@ -305,15 +331,57 @@ function syncTiles(viewport, inHand) {
         const kept = (leashed.kind !== "none" && leashed.dogId === id) || inHand() === d;
         if (!kept && fresh.has(tileKey(tileOf(d.parkX, d.parkY)))) { known.delete(id); replaced++; }
       }
-      for (const d of ack.dogs) known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
-      for (const [id, c] of knownCows) {
-        if (fresh.has(tileKey(tileOf(c.parkX, c.parkY)))) knownCows.delete(id);
+      for (const d of ack.dogs) {
+        const kept = (leashed.kind !== "none" && leashed.dogId === d.id) || inHand() === known.get(d.id) || moving(d.id);
+        if (kept) continue;
+        known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
+        serverDogAt.set(d.id, { parkX: d.park_x, parkY: d.park_y });
       }
-      for (const c of ack.cows) knownCows.set(c.id, { id: c.id, parkX: c.park_x, parkY: c.park_y });
-      console.log(`tiles: ${added} new, ${dropped} dropped, ${ack.subscribed} subscribed; ${ack.dogs.length} dogs arrived for ${replaced} remembered, ${known.size} known; ${ack.cows.length} cows arrived, ${knownCows.size} known`);
+      for (const [id, c] of serverCows) {
+        if (fresh.has(tileKey(tileOf(c.parkX, c.parkY)))) serverCows.delete(id);
+      }
+      for (const c of ack.cows) serverCows.set(c.id, { id: c.id, parkX: c.park_x, parkY: c.park_y });
+      console.log(`tiles: ${added} new, ${dropped} dropped, ${ack.subscribed} subscribed; ${ack.dogs.length} dogs arrived for ${replaced} remembered, ${known.size} known; ${ack.cows.length} cows arrived, ${serverCows.size} known`);
     },
     (e) => console.error("tiles failed:", e.message),
   ).finally(() => { tileSends.waiting = false; });
+}
+
+// Whether a move of the dog `id` is in flight or waiting.
+function moving(id) {
+  return (moves.waiting !== "none" && moves.waiting.dog.id === id) || [...moves.due].some((d) => d.id === id);
+}
+
+// ── the cows' rule, the server's own ───────────────────────────────────────
+
+async function loadCowRule() {
+  const { instance } = await WebAssembly.instantiateStreaming(fetch("/cows.wasm"));
+  return instance.exports;
+}
+
+// The cows as the server will have them once it has taken every move the
+// page has made: the server's last word, then the move in flight, then each
+// move waiting (from the dog's begin point to where it is now), in the
+// order the server will take them.
+function predictCows(rule) {
+  const ids = [...serverCows.keys()].slice(0, rule.cowCapacity());
+  const at = new Int32Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
+  ids.forEach((id, i) => {
+    const c = serverCows.get(id);
+    at[2 * i] = c.parkX;
+    at[2 * i + 1] = c.parkY;
+  });
+  const replay = (from, to) => {
+    if (from.parkX !== to.parkX || from.parkY !== to.parkY) rule.react(ids.length, from.parkX, from.parkY, to.parkX, to.parkY);
+  };
+  if (moves.waiting !== "none") replay(moves.waiting.from, moves.waiting.to);
+  for (const dog of moves.due) {
+    const to = sentPoint(dog);
+    replay(serverDogAt.get(dog.id) ?? to, to);
+  }
+  const out = new Map();
+  ids.forEach((id, i) => out.set(id, { id, parkX: at[2 * i], parkY: at[2 * i + 1] }));
+  return out;
 }
 
 // ── the blitter: owns no logic ──────────────────────────────────────────────
@@ -406,6 +474,7 @@ function overviewFromPark(o, parkX, parkY) {
 
 async function start() {
   const canvas = document.getElementById("park");
+  const cowRule = await loadCowRule();
   const me = await fetchMe();
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
   // Near (the park at its size) or the overview (the whole world).
@@ -507,6 +576,7 @@ async function start() {
 
   const frame = () => {
     syncTiles(viewport, inHand);
+    knownCows = predictCows(cowRule);
     if (mode === "overview") {
       drawOverview();
       requestAnimationFrame(frame);

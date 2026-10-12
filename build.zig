@@ -21,6 +21,22 @@ pub fn build(b: *std.Build) void {
     const host_io = webbox_dep.module("host_io");
     root.addImport("webbox", webbox);
     root.addImport("host_io", host_io);
+
+    // **THE COWS' RULE FOR THE PAGE**: cows.zig compiled to wasm32, so the
+    // page predicts a cow with the server's own arithmetic. Installed to
+    // zig-out/web/cows.wasm, where assets.zon's `.embedded` names it for a
+    // kernel's build (gopher-metal), and compiled into this build's play
+    // server by the same name.
+    const cows_wasm = b.addExecutable(.{ .name = "cows", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/cows_wasm.zig"),
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .optimize = .ReleaseSafe,
+        .strip = true,
+    }) });
+    cows_wasm.entry = .disabled;
+    cows_wasm.rdynamic = true;
+    b.getInstallStep().dependOn(&b.addInstallArtifact(cows_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
+    root.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
     const tests = b.addTest(.{ .root_module = root });
     b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
 
@@ -47,6 +63,7 @@ pub fn build(b: *std.Build) void {
     play_main.addImport("webbox", webbox);
     play_main.addImport("host_io", host_io);
     play_main.addImport("webbox_linux", webbox_linux);
+    play_main.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);

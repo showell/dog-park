@@ -6,6 +6,7 @@
 //!
 //!   GET  /           solo/index.html, read from disk each time
 //!   GET  /park.js    solo/park.js, read from disk each time
+//!   GET  /cows.wasm  the cows' rule (cows.zig), compiled in
 //!   GET  /me         your viewport and your leash (a first visit gets its
 //!                    cookie here)
 //!   POST /tiles      {"tiles": [{"col", "row", "is": "new" | "held"}]}: the
@@ -126,6 +127,13 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     const path = http.pathOf(try http.target(req, alloc));
     if (std.mem.eql(u8, path, "/")) return pageFile(req, io, alloc, "index.html", "text/html; charset=utf-8");
     if (std.mem.eql(u8, path, "/park.js")) return pageFile(req, io, alloc, "park.js", "text/javascript; charset=utf-8");
+    if (std.mem.eql(u8, path, "/cows.wasm")) {
+        if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
+        return req.respond(@embedFile("cows.wasm"), .{ .extra_headers = &.{
+            .{ .name = "content-type", .value = "application/wasm" },
+            .{ .name = "cache-control", .value = "no-store" },
+        } });
+    }
     if (std.mem.eql(u8, path, "/me")) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return me(req, io, alloc);
