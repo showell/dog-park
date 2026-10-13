@@ -37,6 +37,24 @@ pub fn build(b: *std.Build) void {
     cows_wasm.rdynamic = true;
     b.getInstallStep().dependOn(&b.addInstallArtifact(cows_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
     root.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
+
+    // **THE PHYSICS FOR THE PAGE** (docs/PHYSICS.md): physics_page.zig's
+    // exports over the board, the tick and the wire, compiled to wasm32
+    // (ReleaseSafe, as the server runs), the very code the server judges
+    // with. Installed to zig-out/web/physics.wasm, where assets.zon's
+    // `.embedded` names it for a kernel's build, and compiled into this
+    // build's play server by the same name, which serves it as
+    // /physics-<hash>.wasm.
+    const physics_page_wasm = b.addExecutable(.{ .name = "physics", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_page.zig"),
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .optimize = .ReleaseSafe,
+        .strip = true,
+    }) });
+    physics_page_wasm.entry = .disabled;
+    physics_page_wasm.rdynamic = true;
+    b.getInstallStep().dependOn(&b.addInstallArtifact(physics_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
+    root.addAnonymousImport("physics.wasm", .{ .root_source_file = physics_page_wasm.getEmittedBin() });
     const tests = b.addTest(.{ .root_module = root });
     b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
 
@@ -87,6 +105,7 @@ pub fn build(b: *std.Build) void {
     server_bench_mod.addImport("webbox", webbox_rs.module("webbox"));
     server_bench_mod.addImport("host_io", webbox_rs.module("host_io"));
     server_bench_mod.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
+    server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = physics_page_wasm.getEmittedBin() });
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
     b.step("physics-server-bench", "Time a 32-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
 
@@ -114,6 +133,7 @@ pub fn build(b: *std.Build) void {
     play_main.addImport("host_io", host_io);
     play_main.addImport("webbox_linux", webbox_linux);
     play_main.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
+    play_main.addAnonymousImport("physics.wasm", .{ .root_source_file = physics_page_wasm.getEmittedBin() });
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);

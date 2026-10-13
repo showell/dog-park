@@ -28,6 +28,7 @@ pub const play_physics_wire = @import("play/physics_wire.zig");
 pub const play_physics_judge = @import("play/physics_judge.zig");
 pub const play_physics_log = @import("play/physics_log.zig");
 pub const play_physics_server = @import("play/physics_server.zig");
+pub const play_physics_page = @import("play/physics_page.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
