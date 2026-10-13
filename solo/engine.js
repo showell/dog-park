@@ -26,6 +26,8 @@
 //     setTimer    (ms, fn) -> handle; clearTimer(handle)
 //     log         { log, warn, error }, the dev console
 //     reload      (why) -> the page loads afresh (a new epoch)
+//     budget      the unsent bytes that send a report at once and freeze the
+//                 physics: `budget_bytes`, unless a test wants less
 //
 //   engine.load(measure, at)  POST /load; `measure()` -> { width, height };
 //                         `at` a remembered viewport top-left { parkX,
@@ -78,7 +80,7 @@ const keyed = (tiles) => new Map(tiles.map((t) => [tileKey(t), t]));
 const sameKeys = (a, b) => a.size === b.size && [...a.keys()].every((k) => b.has(k));
 const px = (v256) => v256 / 256;
 
-export function createEngine({ physics, post, now, wall, setTimer, clearTimer, log, reload }) {
+export function createEngine({ physics, post, now, wall, setTimer, clearTimer, log, reload, budget = budget_bytes }) {
   // ── what the page shows ───────────────────────────────────────────────────
 
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
@@ -307,7 +309,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     if (!ticking) return;
     const t = nextTick();
     if (t > K + window_ticks) return;
-    if (unsentBytes() >= budget_bytes) return;
+    if (unsentBytes() >= budget) return;
     syncSubscription();
     if (!regionHeld()) return;
     const drag = pendingDrag;
@@ -376,7 +378,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
         cursor++;
         continue;
       }
-      if (unsentBytes() >= budget_bytes) return;
+      if (unsentBytes() >= budget) return;
       const missing = physics.region(LIVE).filter((n) => !held.has(tileKey(n)));
       if (missing.length) {
         const unviewed = missing.filter((n) => !view.tiles.has(tileKey(n)));
@@ -503,7 +505,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     if (cursor < record.length) resume();
     syncSubscription();
     if (flight || cursor === 0) return;
-    if (now() - lastSendMs >= spacing_ms || unsentBytes() >= budget_bytes) send();
+    if (now() - lastSendMs >= spacing_ms || unsentBytes() >= budget) send();
   }
 
   // ── the answers ───────────────────────────────────────────────────────────

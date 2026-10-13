@@ -16,7 +16,7 @@ export const wasmBytes = () => readFileSync(join(root, "zig-out/web/physics.wasm
  * the engine makes is recorded in `sent` ({ path, text }); `settle()` waits
  * for the requests in flight to land and the engine to take them.
  */
-export async function pageRig({ post, screen = { width: 1280, height: 800 }, at = "none" }) {
+export async function pageRig({ post, screen = { width: 1280, height: 800 }, at = "none", budget }) {
   const physics = await instantiatePhysics(wasmBytes());
   const sent = [];
   const said = [];
@@ -91,6 +91,7 @@ export async function pageRig({ post, screen = { width: 1280, height: 800 }, at 
       error: (...a) => said.push(["error", ...a]),
     },
     reload: (why) => reloads.push(why),
+    ...(budget === undefined ? {} : { budget }),
   });
   rig.engine = engine;
   rig.load = async () => {
