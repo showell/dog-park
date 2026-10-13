@@ -855,6 +855,22 @@ test "the load resolution: an overlapping park is resolved once, logged first, a
     try testing.expect(std.meta.eql(was.dogs, rig.server.kept.board.dogs));
 }
 
+test "a park with a critter that has nowhere to go does not start, and the log says which" {
+    var rig: Rig = undefined;
+    rig.arena = .init(testing.allocator);
+    rig.threaded = .init(testing.allocator, .{});
+    rig.tmp = testing.tmpDir(.{});
+    rig.data = try std.fs.path.join(rig.arena.allocator(), &.{ ".zig-cache", "tmp", &rig.tmp.sub_path, "data" });
+    rig.server = try testing.allocator.create(Server);
+    defer rig.deinit();
+    // Dog 0 in the world's corner, sticking out of it, with no neighbour to
+    // make a way out.
+    var base = Board.laidOut();
+    base.dogs[0] = .{ .x = physics.px(5), .y = physics.px(5) };
+    try testing.expectError(error.ParkDoesNotResolve, rig.server.start(rig.io(), rig.arena.allocator(), rig.data, &base, t0));
+    try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "the park does not resolve: dog 0 has nowhere to go") != null);
+}
+
 test "a snapshot reads back what it wrote" {
     var k: judge.Kept = .{ .tick = 99, .board = Board.laidOut() };
     k.board.dogs[3].x += 77;
