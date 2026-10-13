@@ -5,7 +5,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createEngine, tick_ms } from "../../solo/engine.js";
+import { createEngine } from "../../solo/engine.js";
 import { instantiatePhysics, SCRATCH, flag } from "../../solo/physics.js";
 import { root } from "./scratch_server.mjs";
 
@@ -20,6 +20,7 @@ export const wasmBytes = () => readFileSync(join(root, "zig-out/web/physics.wasm
  */
 export async function pageRig({ post, screen = { width: 1280, height: 800 }, at = "none", budget }) {
   const physics = await instantiatePhysics(wasmBytes());
+  const tick_ms = 1000 / physics.ticksPerSecond();
   const sent = [];
   const said = [];
   const reloads = [];

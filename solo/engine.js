@@ -49,8 +49,6 @@ import { LIVE, KEPT, SCRATCH, flag } from "./physics.js";
 import { tileKey, subscription, world_px, most_tiles, viewportKeptOnWorld, dog_looks } from "./scene.js";
 import { edgeScroll } from "./pointer.js";
 
-// The tick: 16 a second.
-export const tick_ms = 62.5;
 // A stall catches up at most this many ticks; the rest are dropped, never owed.
 export const most_catch_up_ticks = 8;
 // The page runs at most this many ticks past the last kept one.
@@ -67,12 +65,12 @@ export const backoff_ms = [5000, 10000, 20000, 40000, 60000];
 // The most of the human's inputs at one tick.
 export const most_humans = 16;
 
-// The ticks a frame at `nowMs` runs, the last tick having begun at
-// `lastTickMs`: those whose start has come, at most `most_catch_up_ticks`;
+// The ticks a frame at `nowMs` runs, a tick every `tickMs`, the last having
+// begun at `lastTickMs`: those whose start has come, at most `most_catch_up_ticks`;
 // and when the last of them began (`nowMs` itself when some were dropped).
-export function ticksDue(lastTickMs, nowMs) {
-  const due = Math.max(0, Math.floor((nowMs - lastTickMs) / tick_ms));
-  if (due <= most_catch_up_ticks) return { ticks: due, lastTickMs: lastTickMs + due * tick_ms, dropped: 0 };
+export function ticksDue(lastTickMs, nowMs, tickMs) {
+  const due = Math.max(0, Math.floor((nowMs - lastTickMs) / tickMs));
+  if (due <= most_catch_up_ticks) return { ticks: due, lastTickMs: lastTickMs + due * tickMs, dropped: 0 };
   return { ticks: most_catch_up_ticks, lastTickMs: nowMs, dropped: due - most_catch_up_ticks };
 }
 
@@ -81,6 +79,8 @@ const sameKeys = (a, b) => a.size === b.size && [...a.keys()].every((k) => b.has
 const px = (v256) => v256 / 256;
 
 export function createEngine({ physics, post, now, wall, setTimer, clearTimer, log, reload, budget = budget_bytes }) {
+  // The tick, from the physics itself (the wasm, already instantiated).
+  const tick_ms = 1000 / physics.ticksPerSecond();
   // ── what the page shows ───────────────────────────────────────────────────
 
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
@@ -291,7 +291,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
 
   // ── the live tick ─────────────────────────────────────────────────────────
 
-  // One 62.5 ms slot: the record's waiting entries first; then, when the
+  // One tick's slot: the record's waiting entries first; then, when the
   // page ticks and nothing freezes it, the next tick with the pointer's
   // drag and the edge bands'.
   function slot(panAt) {
@@ -774,7 +774,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
 
     frame(nowMs, panAt = "none") {
       if (clock === "unstarted") clock = { lastTickMs: nowMs };
-      const due = ticksDue(clock.lastTickMs, nowMs);
+      const due = ticksDue(clock.lastTickMs, nowMs, tick_ms);
       if (due.dropped > 0) log.warn(`a stall of ${Math.round(nowMs - clock.lastTickMs)} ms: ${due.ticks} ticks run, ${due.dropped} dropped`);
       for (let k = 0; k < due.ticks; k++) slot(panAt);
       clock.lastTickMs = due.lastTickMs;

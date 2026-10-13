@@ -22,7 +22,7 @@ test("every module imports without a DOM", () => {
 });
 
 test("the engine keeps no state of its own: its exports are a maker, pure helpers and constants", () => {
-  assert.deepEqual(Object.keys(engine).sort(), ["answer_ms", "backoff_ms", "budget_bytes", "createEngine", "most_catch_up_ticks", "most_humans", "spacing_ms", "tick_ms", "ticksDue", "window_ticks"]);
+  assert.deepEqual(Object.keys(engine).sort(), ["answer_ms", "backoff_ms", "budget_bytes", "createEngine", "most_catch_up_ticks", "most_humans", "spacing_ms", "ticksDue", "window_ticks"]);
   // docs/PHYSICS.md's numbers.
   assert.deepEqual(engine.backoff_ms, [5000, 10000, 20000, 40000, 60000]);
   assert.equal(engine.window_ticks, 32);
@@ -33,15 +33,14 @@ test("the engine keeps no state of its own: its exports are a maker, pure helper
 });
 
 test("the ticks due: one per 62.5 ms begun, at most 8 after a stall, the rest dropped", () => {
-  assert.equal(engine.tick_ms, 62.5);
-  assert.deepEqual(engine.ticksDue(0, 62.4), { ticks: 0, lastTickMs: 0, dropped: 0 });
-  assert.deepEqual(engine.ticksDue(0, 62.5), { ticks: 1, lastTickMs: 62.5, dropped: 0 });
-  assert.deepEqual(engine.ticksDue(100, 300), { ticks: 3, lastTickMs: 287.5, dropped: 0 });
-  assert.deepEqual(engine.ticksDue(0, 8 * 62.5 + 1), { ticks: 8, lastTickMs: 500, dropped: 0 });
+  assert.deepEqual(engine.ticksDue(0, 62.4, 62.5), { ticks: 0, lastTickMs: 0, dropped: 0 });
+  assert.deepEqual(engine.ticksDue(0, 62.5, 62.5), { ticks: 1, lastTickMs: 62.5, dropped: 0 });
+  assert.deepEqual(engine.ticksDue(100, 300, 62.5), { ticks: 3, lastTickMs: 287.5, dropped: 0 });
+  assert.deepEqual(engine.ticksDue(0, 8 * 62.5 + 1, 62.5), { ticks: 8, lastTickMs: 500, dropped: 0 });
   // A 2 s stall: 32 due, 8 run, the clock restarting at the frame.
-  assert.deepEqual(engine.ticksDue(0, 2000), { ticks: 8, lastTickMs: 2000, dropped: 24 });
+  assert.deepEqual(engine.ticksDue(0, 2000, 62.5), { ticks: 8, lastTickMs: 2000, dropped: 24 });
   // A clock that went back runs nothing.
-  assert.deepEqual(engine.ticksDue(500, 400), { ticks: 0, lastTickMs: 500, dropped: 0 });
+  assert.deepEqual(engine.ticksDue(500, 400, 62.5), { ticks: 0, lastTickMs: 500, dropped: 0 });
 });
 
 test("the two frames are each other's inverse", () => {

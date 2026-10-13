@@ -36,16 +36,38 @@ pub fn px(n: i32) i32 {
     return n * unit;
 }
 
+/// **THE CLOCK**: ticks in a second. The page's tick is 1000 /
+/// `ticks_per_second` ms (engine.js reads it from the wasm).
+pub const ticks_per_second = 16;
+
+/// A rate of `units_per_second` 256ths a second, as 256ths a tick; a rate
+/// that doesn't divide into whole 256ths a tick doesn't compile.
+pub fn perTick(comptime units_per_second: i32) i32 {
+    if (@rem(units_per_second, ticks_per_second) != 0)
+        @compileError(std.fmt.comptimePrint("{d} 256ths a second is not a whole number of 256ths a tick", .{units_per_second}));
+    return @divExact(units_per_second, ticks_per_second);
+}
+
+/// `n` seconds, in ticks.
+pub fn seconds(comptime n: comptime_int) comptime_int {
+    return n * ticks_per_second;
+}
+
 /// The world's side, in 256ths.
 pub const world: i32 = px(tiles.world_px);
 /// A tile's side, in 256ths.
 pub const tile: i32 = px(tiles.tile_px);
 
-// The starting numbers (docs/PHYSICS.md), all to be tuned by playing.
-pub const dog_half: i32 = px(cows.dog_px / 2);
-pub const cow_half: i32 = px(cows.cow_px / 2);
-/// A dog's own step: 7.5 px a second, 16 ticks a second.
-pub const speed: i32 = 120;
+// **THE KNOBS** (docs/PHYSICS.md), in Steve's units, all tuned by playing.
+
+/// The squares, in whole pixels, as the page draws them (park.js's dog_px
+/// and cow_px). Each critter is its square, centred on its point.
+pub const dog_px = 40;
+pub const cow_px = 60;
+pub const dog_half: i32 = px(dog_px / 2);
+pub const cow_half: i32 = px(cow_px / 2);
+/// A dog's own step: 7.5 px a second.
+pub const speed: i32 = perTick(px(15) / 2);
 pub const dead_zone: i32 = px(1);
 pub const awake_reach: i32 = px(800);
 pub const wary: i32 = px(225);
@@ -65,16 +87,46 @@ pub const most_displacements = 16;
 /// The most of the human's inputs at one tick.
 pub const most_humans = 16;
 /// The leash comes off 20 s after the drag ends.
-pub const let_go_ticks = 320;
+pub const let_go_ticks = seconds(20);
 /// The most ticks a report runs past the last kept one.
 pub const most_ticks = 32;
-/// A cow's scare box and lane, as in cows.zig.
-pub const scare_box: i32 = px(cows.scare_box_px);
-pub const lane: i32 = px(cows.dog_px / 2 + cows.cow_px / 2 + cows.clearance_px);
+/// How far a dog's move along an axis reaches: a cow at most this far ahead
+/// on that axis, and at most this far off it, is scared (`scoot`).
+pub const scare_box: i32 = px(280);
+/// The least gap a cow keeps between the dog's square and its own: half a
+/// dog.
+pub const clearance: i32 = px(dog_px / 2);
+/// A cow's lane: a dog's half, a cow's half and the clearance.
+pub const lane: i32 = dog_half + cow_half + clearance;
 /// A jump's candidates come from squares within this gap, on both axes.
 pub const jump_reach: i32 = px(100);
 /// Breeds: dog n has look n mod 4.
 pub const breeds = 4;
+
+// Every knob as it was, to the bit (removed once the conversion is in).
+comptime {
+    std.debug.assert(dog_half == 5120);
+    std.debug.assert(cow_half == 7680);
+    std.debug.assert(speed == 120);
+    std.debug.assert(dead_zone == 256);
+    std.debug.assert(awake_reach == 204800);
+    std.debug.assert(wary == 57600);
+    std.debug.assert(follow == 153600);
+    std.debug.assert(band_inner == 15360);
+    std.debug.assert(band_outer == 25600);
+    std.debug.assert(cow_room == 23040);
+    std.debug.assert(region_reach == 384000);
+    std.debug.assert(step_most == 256);
+    std.debug.assert(cap == 25600);
+    std.debug.assert(let_go_ticks == 320);
+    std.debug.assert(scare_box == 71680);
+    std.debug.assert(lane == 17920);
+    std.debug.assert(jump_reach == 25600);
+    std.debug.assert(skin == 12288);
+    std.debug.assert(scare_box == px(cows.scare_box_px));
+    std.debug.assert(lane == px(cows.dog_px / 2 + cows.cow_px / 2 + cows.clearance_px));
+    std.debug.assert(dog_half == px(cows.dog_px / 2) and cow_half == px(cows.cow_px / 2));
+}
 
 pub const Tick = u64;
 

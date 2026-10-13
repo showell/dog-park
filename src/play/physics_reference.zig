@@ -25,13 +25,19 @@
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
-const dogs = @import("dogs.zig");
-const cows = @import("cows.zig");
+/// The squares and the cows' numbers as this physics had them (cows.zig's,
+/// before the knobs moved to physics.zig).
+const cows = struct {
+    const dog_px = 40;
+    const cow_px = 60;
+    const scare_box_px = 280;
+    const clearance_px = dog_px / 2;
+};
 const jump = @import("physics_jump.zig");
 const physics = @import("physics.zig");
 
-pub const dog_count = dogs.dog_count;
-pub const cow_count = cows.cow_count;
+pub const dog_count = physics.dog_count;
+pub const cow_count = physics.cow_count;
 pub const critter_count = dog_count + cow_count;
 
 /// 256ths in a pixel.

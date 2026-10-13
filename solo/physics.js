@@ -11,6 +11,7 @@
 //   createPhysics(exports)
 //     raw                          the exports themselves (tests, the console)
 //     hash                         the physics hash, eight hex digits
+//     ticksPerSecond()             the physics' clock: a tick every 1000 / this ms
 //     reset()                      a page load: every board empty
 //     copy(from, to)               board `to` becomes `from`, inputs begun and all
 //     clearBegun(board)
@@ -105,6 +106,7 @@ export function createPhysics(x) {
     // The wasm's exports themselves, for tests and the console.
     raw: x,
     hash: (x.physicsHash() >>> 0).toString(16).padStart(8, "0"),
+    ticksPerSecond: () => x.ticksPerSecond(),
     reset: () => x.reset(),
     copy: (from, to) => x.copyBoard(from, to),
     clearBegun: (b) => x.clearBegun(b),

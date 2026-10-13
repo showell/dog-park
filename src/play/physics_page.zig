@@ -69,6 +69,10 @@ fn tickOf(t: f64) Tick {
 export fn physicsHash() u32 {
     return wire.physics_hash;
 }
+/// The physics' clock: the page ticks every 1000 / this ms.
+export fn ticksPerSecond() u32 {
+    return physics.ticks_per_second;
+}
 export fn inBuf() [*]u8 {
     return &in_buf;
 }
