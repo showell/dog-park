@@ -8,8 +8,8 @@ own board under `data/physics/`). The page runs the same Zig as
 as `/physics-<hash>.wasm` and named by `index.html`); `solo/engine.js`
 keeps the record and the protocol (one report in flight, the spacing,
 byte-identical tries on the backoff, every answer form, the rewind and
-replay, the subscription and its `held`, the freezes). The page no longer
-calls the old routes; the server still serves them. Of the tests to write
+replay, the subscription and its `held`, the freezes). The page and the
+server speak only `/load` and `/report` (the old routes are retired). Of the tests to write
 first, 1-4, 6, 7, 12, 13, 15, 18, 21-24 and 30 have page-side or
 end-to-end tests (`tools/test_engine.mjs`, and `tools/test_page_physics.mjs`
 against a scratch server); the rest are the core's and the server's
@@ -1097,7 +1097,7 @@ play says otherwise:
 the middle is his call). **Done (2026-10-13):** `tiles.zig` has
     `world_tiles` (64), `park_tiles` (10) and `park_offset_px` (13,500);
     `dogs.zig` and `cows.zig` take their counts and layout from the park's;
-    `tools/shift_park_to_64.py` is the one-time shift of a data dir. Positions reach 8,192,000 in 256ths, squared distances about
+    a data dir was shifted once (the script is retired). Positions reach 8,192,000 in 256ths, squared distances about
     1.3·10^14 on the diagonal: `i32` and `i64` as above. The tiles divide the world evenly, so
     the wrap later is clean.
 
@@ -1279,9 +1279,9 @@ and the request numbering.
     subscription order's ties by row, then column; and an unstated
     constraint, now stated: **the world is wider than the region plus its
     reaches,** so no critter is ever seen twice. *Moved to the 64 × 64
-    world* (item 16, 2026-10-13): the per-human viewport files
-    (`humans.zig`, `/viewport`, `GET /me`) shift by 13,500 px with the
-    critters; `scene.js`'s `world_tiles = 64` and `most_tiles = 64`, the
+    world* (item 16, 2026-10-13): the critters shifted by 13,500 px (the
+    old routes' per-human viewport files with them, before those were
+    retired); `scene.js`'s `world_tiles = 64` and `most_tiles = 64`, the
     first visit at the world's centre (the park's middle); and the
     overview, now a **scrolling window** (Steve): 10 tiles across the
     screen's shorter side (the whole 10 × 10 world's scale, so every

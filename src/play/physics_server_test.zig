@@ -963,7 +963,6 @@ test "the worked example through POST /report: the doc's report in, req 4 kept 1
     // 64 KiB is the route's cap; one byte more is a 413.
     try testing.expectEqual(@as(u64, 64 * 1024), app.bodyLimit("/report"));
     try testing.expectEqual(@as(u64, 64 * 1024), app.bodyLimit("/load"));
-    try testing.expectEqual(@as(u64, 4096), app.bodyLimit("/move"));
     const big = try a.alloc(u8, 64 * 1024 + 1);
     @memset(big, 'x');
     try testing.expectEqualStrings("413", (try post(io, a, &hub, "/report", big)).status);

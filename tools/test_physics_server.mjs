@@ -1,8 +1,7 @@
 // The physics protocol on the wire (docs/PHYSICS.md): a scratch play server
 // (zig-out/bin/dog-park-play, built by `zig build`) on a free port with a
 // temporary data dir, spawned as one process and stopped by its PID; then
-// POST /load and POST /report as a page sends them, and the old routes
-// beside them.
+// POST /load and POST /report as a page sends them.
 //
 //     zig build && node tools/test_physics_server.mjs
 //
@@ -14,7 +13,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,6 +63,8 @@ async function stop(server) {
 
 const dir = mkdtempSync(join(tmpdir(), "dogpark-physics-"));
 writeFileSync(join(dir, "config"), `data_dir=${join(dir, "data")}\nauth_dir=${join(dir, "auth")}\n`);
+// The host's second root: webbox opens it; Dog Park keeps nothing there.
+mkdirSync(join(dir, "auth"));
 const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 let server = await start(dir, port);
@@ -108,16 +109,6 @@ test("req ?, reload epoch, and a body past 64 KiB is a 413 (64 KiB itself is rea
   const at = await post("/report", "x".repeat(64 * 1024));
   assert.equal(at.status, 200);
   assert.equal(at.text, "req ?\n");
-});
-
-test("the old routes still play beside the new ones", async () => {
-  const me = await fetch(base + "/me");
-  assert.equal(me.status, 200);
-  const cookie = me.headers.get("set-cookie").split(";")[0];
-  const tiles = await fetch(base + "/tiles", { method: "POST", headers: { cookie }, body: JSON.stringify({ tiles: [{ col: 27, row: 27, is: "new" }] }) });
-  const shown = await tiles.json();
-  assert.equal(shown.dogs.length, 2);
-  assert.equal(shown.dogs[1].emoji, "🐩");
 });
 
 test("a small report's round trip, through the host", async () => {

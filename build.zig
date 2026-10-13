@@ -4,10 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Every file's tests run from the package root, src/dog_park.zig, which
-    // names each module.
+    // Every file's tests run from one root, src/play/all_tests.zig.
     const root = b.createModule(.{
-        .root_source_file = b.path("src/dog_park.zig"),
+        .root_source_file = b.path("src/play/all_tests.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -21,22 +20,6 @@ pub fn build(b: *std.Build) void {
     const host_io = webbox_dep.module("host_io");
     root.addImport("webbox", webbox);
     root.addImport("host_io", host_io);
-
-    // **THE COWS' RULE FOR THE PAGE**: cows.zig compiled to wasm32, so the
-    // page predicts a cow with the server's own arithmetic. Installed to
-    // zig-out/web/cows.wasm, where assets.zon's `.embedded` names it for a
-    // kernel's build (zig-metal-unikernel), and compiled into this build's play
-    // server by the same name.
-    const cows_wasm = b.addExecutable(.{ .name = "cows", .root_module = b.createModule(.{
-        .root_source_file = b.path("src/play/cows_wasm.zig"),
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-        .optimize = .ReleaseSafe,
-        .strip = true,
-    }) });
-    cows_wasm.entry = .disabled;
-    cows_wasm.rdynamic = true;
-    b.getInstallStep().dependOn(&b.addInstallArtifact(cows_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
-    root.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
 
     // **THE PHYSICS FOR THE PAGE** (docs/PHYSICS.md): physics_page.zig's
     // exports over the board, the tick and the wire, compiled to wasm32
@@ -104,24 +87,9 @@ pub fn build(b: *std.Build) void {
     const webbox_rs = b.dependency("webbox", .{ .target = target, .optimize = .ReleaseSafe });
     server_bench_mod.addImport("webbox", webbox_rs.module("webbox"));
     server_bench_mod.addImport("host_io", webbox_rs.module("host_io"));
-    server_bench_mod.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
     server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = physics_page_wasm.getEmittedBin() });
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
     b.step("physics-server-bench", "Time a 32-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
-
-    // The Linux server: zig build run, then a browser at localhost:9101.
-    const main = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    main.addImport("webbox", webbox);
-    main.addImport("webbox_linux", webbox_linux);
-    const exe = b.addExecutable(.{ .name = "dog-park", .root_module = main });
-    b.installArtifact(exe);
-    const run = b.addRunArtifact(exe);
-    if (b.args) |args| run.addArgs(args);
-    b.step("run", "Serve Dog Park on localhost:9101").dependOn(&run.step);
 
     // The play server, for solo/: zig build play, from the checkout.
     const play_main = b.createModule(.{
@@ -132,7 +100,6 @@ pub fn build(b: *std.Build) void {
     play_main.addImport("webbox", webbox);
     play_main.addImport("host_io", host_io);
     play_main.addImport("webbox_linux", webbox_linux);
-    play_main.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
     play_main.addAnonymousImport("physics.wasm", .{ .root_source_file = physics_page_wasm.getEmittedBin() });
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);

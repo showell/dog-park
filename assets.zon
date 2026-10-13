@@ -1,13 +1,11 @@
 // **WHAT DOG PARK SERVES BESIDES ITS CODE** (webbox's Phase B contract, as
 // angry-gopher's zig-server/assets.zon): `.embedded`, files compiled in by
-// name (cows.wasm, the old page's cows' rule, and physics.wasm, the page's
-// physics, both made by `zig build`), and
+// name (physics.wasm, the page's physics, made by `zig build`), and
 // `.site`, directories its routes read at request time from where it runs,
 // relative to this file (solo/: the page and its script), each laid whole
 // onto a machine's site disk.
 .{
     .embedded = .{
-        .{ .name = "cows.wasm", .path = "zig-out/web/cows.wasm", .built_by = "zig build" },
         .{ .name = "physics.wasm", .path = "zig-out/web/physics.wasm", .built_by = "zig build" },
     },
     .site = .{"solo"},

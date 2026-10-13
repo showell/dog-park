@@ -3,7 +3,7 @@
 // as one process and stopped by its PID, never by a pattern.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +47,8 @@ async function spawnOn(dir, port) {
 export async function scratchServer() {
   const dir = mkdtempSync(join(tmpdir(), "dogpark-scratch-"));
   writeFileSync(join(dir, "config"), `data_dir=${join(dir, "data")}\nauth_dir=${join(dir, "auth")}\n`);
+  // The host's second root: webbox opens it; Dog Park keeps nothing there.
+  mkdirSync(join(dir, "auth"));
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
   let server = await spawnOn(dir, port);

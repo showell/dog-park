@@ -14,7 +14,7 @@
 //!
 //! **The cascade:** the leashed dog, then the cows by number, then the
 //! other dogs by number (`rank`). Within a tick: for each internal step of
-//! the drag, the cows react (cows.zig's grid rule, in 256ths), then the
+//! the drag, the cows react (their grid rule, `scoot`), then the
 //! leashed dog takes the step; then every awake dog takes its wish step.
 //! The nearest spot clear of everyone (a push's or an overlap's jump) is
 //! physics_jump.zig.
@@ -604,12 +604,12 @@ fn inWorld(p: Point, h: i32, axis: Axis, s: i32) i32 {
 }
 
 /// How far a cow can go along `axis`, to `side`, before its square leaves
-/// the world (cows.zig's `room`).
+/// the world.
 fn room(cow: Point, axis: Axis, side: i32) i32 {
     return @max(0, if (side > 0) world - cow_half - on(cow, axis) else on(cow, axis) - cow_half);
 }
 
-/// **THE COWS' GRID RULE, IN 256ths** (cows.zig's `scooted`, item 1): the
+/// **THE COWS' GRID RULE, IN 256ths** (item 1): the
 /// dog, its centre at `dog` after the step, moved `step` (> 0) along `axis`,
 /// that way (`way`); how far the cow at `cow` moves across that axis
 /// (signed; 0 for not at all).

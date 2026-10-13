@@ -28,21 +28,6 @@ pub const looks = [_][]const u8{ "🐕", "🐩", "🦮", "🐕‍🦺" };
 
 pub const dog_count = tiles.park_tiles * tiles.park_tiles * corners.len;
 
-/// What a request names: one of the dogs, or none of them.
-pub const Lookup = union(enum) { dog: DogId, no_such_dog };
-
-pub const LeashRequest = struct { dog: u32 };
-/// A move: the dog's path since the server last had it, each whole park
-/// pixel the page saw it at, in order (`[park_x, park_y]` each); it ends at
-/// the last. The server replays the cows' rule along it, segment by segment,
-/// as the page did.
-pub const MoveRequest = struct { dog: u32, path: []const [2]i32 };
-
-/// The most points one move's path holds: 100 at 12 bytes is well inside a
-/// body's 4 KiB (app.zig's longest_body). A page with more to say replaces
-/// its last point.
-pub const most_path_points = 100;
-
 /// How the dogs are written down: `{"dogs":[{"id","emoji","park_x","park_y"}, ...]}`.
 const Written = struct { dogs: []const struct { id: u32, emoji: []const u8, park_x: i32, park_y: i32 } };
 
@@ -99,17 +84,8 @@ pub const Dogs = struct {
         return out.toOwnedSlice();
     }
 
-    pub fn lookup(self: *const Dogs, asked: u32) Lookup {
-        _ = self;
-        return if (asked < dog_count) .{ .dog = @enumFromInt(asked) } else .no_such_dog;
-    }
-
     pub fn at(self: *const Dogs, dog: DogId) ParkPoint {
         return self.list[@intFromEnum(dog)].at;
-    }
-
-    pub fn moveTo(self: *Dogs, dog: DogId, to: ParkPoint) void {
-        self.list[@intFromEnum(dog)].at = to;
     }
 };
 
@@ -130,18 +106,18 @@ test "the first layout: 400 dogs in the park, 13,500 px in, four to a tile, each
 
 test "dogs written read back the same, moves and all" {
     var d = Dogs.laidOut();
-    d.moveTo(@enumFromInt(2), .{ .park_x = 0, .park_y = 31_999 });
+    d.list[2].at = .{ .park_x = 0, .park_y = tiles.world_px - 1 };
     const bytes = try d.written(testing.allocator);
     defer testing.allocator.free(bytes);
     const back = try Dogs.read(bytes);
-    try testing.expectEqual(ParkPoint{ .park_x = 0, .park_y = 31_999 }, back.at(@enumFromInt(2)));
+    try testing.expectEqual(ParkPoint{ .park_x = 0, .park_y = tiles.world_px - 1 }, back.at(@enumFromInt(2)));
     try testing.expectEqual(d.at(@enumFromInt(14)), back.at(@enumFromInt(14)));
 }
 
 test "a dogs file with a dog outside the world does not read, as a cows file's does not" {
-    for ([_]ParkPoint{ .{ .park_x = -1, .park_y = 77 }, .{ .park_x = 77, .park_y = 32_000 } }) |outside| {
+    for ([_]ParkPoint{ .{ .park_x = -1, .park_y = 77 }, .{ .park_x = 77, .park_y = tiles.world_px } }) |outside| {
         var d = Dogs.laidOut();
-        d.moveTo(@enumFromInt(2), outside);
+        d.list[2].at = outside;
         const bytes = try d.written(testing.allocator);
         defer testing.allocator.free(bytes);
         try testing.expectError(error.WrongDogs, Dogs.read(bytes));
@@ -157,10 +133,4 @@ test "a dogs file with a dog missing, out of order, or another look does not rea
     const swapped = try std.mem.replaceOwned(u8, testing.allocator, bytes, "{\"id\":0,", "{\"id\":1,");
     defer testing.allocator.free(swapped);
     try testing.expectError(error.WrongDogs, Dogs.read(swapped));
-}
-
-test "a lookup: the last dog is one, the next number is no dog" {
-    const d = Dogs.laidOut();
-    try testing.expectEqual(Lookup{ .dog = @enumFromInt(dog_count - 1) }, d.lookup(dog_count - 1));
-    try testing.expectEqual(Lookup.no_such_dog, d.lookup(dog_count));
 }
