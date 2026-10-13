@@ -516,7 +516,8 @@ fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
     try report.appendSlice(testing.allocator, outText(writeHeader(1791935990000, 1, 1, 0, 1791936000000)));
     try report.appendSlice(testing.allocator, outText(@intCast(human(live, @intFromEnum(HumanKind.leash), 1, the_dog))));
     const r = regionTiles(live);
-    try testing.expectEqual(@as(u32, 25), r);
+    const span = physics.TileSpan.of(physics.region(boards[live].dogs[the_dog]));
+    try testing.expectEqual(@as(u32, @intCast((span.col_hi - span.col_lo + 1) * (span.row_hi - span.row_lo + 1))), r);
     for (0..r) |i| k.sent.add(.{ .col = ints_buf[2 * i], .row = ints_buf[2 * i + 1] });
     try report.appendSlice(testing.allocator, outText(writeView(1, 1280, 800, r)));
     try report.appendSlice(testing.allocator, outText(writeHeld(1, r)));

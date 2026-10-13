@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createEngine, tick_ms } from "../../solo/engine.js";
-import { instantiatePhysics } from "../../solo/physics.js";
+import { instantiatePhysics, SCRATCH, flag } from "../../solo/physics.js";
 import { root } from "./scratch_server.mjs";
 
 export const wasmBytes = () => readFileSync(join(root, "zig-out/web/physics.wasm"));
@@ -119,3 +119,34 @@ export function held(executor) {
 
 /** The reports sent, as texts. */
 export const reports = (rig) => rig.sent.filter((s) => s.path === "/report").map((s) => s.text);
+
+// ── the physics' numbers, asked of the wasm itself ───────────────────────────
+// So a test derives what it waits for from the code under test, never from
+// a number that tuning will change. A separate instance: no page's boards
+// are touched.
+
+const geometry = await instantiatePhysics(wasmBytes());
+const hex = (px) => `${Math.round(px * 256).toString(16).replace(/(..)$/, ".$1").replace(/^\./, "0.")}`;
+
+/** The region's tiles around a dog at park point (x, y), [{ col, row }]. */
+export function regionAround(x, y) {
+  geometry.reset();
+  geometry.readState("state leash 0 drag on view 0x0 held", SCRATCH);
+  geometry.readBoard(`board 1 dog 0 ${hex(x)},${hex(y)}`, SCRATCH);
+  return geometry.region(SCRATCH);
+}
+
+/** How many ticks after a letgo the leash comes off (the physics' let_go_ticks). */
+export function letGoTicks() {
+  geometry.reset();
+  geometry.readBoard(`board 1 dog 0 ${hex(16000)},${hex(16000)}`, SCRATCH);
+  geometry.human(SCRATCH, "leash", 1, 0);
+  geometry.tick(SCRATCH, 1, []);
+  geometry.clearBegun(SCRATCH);
+  geometry.human(SCRATCH, "letgo", 2, 0);
+  for (let t = 2; t < 100_000; t++) {
+    if (geometry.tick(SCRATCH, t, []).flags & flag.release) return t - 2;
+    geometry.clearBegun(SCRATCH);
+  }
+  throw new Error("the leash never came off");
+}

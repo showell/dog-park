@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scratchServer } from "./lib/scratch_server.mjs";
-import { pageRig, reports, wasmBytes, held as heldPromise } from "./lib/page_rig.mjs";
+import { pageRig, reports, wasmBytes, held as heldPromise, regionAround, letGoTicks } from "./lib/page_rig.mjs";
 import { LIVE, KEPT } from "../solo/physics.js";
 
 // The dog nearest the screen's middle, of those the page has.
@@ -35,6 +35,9 @@ function recording(server) {
 }
 
 const differs = (rig) => rig.warnings().filter((w) => w.startsWith("differ"));
+
+// The ticks from a letgo to the leash coming off, from the physics itself.
+const letGo = letGoTicks();
 
 // The checked lines of every report (critter, bump, rest, release lines).
 function checkedLines(texts) {
@@ -87,7 +90,7 @@ test("1. an unleashed pan: the view brings its tiles' critters, then the page ho
   }
 });
 
-test("sketch B, the first half: a leash, a drag and its let-go, every tick kept, the park asleep 80 ticks after", async () => {
+test("sketch B, the first half: a leash, a drag and its let-go, every tick kept, the park asleep once the leash comes off", async () => {
   const server = await scratchServer();
   try {
     const wire = recording(server);
@@ -95,22 +98,25 @@ test("sketch B, the first half: a leash, a drag and its let-go, every tick kept,
     await rig.load();
     await rig.ticks(4);
     const dog = await dragAbout(rig, 40, 3, 1);
-    await rig.ticks(120);
+    await rig.ticks(letGo + 40);
     assert.deepEqual(rig.warnings(), []);
     for (const a of wire.answers.filter((x) => x.path === "/report")) assert.match(a.text, /^req \d+\nkept \d+\n/, a.text);
     const d = rig.engine.debug();
     assert.equal(d.ticking, false);
     assert.deepEqual(rig.engine.view().leashed, { kind: "none" });
-    // The release, 80 ticks after the letgo, written by the shared Zig and kept.
+    // The release, let_go_ticks after the drag ended (at the letgo, or a
+    // bump: the park is full of dogs), written by the shared Zig and kept.
     const all = reports(rig).join("");
-    const letgo = Number(/\nletgo (\d+)\n/.exec(all)[1]);
-    assert.match(all, new RegExp(`\\nrelease ${letgo + 80} ${dog.id}\\n`));
-    assert.equal(d.K, letgo + 80);
+    const ended = /\n(?:letgo (\d+)|bump (\d+) (?:dog|cow) \d+)\n/.exec(all);
+    const end = Number(ended[1] ?? ended[2]);
+    assert.match(all, new RegExp(`\\nrelease ${end + letGo} ${dog.id}\\n`));
+    assert.equal(d.K, end + letGo);
     // The kept board is the live one, critter for critter.
     assert.deepEqual(rig.physics.critters(KEPT), rig.physics.critters(LIVE));
-    // The dog went 40 ticks of (3, 1) px from where it was: nothing in its way.
+    // The dog went the drag's way, east and south, at most its 40 ticks of (3, 1) px.
     const now = rig.engine.view().dogs.get(dog.id);
-    assert.deepEqual([now.parkX - dog.parkX, now.parkY - dog.parkY], [120, 40]);
+    assert.ok(now.parkX > dog.parkX && now.parkX - dog.parkX <= 120, `${now.parkX - dog.parkX}`);
+    assert.ok(now.parkY > dog.parkY && now.parkY - dog.parkY <= 40, `${now.parkY - dog.parkY}`);
   } finally {
     await server.stop();
   }
@@ -312,43 +318,37 @@ test("6: frozen at the 32-tick window, a letgo takes from + 33, and the server k
     assert.deepEqual([letgo.kind, letgo.h, letgo.t], ["human", "letgo", d.K + 33]);
     holdAnswers = false;
     while (held.length) { held.shift()(); await rig.settle(); }
-    await rig.ticks(200);
+    await rig.ticks(letGo + 100);
     assert.deepEqual(differs(rig), []);
     assert.ok(rig.engine.debug().K > from + 33);
-    assert.equal(rig.engine.debug().ticking, false, "released 80 ticks after the letgo, asleep");
+    assert.equal(rig.engine.debug().ticking, false, "released let_go_ticks after the letgo, asleep");
   } finally {
     await server.stop();
   }
 });
 
-test("4: a reload after a kept trailing leash: the load's input line carries it, and the next reports are kept", async () => {
+test("4: a load after play starts the park afresh: the dog dragged is back where it was laid out, nothing leashed or waiting, and the new page's reports are kept; the first page is taken over", async () => {
   const server = await scratchServer();
   try {
     const rig = await pageRig({ post: (p, t) => server.post(p, t) });
     await rig.load();
     await rig.ticks(8);
-    const dog = middleDog(rig);
-    rig.engine.intent({ kind: "grab", dogId: dog.id });
-    await rig.ticks(1); // the report with the leash and its view goes, and is kept
-    const trailing = reports(rig).at(-1);
-    assert.match(trailing, new RegExp(`\\nleash (\\d+) ${dog.id}\\n`));
-    assert.doesNotMatch(trailing, /\nt \d+ /);
-    // A second page loads before the first ticks.
+    const dog = await dragAbout(rig, 10, 3, 1);
+    await rig.ticks(8);
+    assert.notDeepEqual([rig.engine.view().dogs.get(dog.id).parkX, rig.engine.view().dogs.get(dog.id).parkY], [dog.parkX, dog.parkY]);
+    // A second page loads.
     const wire = recording(server);
     const fresh = await pageRig({ post: wire.post });
     await fresh.load();
     const loadAnswer = wire.answers[0].text;
-    const k = Number(/\nkept (\d+)\n/.exec(loadAnswer)[1]);
-    assert.match(loadAnswer, new RegExp(`\\nstate leash none drag none view 1280x800( \\d+,\\d+)* held( \\d+,\\d+)*\\ninput leash ${k + 1} ${dog.id}\\n`));
-    assert.deepEqual(fresh.engine.view().leashed, { kind: "in_hand", dogId: dog.id });
-    await fresh.ticks(120);
+    assert.match(loadAnswer, /\nstate leash none drag none view 1280x800( \d+,\d+)* held( \d+,\d+)*\n$/);
+    assert.deepEqual(fresh.engine.view().leashed, { kind: "none" });
+    await fresh.ticks(20);
+    const back = fresh.engine.view().dogs.get(dog.id);
+    assert.deepEqual([back.parkX, back.parkY], [dog.parkX, dog.parkY]);
     const asked = wire.answers.filter((a) => a.path === "/report");
-    assert.ok(asked.length >= 3);
+    assert.ok(asked.length >= 2);
     assert.ok(asked.every((a) => /^req \d+\nkept \d+\n/.test(a.text)), asked.map((a) => a.text).join("\n"));
-    // Its first tick let go of the drag nobody holds: the letgo after the
-    // leash, and the release 80 ticks on.
-    assert.match(asked[0].sent, new RegExp(`\\nletgo ${k + 1}\\n`));
-    assert.match(reports(fresh).join(""), new RegExp(`\\nrelease ${k + 81} ${dog.id}\\n`));
     // The first page is told it was taken over, and stops.
     await rig.ticks(10);
     assert.equal(rig.engine.view().status.kind, "stopped");
@@ -361,7 +361,10 @@ test("4: a reload after a kept trailing leash: the load's input line carries it,
 test("12 and 13: a small display and a large one, fed the same inputs, write the same checked lines", async () => {
   const lines = [];
   let dogId = "none";
-  for (const screen of [{ width: 640, height: 400 }, { width: 2560, height: 1440 }]) {
+  // The large screen holds the whole region around a dog at its middle.
+  const region = regionAround(16000, 16000);
+  const side = (Math.max(...region.map((t) => t.col)) - Math.min(...region.map((t) => t.col)) + 2) * 500;
+  for (const screen of [{ width: 640, height: 400 }, { width: side, height: side }]) {
     const server = await scratchServer();
     try {
       const rig = await pageRig({ post: (p, t) => server.post(p, t), screen, at: { parkX: 16000 - screen.width / 2, parkY: 16000 - screen.height / 2 } });
@@ -389,7 +392,9 @@ test("12 and 13: a small display and a large one, fed the same inputs, write the
       }
       while (rig.engine.view().tick <= rig.lastGiven) await rig.ticks(1);
       rig.engine.intent({ kind: "letgo" });
-      await rig.ticks(110);
+      // On until the leash comes off and the park sleeps: both wrote every tick.
+      await rig.ticks(letGo + 110);
+      assert.equal(rig.engine.debug().ticking, false);
       assert.deepEqual(differs(rig), []);
       // The small one froze for the region's tiles: its leash went with no
       // tick; the large one had them all and ticked at once.

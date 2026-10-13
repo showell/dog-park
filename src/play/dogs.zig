@@ -91,17 +91,24 @@ pub const Dogs = struct {
 
 const testing = std.testing;
 
-test "the first layout: 400 dogs in the park, 13,500 px in, four to a tile, each breed at its own corner; the last in its (9, 9), the world's (36, 36)" {
+test "the first layout: four dogs to each tile of the park, one of each breed, breed b in the tile's corner b (NW, NE, SW, SE), numbered tile by tile" {
     const d = Dogs.laidOut();
-    try testing.expectEqual(@as(usize, 400), dog_count);
-    try testing.expectEqual(ParkPoint{ .park_x = 13_575, .park_y = 13_575 }, d.at(@enumFromInt(0)));
-    try testing.expectEqual(ParkPoint{ .park_x = 13_925, .park_y = 13_575 }, d.at(@enumFromInt(1)));
-    try testing.expectEqual(ParkPoint{ .park_x = 13_575, .park_y = 13_925 }, d.at(@enumFromInt(2)));
-    try testing.expectEqual(ParkPoint{ .park_x = 13_925, .park_y = 13_925 }, d.at(@enumFromInt(3)));
-    try testing.expectEqual(ParkPoint{ .park_x = 14_075, .park_y = 13_575 }, d.at(@enumFromInt(4)));
-    try testing.expectEqualStrings(looks[3], d.list[7].emoji);
-    try testing.expectEqual(tiles.Tile{ .col = 27, .row = 27 }, tiles.Tile.of(d.at(@enumFromInt(0))));
-    try testing.expectEqual(tiles.Tile{ .col = 36, .row = 36 }, tiles.Tile.of(d.at(@enumFromInt(dog_count - 1))));
+    try testing.expectEqual(@as(usize, tiles.park_tiles * tiles.park_tiles * looks.len), dog_count);
+    const half = tiles.tile_px / 2;
+    for (d.list, 0..) |dog, n| {
+        const breed = n % looks.len;
+        try testing.expectEqualStrings(looks[breed], dog.emoji);
+        // Its tile: the park's (n / 4)th, row by row.
+        const k: i32 = @intCast(n / looks.len);
+        const t = tiles.Tile.of(dog.at);
+        const first = tiles.park_offset_px / tiles.tile_px;
+        try testing.expectEqual(tiles.Tile{ .col = first + @mod(k, tiles.park_tiles), .row = first + @divFloor(k, tiles.park_tiles) }, t);
+        // Its corner: east for breeds 1 and 3, south for 2 and 3.
+        const in_x = dog.at.park_x - t.col * tiles.tile_px;
+        const in_y = dog.at.park_y - t.row * tiles.tile_px;
+        try testing.expectEqual(breed % 2 == 1, in_x >= half);
+        try testing.expectEqual(breed >= 2, in_y >= half);
+    }
 }
 
 test "dogs written read back the same, moves and all" {

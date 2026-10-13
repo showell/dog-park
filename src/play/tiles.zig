@@ -50,18 +50,15 @@ test "a tile's edges: 499 is the last of tile 0, 500 the first of tile 1; -1 is 
     try testing.expectEqual(@as(i32, -2), Tile.of(.{ .park_x = 0, .park_y = -501 }).row);
 }
 
-test "the world is 64 x 64 tiles, 32,000 px a side; the park, 10 x 10, sits 13,500 px in on each axis, its middle the world's" {
-    try testing.expectEqual(@as(i32, 64), world_tiles);
-    try testing.expectEqual(@as(i32, 32_000), world_px);
-    try testing.expectEqual(@as(i32, 10), park_tiles);
-    try testing.expectEqual(@as(i32, 13_500), park_offset_px);
+test "the park sits a whole number of tiles in from the world's edge, its middle the world's" {
     try testing.expectEqual(@as(i32, 0), @mod(park_offset_px, tile_px));
     try testing.expectEqual(world_px, 2 * park_offset_px + park_tiles * tile_px);
+    try testing.expect(park_tiles <= world_tiles);
 }
 
-test "the world's edges: 0 and 31999 are in it, -1 and 32000 outside" {
-    try testing.expectEqual(Where.in_world, where(.{ .park_x = 0, .park_y = 31_999 }));
+test "the world's edges: 0 and its last pixel are in it, -1 and its side outside" {
+    try testing.expectEqual(Where.in_world, where(.{ .park_x = 0, .park_y = world_px - 1 }));
     try testing.expectEqual(Where.outside_world, where(.{ .park_x = -1, .park_y = 0 }));
-    try testing.expectEqual(Where.in_world, where(.{ .park_x = 31_999, .park_y = 0 }));
-    try testing.expectEqual(Where.outside_world, where(.{ .park_x = 0, .park_y = 32_000 }));
+    try testing.expectEqual(Where.in_world, where(.{ .park_x = world_px - 1, .park_y = 0 }));
+    try testing.expectEqual(Where.outside_world, where(.{ .park_x = 0, .park_y = world_px }));
 }

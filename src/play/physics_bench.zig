@@ -5,7 +5,9 @@
 //! - **a packed herd:** every critter awake around the leashed dog, a tick
 //!   of wishes alone and a tick with the full drag;
 //! - **a server's re-run** of a 32-tick report from the busiest spot.
-//! Each is the mean of many runs from the same board.
+//! Each is the mean of as many runs from the same board as fit in about a
+//! second (at least ten), so a retune that makes a tick dearer doesn't
+//! make the bench crawl.
 
 const std = @import("std");
 const physics = @import("physics.zig");
@@ -31,12 +33,17 @@ fn awakeCount(b: *Board) usize {
     return n;
 }
 
-/// The mean microseconds of one tick from `start`, over `runs`.
-fn timeTick(io: std.Io, start: *const Board, humans: []const physics.Human, drag: []const physics.Disp, runs: usize) f64 {
+/// About a second of runs, and at least ten.
+const budget_ns: i96 = std.time.ns_per_s;
+const least_runs = 10;
+
+/// The mean microseconds of one tick from `start`.
+fn timeTick(io: std.Io, start: *const Board, humans: []const physics.Human, drag: []const physics.Disp) f64 {
     var lines: physics.Lines = .{};
     var sink: usize = 0;
+    var runs: usize = 0;
     const t0 = nowNs(io);
-    for (0..runs) |_| {
+    while (runs < least_runs or nowNs(io) - t0 < budget_ns) : (runs += 1) {
         var b = start.*;
         _ = physics.tick(&b, 1, humans, drag, &lines);
         sink +%= lines.len;
@@ -66,8 +73,8 @@ pub fn main(init: std.process.Init) !void {
     var lines: physics.Lines = .{};
     var probe = park;
     _ = physics.tick(&probe, 1, &.{}, full.slice(), &lines);
-    std.debug.print("park's busiest spot: dog {d}, {d} awake (itself included), the full drag: {d} lines, {d:.1} us a tick\n", .{ busiest, most, lines.len, timeTick(io, &park, &.{}, full.slice(), 20_000) });
-    std.debug.print("  the same, no drag (wishes alone): {d:.1} us a tick\n", .{timeTick(io, &park, &.{}, &.{}, 20_000)});
+    std.debug.print("park's busiest spot: dog {d}, {d} awake (itself included), the full drag: {d} lines, {d:.1} us a tick\n", .{ busiest, most, lines.len, timeTick(io, &park, &.{}, full.slice()) });
+    std.debug.print("  the same, no drag (wishes alone): {d:.1} us a tick\n", .{timeTick(io, &park, &.{}, &.{})});
 
     // A packed herd: dogs on a 45 px grid around the leashed dog, the cows
     // in columns beside them, every one within 500 px.
@@ -94,7 +101,7 @@ pub fn main(init: std.process.Init) !void {
             cow += 1;
         }
     }
-    std.debug.print("a packed herd: {d} dogs and {d} cows placed, {d} awake: wishes alone {d:.1} us, the full drag {d:.1} us a tick\n", .{ n, cow, awakeCount(&herd), timeTick(io, &herd, &.{}, &.{}, 2_000), timeTick(io, &herd, &.{}, full.slice(), 2_000) });
+    std.debug.print("a packed herd: {d} dogs and {d} cows placed, {d} awake: wishes alone {d:.1} us, the full drag {d:.1} us a tick\n", .{ n, cow, awakeCount(&herd), timeTick(io, &herd, &.{}, &.{}), timeTick(io, &herd, &.{}, full.slice()) });
 
     // A 32-tick report from the busiest spot, re-run by the server.
     var page = park;
@@ -102,8 +109,16 @@ pub fn main(init: std.process.Init) !void {
     var w: wire.Text = .{ .buf = &report };
     try wire.write(&w, .{ .header = .{ .language = 1, .physics = 1, .epoch = .{ .ms = 1, .count = 1 }, .req = 1 } });
     try wire.write(&w, .{ .from = .{ .tick = 0, .wall = 0 } });
+    // The view: every tile the region meets at some tick's start.
+    var view: wire.TileSet = .{};
     var t: physics.Tick = 1;
     while (t <= physics.most_ticks) : (t += 1) {
+        const span = physics.TileSpan.of(physics.region(page.dogs[busiest]));
+        var r = span.row_lo;
+        while (r <= span.row_hi) : (r += 1) {
+            var c = span.col_lo;
+            while (c <= span.col_hi) : (c += 1) try view.add(.{ .col = c, .row = r });
+        }
         const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(20), .dy = physics.px(if (t % 8 < 4) 10 else -10) }});
         const humans: []const physics.Human = if (page.hold.leashed.drag != .on) &.{.grab} else &.{};
         for (humans) |h| try wire.write(&w, switch (h) {
@@ -118,15 +133,14 @@ pub fn main(init: std.process.Init) !void {
     kept.board.hold = .none;
     kept.pending[0] = .{ .leash = busiest };
     kept.pending_len = 1;
-    const home = physics.tileOf(park.dogs[busiest]);
-    kept.view.tiles = tilesFrom(home.col - 2, home.row - 3);
-    kept.held = kept.view.tiles;
+    kept.view.tiles = view;
+    kept.held = view;
     var answer: [65536]u8 = undefined;
     var findings: judge.Findings = .{};
-    const runs = 500;
+    var runs: usize = 0;
     const t0 = nowNs(io);
     var verdict: judge.Verdict = undefined;
-    for (0..runs) |_| {
+    while (runs < least_runs or nowNs(io) - t0 < budget_ns) : (runs += 1) {
         var k = kept;
         var out: wire.Text = .{ .buf = &answer };
         verdict = try judge.judge(&k, 1, w.bytes(), &out, &findings);
@@ -135,18 +149,6 @@ pub fn main(init: std.process.Init) !void {
     var check = kept;
     var out: wire.Text = .{ .buf = &answer };
     _ = try judge.judge(&check, 1, w.bytes(), &out, &findings);
-    std.debug.print("a server's re-run of a 32-tick report ({d} bytes) from the busiest spot: {s}, {d:.1} us\n", .{ w.len, std.mem.trimEnd(u8, out.bytes(), "\n"), @as(f64, @floatFromInt(t1 - t0)) / runs / 1000.0 });
+    std.debug.print("a server's re-run of a 32-tick report ({d} bytes) from the busiest spot: {s}, {d:.1} us\n", .{ w.len, std.mem.trimEnd(u8, out.bytes(), "\n"), @as(f64, @floatFromInt(t1 - t0)) / @as(f64, @floatFromInt(runs)) / 1000.0 });
     if (verdict != .kept) return error.NotKept;
-}
-
-/// The 8 x 8 tiles from (col, row): a view's most, enough for the
-/// report's regions as the drag carries the dog east.
-fn tilesFrom(col: i32, row: i32) wire.TileSet {
-    var s: wire.TileSet = .{};
-    var r: i32 = row;
-    while (r < row + 8) : (r += 1) {
-        var c: i32 = col;
-        while (c < col + 8) : (c += 1) s.add(.{ .col = c, .row = r }) catch unreachable;
-    }
-    return s;
 }

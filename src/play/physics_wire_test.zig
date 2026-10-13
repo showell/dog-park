@@ -97,7 +97,7 @@ test "random critter lines and drags round-trip (seeded)" {
         };
         try roundTrip(.{ .critter = .{ .who = who, .before = p.any(rand), .after = p.any(rand) } });
         var raw: [20]physics.Disp = undefined;
-        const n = rand.uintAtMost(usize, raw.len);
+        const n: usize = rand.uintAtMost(u32, raw.len);
         for (raw[0..n]) |*r| r.* = .{ .dx = rand.intRangeAtMost(i32, -physics.cap, physics.cap), .dy = rand.intRangeAtMost(i32, -physics.cap, physics.cap), .ms = rand.int(u16) };
         try roundTrip(.{ .t = .{ .tick = rand.int(u32), .ms = rand.int(u16), .drag = physics.mergeAndCap(raw[0..n]) } });
     }
@@ -121,8 +121,9 @@ test "every other spelling is refused: padding, upper case, +0.00, short or long
         "dog 223 42d2.00,46d2.00 > 42d1.f0,46d2.00",
         " dog 223 42d2.00 46d2.00 > 42d1.f0,46d2.00",
         " dog 0223 42d2.00,46d2.00 > 42d1.f0,46d2.00",
-        " dog 250 42d2.00,46d2.00 > 42d1.f0,46d2.00",
-        " cow 50 42d2.00,46d2.00 > 42d1.f0,46d2.00",
+        // Past the last dog and the last cow.
+        std.fmt.comptimePrint(" dog {d} 42d2.00,46d2.00 > 42d1.f0,46d2.00", .{physics.dog_count}),
+        std.fmt.comptimePrint(" cow {d} 42d2.00,46d2.00 > 42d1.f0,46d2.00", .{physics.cow_count}),
         " Dog 223 42d2.00,46d2.00 > 42d1.f0,46d2.00",
         // Displacements.
         "t 1041 +0 drag +0.00,0@3",
@@ -151,7 +152,7 @@ test "every other spelling is refused: padding, upper case, +0.00, short or long
         "from 1040 wal 5",
         "leash 1041",
         "leash 1041 219 7",
-        "leash 1041 250",
+        std.fmt.comptimePrint("leash 1041 {d}", .{physics.dog_count}),
         "letgo",
         "letgo 1042 1",
         "rest 1042 x",

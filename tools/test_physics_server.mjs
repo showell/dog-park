@@ -95,7 +95,10 @@ const header = (req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\nfro
 test("an unleashed pan: a view gets its tiles' critters; the resend gets the same bytes", async () => {
   const body = header(1) + "view 1 1280x800 27,27 26,27\n";
   const a = await post("/report", body);
-  assert.equal(a.text, "req 1\nkept 0\ntile 26,27\ntile 27,27 cow 0 35b6.00,35b6.00 dog 0 3557.00,361a.00 dog 1 361a.00,3552.00\n");
+  // The empty ground west of the park, then the park's corner tile: its
+  // cows, then its dogs, by number (the layout is the Zig tests' to pin).
+  const pos = "[0-9a-f]+\\.[0-9a-f]{2},[0-9a-f]+\\.[0-9a-f]{2}";
+  assert.match(a.text, new RegExp(`^req 1\\nkept 0\\ntile 26,27\\ntile 27,27( cow \\d+ ${pos})+( dog \\d+ ${pos})+\\n$`));
   const again = await post("/report", body);
   assert.equal(again.text, a.text);
   const held = await post("/report", header(2) + "held 1 27,27 26,27\n");

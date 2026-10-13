@@ -177,6 +177,35 @@ fn count(answer: []const u8, prefix: []const u8) usize {
     return n;
 }
 
+/// A tile line as the server writes one for `t`, from `b`, nothing
+/// leashed: `tile c,r`, then the critters standing in it, cows then dogs,
+/// each by number.
+fn tileLineOf(alloc: std.mem.Allocator, b: *const Board, t: tiles.Tile) ![]const u8 {
+    var buf: [4096]u8 = undefined;
+    var w: wire.Text = .{ .buf = &buf };
+    try w.str("\ntile ");
+    try w.dec(@intCast(t.col));
+    try w.char(',');
+    try w.dec(@intCast(t.row));
+    var n: usize = 0;
+    for ([_]physics.Kind{ .cow, .dog }) |kind| {
+        const many: usize = if (kind == .cow) physics.cow_count else physics.dog_count;
+        for (0..many) |i| {
+            const c: physics.Critter = .{ .kind = kind, .n = @intCast(i) };
+            const at = physics.tileOf(b.at(c));
+            if (at.col != t.col or at.row != t.row) continue;
+            try w.char(' ');
+            try w.critter(c);
+            try w.char(' ');
+            try w.pos(b.at(c));
+            n += 1;
+        }
+    }
+    try testing.expect(n > 0);
+    try w.char('\n');
+    return alloc.dupe(u8, w.bytes());
+}
+
 fn tileSetOf(cols: [2]i32, rows: [2]i32) wire.TileSet {
     var s: wire.TileSet = .{};
     var r = rows[0];
@@ -234,16 +263,18 @@ test "1. an unleashed pan: a report with only a view gets its tile lines; the pa
     try rig.init(t0);
     defer rig.deinit();
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
-    // Columns 27 to 30, rows 27 and 28: the park's corner and the empty
-    // ground beside it (26 is outside the park).
-    const view = tileSetOf(.{ 26, 29 }, .{ 27, 28 });
+    // The park's corner tile and the empty ground west of it, two rows.
+    const corner = tiles.park_offset_px / tiles.tile_px;
+    const view = tileSetOf(.{ corner - 1, corner + 2 }, .{ corner, corner + 1 });
     try page.begin();
     try page.write(.{ .view = .{ .tick = page.last + 1, .w = 1280, .h = 800, .tiles = view } });
     const a = try rig.report(page.body());
-    try testing.expect(std.mem.startsWith(u8, a, "req 1\nkept 0\ntile 26,27\ntile 27,27 cow 0 "));
-    try testing.expectEqual(@as(usize, 8), count(a, "tile "));
-    // Tile 27,27 holds dogs 0 and 1 and cow 0, as the layout put them.
-    try testing.expect(std.mem.indexOf(u8, a, "\ntile 27,27 cow 0 35b6.00,35b6.00 dog 0 3557.00,361a.00 dog 1 361a.00,3552.00\n") != null);
+    var want: [64]u8 = undefined;
+    try testing.expect(std.mem.startsWith(u8, a, try std.fmt.bufPrint(&want, "req 1\nkept 0\ntile {d},{d}\n", .{ corner - 1, corner })));
+    try testing.expectEqual(view.len, count(a, "tile "));
+    // The corner tile holds exactly the critters the layout put there: its
+    // cows by number, then its dogs by number.
+    try testing.expect(std.mem.indexOf(u8, a, try tileLineOf(rig.arena.allocator(), &Board.laidOut(), .{ .col = corner, .row = corner })) != null);
     try page.begin();
     try page.write(.{ .held = .{ .tick = page.last + 1, .tiles = view } });
     try expectKept(try rig.report(page.body()), 2, 0);
@@ -306,33 +337,40 @@ test "3 and 30 (502). a lost answer: the byte-identical resend gets the stored a
     try dragTicks(&rig, &page, 3);
 }
 
-test "4. a reload after a kept trailing leash: the load's input lines carry it, and the next three reports are kept" {
+test "4. every load starts the park afresh: after play, a load gives back the first layout, nothing leashed or pending, and a restart after it comes back to that board" {
     var rig: Rig = undefined;
     try rig.init(t0);
     defer rig.deinit();
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
+    try leashUp(&rig, &page, the_dog);
+    try dragTicks(&rig, &page, 5);
+    // A leash kept for the next tick, still waiting.
     try page.begin();
-    try page.input(.{ .leash = .{ .tick = 1, .dog = the_dog } });
+    try page.input(.{ .letgo = page.last + 1 });
     _ = try rig.report(page.body());
+    try testing.expect(!std.meta.eql(Board.laidOut().dogs, rig.server.kept.board.dogs));
+    try testing.expect(rig.server.kept.pending_len > 0);
+    const kept = rig.server.kept.tick;
     // The page reloads.
     const answer = try rig.load("1280x800");
     var buf: [128]u8 = undefined;
-    try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.bufPrint(&buf, "epoch {d}.2\nkept 0\nstate leash none drag none view 1280x800 ", .{t0})));
-    try testing.expect(std.mem.indexOf(u8, answer, "\ninput leash 1 125\n") != null);
-    try testing.expectEqual(regionOf(&rig.server.kept.board, the_dog).len, count(answer, "tile "));
-    var fresh = try Page.loaded(&rig, answer);
-    // A drag is on after the leash, and nobody's pointer is down: letgo.
-    try fresh.begin();
-    try fresh.input(.{ .letgo = 1 });
-    try fresh.tick(&.{});
-    try expectKept(try rig.report(fresh.body()), 1, 1);
-    fresh.acked();
-    for (0..2) |_| {
-        try fresh.begin();
-        try fresh.tick(&.{});
-        try expectKept(try rig.report(fresh.body()), fresh.req, fresh.last);
-        fresh.acked();
-    }
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "epoch {d}.2\nkept {d}\nstate leash none drag none view 1280x800 held\n", .{ t0, kept }), answer);
+    const first = Board.laidOut();
+    try testing.expect(std.meta.eql(first.dogs, rig.server.kept.board.dogs));
+    try testing.expect(std.meta.eql(first.cows, rig.server.kept.board.cows));
+    try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
+    try testing.expectEqual(@as(usize, 0), rig.server.kept.pending_len);
+    // A deploy after the load: the same board, at the same tick.
+    try rig.restart(t0 + 60_000);
+    try testing.expect(rig.started.board == .applied);
+    try testing.expectEqual(kept, rig.server.kept.tick);
+    try testing.expect(std.meta.eql(first.dogs, rig.server.kept.board.dogs));
+    try testing.expect(std.meta.eql(first.cows, rig.server.kept.board.cows));
+    try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
+    // And the page that loads now plays on from it.
+    var fresh = try Page.loaded(&rig, try rig.load("1280x800"));
+    try leashUp(&rig, &fresh, the_dog);
+    try dragTicks(&rig, &fresh, 2);
 }
 
 test "5. a restart under a new physics hash, with a log tail after the snapshot: the board is where the tail left it" {
@@ -652,7 +690,7 @@ test "23. a tile sent again after a differ, its held never kept: the page's boar
     try testing.expect(std.mem.indexOf(u8, a, "\ntile 40,40\n") != null);
 }
 
-test "25. the 10 x 10 park in the 64 x 64 world: today's laid-out files make the physics' board, same numbers; the empty world reads as empty" {
+test "25. the park in the world: today's laid-out files make the physics' board, same numbers; the empty world reads as empty" {
     const d = dogs.Dogs.laidOut();
     const bytes = try d.written(testing.allocator);
     defer testing.allocator.free(bytes);
@@ -664,8 +702,8 @@ test "25. the 10 x 10 park in the 64 x 64 world: today's laid-out files make the
     const laid = Board.laidOut();
     try testing.expect(std.meta.eql(laid.dogs, board.dogs));
     try testing.expect(std.meta.eql(laid.cows, board.cows));
-    try testing.expectEqual(@as(usize, 250), physics.dog_count);
-    try testing.expectEqual(@as(usize, 50), physics.cow_count);
+    try testing.expectEqual(@as(usize, tiles.park_tiles * tiles.park_tiles * physics.breeds), physics.dog_count);
+    try testing.expectEqual(@as(usize, tiles.park_tiles * tiles.park_tiles / 2), physics.cow_count);
     // Through the protocol: the world's corner tile and the one beside the
     // park are empty; the park's tiles are not.
     var rig: Rig = undefined;
@@ -673,17 +711,21 @@ test "25. the 10 x 10 park in the 64 x 64 world: today's laid-out files make the
     defer rig.deinit();
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
     var view: wire.TileSet = .{};
-    for ([_][2]i32{ .{ 0, 0 }, .{ 63, 63 }, .{ 26, 30 }, .{ 36, 36 } }) |cr| try view.add(.{ .col = cr[0], .row = cr[1] });
+    const first = tiles.park_offset_px / tiles.tile_px;
+    const last = first + tiles.park_tiles - 1;
+    const edge = tiles.world_tiles - 1;
+    for ([_][2]i32{ .{ 0, 0 }, .{ edge, edge }, .{ first - 1, first + 3 }, .{ last, last } }) |cr| try view.add(.{ .col = cr[0], .row = cr[1] });
     try page.begin();
     try page.write(.{ .view = .{ .tick = 1, .w = 1280, .h = 800, .tiles = view } });
     const a = try rig.report(page.body());
+    const alloc = rig.arena.allocator();
     try testing.expect(std.mem.indexOf(u8, a, "\ntile 0,0\n") != null);
-    try testing.expect(std.mem.indexOf(u8, a, "\ntile 63,63\n") != null);
-    try testing.expect(std.mem.indexOf(u8, a, "\ntile 26,30\n") != null);
-    try testing.expect(std.mem.indexOf(u8, a, "\ntile 36,36 ") != null);
+    try testing.expect(std.mem.indexOf(u8, a, try std.fmt.allocPrint(alloc, "\ntile {d},{d}\n", .{ edge, edge })) != null);
+    try testing.expect(std.mem.indexOf(u8, a, try std.fmt.allocPrint(alloc, "\ntile {d},{d}\n", .{ first - 1, first + 3 })) != null);
+    try testing.expect(std.mem.indexOf(u8, a, try std.fmt.allocPrint(alloc, "\ntile {d},{d} ", .{ last, last })) != null);
 }
 
-test "breeds: dogs.zig deals four looks, n mod 4, the physics' breeds; a five-look dogs.json no longer reads (tools/looks_to_four.py moves it)" {
+test "breeds: dogs.zig deals four looks, n mod 4, the physics' breeds; a dogs.json with another look does not read" {
     try testing.expectEqual(@as(usize, physics.breeds), dogs.looks.len);
     const d = dogs.Dogs.laidOut();
     for (d.list, 0..) |dog, n| try testing.expectEqualStrings(dogs.looks[n % 4], dog.emoji);
@@ -797,7 +839,13 @@ test "the log: kept reports as written, a differ's kept prefix, the load's view 
     page.board = rig.server.kept.board;
     page.acked();
     const snap_was = rig.server.snapshot_tick;
-    for (0..3) |_| try dragTicks(&rig, &page, 30);
+    // Ticks with the drag on and the pointer still: the region stays put.
+    for (0..3) |_| {
+        try page.begin();
+        for (0..30) |_| try page.tick(&.{});
+        try expectKept(try rig.report(page.body()), page.req, page.last);
+        page.acked();
+    }
     try testing.expect(rig.server.snapshot_tick > snap_was);
     try testing.expect(rig.server.snapshot_tick + server_mod.snapshot_every > rig.server.kept.tick);
 }
@@ -896,21 +944,8 @@ test "a snapshot reads back what it wrote" {
 const app = @import("app.zig");
 const Served = webbox.site.Site(app);
 
-const example_report =
-    \\dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4
-    \\from 1040 wall 1791936000000
-    \\held 1041 31,34 31,35 31,36 31,37 31,38 32,34 33,34 34,34 35,34 32,37 33,37 34,37 35,37 32,38 33,38 34,38 35,38
-    \\t 1041 +0 drag -1.00,0@3 -2.00,0@19
-    \\ dog 219 423c.00,46d2.00 > 4239.00,46d2.00
-    \\ cow 43 416e.00,4556.00 > 416e.00,4554.80
-    \\ dog 223 42d2.00,46d2.00 > 42d1.f0,46d2.00
-    \\letgo 1042
-    \\t 1042 +63
-    \\ dog 223 42d1.f0,46d2.00 > 42d1.e0,46d2.00
-    \\t 1043 +125
-    \\ dog 223 42d1.e0,46d2.00 > 42d1.d0,46d2.00
-    \\
-;
+const example = @import("physics_judge_test.zig");
+const example_report = example.example_report;
 
 /// POSTs `body` to `path` through the site, as webbox's hosts route it.
 fn post(io: std.Io, alloc: std.mem.Allocator, hub: *webbox.bus.Hub, path: []const u8, body: []const u8) !struct { status: []const u8, body: []const u8 } {
@@ -941,20 +976,14 @@ test "the worked example through POST /report: the doc's report in, req 4 kept 1
     var hub = webbox.bus.Hub.init(io, testing.allocator);
     defer hub.entries.deinit(testing.allocator);
     // The server as request 3 left it: the doc's board at kept 1040, the
-    // leash waiting, the region's view, the viewport's 8 tiles held, the 17
+    // leash waiting, the region's view, the viewport's 8 tiles held, the
     // others sent with request 3's answer; epoch .3, request 3 answered.
     const s = &app.the_physics;
     s.physics_hash = 0x5e0c91a2;
     s.started = 1791935990000;
     s.epoch = 3;
     s.last = 3;
-    s.kept = .{ .tick = 1040, .board = @import("physics_judge_test.zig").exampleBoard() };
-    s.kept.view = .{ .w = 1280, .h = 800, .tiles = tileSetOf(.{ 31, 35 }, .{ 34, 38 }) };
-    s.kept.held = tileSetOf(.{ 32, 35 }, .{ 35, 36 });
-    for (s.kept.view.tiles.slice()) |t| s.kept.sent.add(t);
-    for (s.kept.held.slice()) |t| s.kept.named.add(t);
-    s.kept.pending[0] = .{ .leash = 219 };
-    s.kept.pending_len = 1;
+    s.kept = example.exampleKept();
     const got = try post(io, a, &hub, "/report", example_report);
     try testing.expectEqualStrings("200", got.status);
     try testing.expectEqualStrings("req 4\nkept 1043\n", got.body);
