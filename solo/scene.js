@@ -247,15 +247,12 @@ export function dogOfTarget(id) {
 // **BETWEEN TICKS, A FRAME DRAWS EACH THING PART WAY** from where it was at
 // the tick before (`was`, a park point, or undefined: new since) to where
 // it is (`cur`), `alpha` of the way (0 to 1, the frame's way through its
-// tick). A move of more than `snap_px` on either axis in one tick is drawn
-// where it ends (a cow's jump, a dog the server put elsewhere): sliding
-// would draw it through whatever is between.
-export const snap_px = 50;
-
+// tick). With no `was` it is drawn where it is: the engine leaves out a
+// critter the physics says JUMPED this tick (out from under, or a push's
+// nearest spot), since sliding would draw it through whatever is between;
+// every other move glides, however far a fast drag carried it.
 export function between(was, cur, alpha) {
-  if (was === undefined || Math.abs(cur.parkX - was.parkX) > snap_px || Math.abs(cur.parkY - was.parkY) > snap_px) {
-    return { parkX: cur.parkX, parkY: cur.parkY };
-  }
+  if (was === undefined) return { parkX: cur.parkX, parkY: cur.parkY };
   return { parkX: was.parkX + (cur.parkX - was.parkX) * alpha, parkY: was.parkY + (cur.parkY - was.parkY) * alpha };
 }
 

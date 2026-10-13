@@ -192,14 +192,14 @@ test("a dog's look is its breed, n mod 4", () => {
 
 // ── what a frame draws, and what a press is on ──────────────────────────────
 
-test("between ticks: part way, snapped past 50 px, where it is when new", () => {
+test("between ticks: part way however far (a fast drag's walk glides), where it is when new (or jumped: the engine leaves it out)", () => {
   const was = { parkX: 100, parkY: 200 };
   assert.deepEqual(scene.between(was, { parkX: 140, parkY: 180 }, 0), { parkX: 100, parkY: 200 });
   assert.deepEqual(scene.between(was, { parkX: 140, parkY: 180 }, 0.25), { parkX: 110, parkY: 195 });
   assert.deepEqual(scene.between(was, { parkX: 140, parkY: 180 }, 1), { parkX: 140, parkY: 180 });
   assert.deepEqual(scene.between(was, { parkX: 150, parkY: 200 }, 0.5), { parkX: 125, parkY: 200 });
-  assert.deepEqual(scene.between(was, { parkX: 150.5, parkY: 200 }, 0.5), { parkX: 150.5, parkY: 200 });
-  assert.deepEqual(scene.between(was, { parkX: 100, parkY: 149 }, 0.5), { parkX: 100, parkY: 149 });
+  assert.deepEqual(scene.between(was, { parkX: 200, parkY: 200 }, 0.5), { parkX: 150, parkY: 200 });
+  assert.deepEqual(scene.between(was, { parkX: 100, parkY: 100 }, 0.5), { parkX: 100, parkY: 150 });
   assert.deepEqual(scene.between(undefined, { parkX: 7, parkY: 8 }, 0.5), { parkX: 7, parkY: 8 });
 });
 
@@ -217,9 +217,9 @@ test("the near scene between ticks: the viewport, the cows and the dogs each par
   assert.deepEqual([byId.get("dog:7").x, byId.get("dog:7").y], [65, 100]);
   assert.deepEqual([byId.get("dog:7:ring").x, byId.get("dog:7:ring").y], [65, 100]);
   assert.equal(byId.get("dog:7:label").text, "(520, 100)");
-  // Dog 3 is new since the last tick: where it is. Cow 23 moved 100 px: snapped.
+  // Dog 3 is new since the last tick: where it is. Cow 23 moved 100 px: it glides.
   assert.equal(byId.get("dog:3").x, 455);
-  assert.equal(byId.get("cow:23").x, 155);
+  assert.equal(byId.get("cow:23").x, 105);
   // With no motion, as it is.
   assert.equal(scene.nearScene(viewport, dogs, cows, { kind: "none" }).find((o) => o.id === "dog:7").x, 70);
 });

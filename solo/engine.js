@@ -331,12 +331,22 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     record.push({ kind: "tick", t, wallMs: wall(), drag: r.drag, checked: r.checked, flags: r.flags });
     cursor++;
     ticked(r.flags);
+    // The tick's jumpers are drawn where they land, not slid there.
+    wasDogs = without(wasDogs, r.jumped.dogs);
+    wasCows = without(wasCows, r.jumped.cows);
     refresh(false);
     if (before && (band.x !== 0 || band.y !== 0)) {
       const after = dogs.get(leashedDog);
       const follow = (b, moved) => (b === 0 || Math.sign(moved) !== Math.sign(b) ? 0 : Math.sign(b) * Math.min(Math.abs(b), Math.abs(moved)));
       moveViewport(viewport.parkX + follow(band.x, after.parkX - before.parkX), viewport.parkY + follow(band.y, after.parkY - before.parkY));
     }
+  }
+
+  function without(was, ids) {
+    if (ids.length === 0) return was;
+    const m = new Map(was);
+    for (const id of ids) m.delete(id);
+    return m;
   }
 
   function ticked(flags) {

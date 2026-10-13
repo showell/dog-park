@@ -11,7 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scratchServer } from "./lib/scratch_server.mjs";
 import { pageRig, reports, wasmBytes, held as heldPromise, regionAround, letGoTicks } from "./lib/page_rig.mjs";
-import { LIVE, KEPT } from "../solo/physics.js";
+import { LIVE, KEPT, SCRATCH } from "../solo/physics.js";
 
 // The dog nearest the screen's middle, of those the page has.
 function middleDog(rig) {
@@ -408,6 +408,39 @@ test("12 and 13: a small display and a large one, fed the same inputs, write the
   }
   assert.ok(lines[0].length > 30);
   assert.deepEqual(lines[1], lines[0]);
+});
+
+test("a fast drag glides: the leashed dog, 100 px a tick, is drawn from where it was; a tick names its jumpers, and the engine draws only those where they land", async () => {
+  const server = await scratchServer();
+  try {
+    const rig = await pageRig({ post: (p, t) => server.post(p, t) });
+    await rig.load();
+    await rig.ticks(4);
+    const dog = middleDog(rig);
+    rig.engine.intent({ kind: "grab", dogId: dog.id });
+    await rig.ticks(1);
+    let glided = 0;
+    for (let i = 0; i < 6; i++) {
+      rig.engine.intent({ kind: "drag", dogId: dog.id, dx: 100, dy: 0 });
+      await rig.ticks(1);
+      const v = rig.engine.view();
+      const was = v.was.dogs.get(dog.id);
+      const now = v.dogs.get(dog.id);
+      if (was && now.parkX - was.parkX > 50) glided++;
+    }
+    assert.ok(glided > 0, "the leashed dog moved over 50 px in a tick and was drawn gliding");
+    // The physics' own answer: a copy of the live board, a full drag; the
+    // jumpers are ids the board has.
+    const { physics } = rig;
+    physics.copy(LIVE, SCRATCH);
+    const r = physics.tick(SCRATCH, 100000, [[100 * 256, 100 * 256, 0]]);
+    assert.ok(Array.isArray(r.jumped.dogs) && Array.isArray(r.jumped.cows));
+    const c = physics.critters(SCRATCH);
+    for (const id of r.jumped.dogs) assert.ok(c.dogs.some((d) => d.id === id));
+    for (const id of r.jumped.cows) assert.ok(c.cows.some((d) => d.id === id));
+  } finally {
+    await server.stop();
+  }
 });
 
 test("the server serves the wasm the page runs, under its hash, cached for good; the page names it", async () => {
