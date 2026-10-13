@@ -10,11 +10,10 @@ keeps the record and the protocol (one report in flight, the spacing,
 byte-identical tries on the backoff, every answer form, the rewind and
 replay, the subscription and its `held`, the freezes). The page no longer
 calls the old routes; the server still serves them. Of the tests to write
-first, all but 5, 14, 17, 19, 25 and 28 have a page-side or end-to-end
-test (`tools/test_engine.mjs`, `tools/test_page_physics.mjs` against a
-scratch server); those six are the server's and the board's (above them
-in `physics_server_test.zig` and the core's tests). Played by Steve: not
-yet.
+first, 1-4, 6, 7, 12, 13, 15, 18, 21-24 and 30 have page-side or
+end-to-end tests (`tools/test_engine.mjs`, and `tools/test_page_physics.mjs`
+against a scratch server); the rest are the core's and the server's
+(`physics_test.zig`, `physics_server_test.zig`). Played by Steve: not yet.
 
 **Designed** (2026-10-13). The physics of the other
 dogs, the cows' place in it, and the text report the page sends the
