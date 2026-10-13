@@ -1066,11 +1066,10 @@ play says otherwise:
     world's middle (every position plus 13,500 px, a one-time change to
     `dogs.json` and `cows.json` alongside the breeds'); the rest of the
     world is empty ground for now (Steve, 2026-10-13: the 10 × 10 park in
-the middle is his call). Today `dogs.zig` and `cows.zig` derive
-    their counts and layout from `world_tiles` (`dog_count`, `cow_count`,
-    `laidOut`, and `read` requires exactly that count), so they must take
-    the populated park's size instead: one constant for the world, one for
-    the park. Positions reach 8,192,000 in 256ths, squared distances about
+the middle is his call). **Done (2026-10-13):** `tiles.zig` has
+    `world_tiles` (64), `park_tiles` (10) and `park_offset_px` (13,500);
+    `dogs.zig` and `cows.zig` take their counts and layout from the park's;
+    `tools/shift_park_to_64.py` is the one-time shift of a data dir. Positions reach 8,192,000 in 256ths, squared distances about
     1.3·10^14 on the diagonal: `i32` and `i64` as above. The tiles divide the world evenly, so
     the wrap later is clean.
 
@@ -1249,16 +1248,16 @@ and the request numbering.
     the swept rectangle; the region's tile range (`@divFloor`); the
     subscription order's ties by row, then column; and an unstated
     constraint, now stated: **the world is wider than the region plus its
-    reaches,** so no critter is ever seen twice. *Also tied to today's
-    10 × 10 world* (to change with the move to 64 × 64, item 16): the
-    per-human viewport files (`humans.zig`, `/viewport`, `GET /me`) hold
-    park coordinates, so they shift by 13,500 px too or reset; `park.js`'s
-    `world_tiles = 10`, `most_tiles = 25`, `viewportKeptOnWorld` and the
-    first visit at the world's centre; and its whole-world overview, which
-    becomes a **scrolling window** (Steve): more tiles than the main view,
-    never the whole world, every critter still a visible dot, with
-    scrollbars to reach the rest. `dogs.zig`'s `read` has no in-world
-    check where `cows.zig`'s does; the load's resolve covers a dog outside
-    the world, but the two should match. So **every difference
+    reaches,** so no critter is ever seen twice. *Moved to the 64 × 64
+    world* (item 16, 2026-10-13): the per-human viewport files
+    (`humans.zig`, `/viewport`, `GET /me`) shift by 13,500 px with the
+    critters; `scene.js`'s `world_tiles = 64` and `most_tiles = 64`, the
+    first visit at the world's centre (the park's middle); and the
+    overview, now a **scrolling window** (Steve): 10 tiles across the
+    screen's shorter side (the whole 10 × 10 world's scale, so every
+    critter is still a visible dot), never the whole world, with
+    scrollbars the blitter draws, and the wheel, to reach the rest.
+    `dogs.zig`'s `read` refuses a dog outside the world, as `cows.zig`'s
+    does. So **every difference
     between two positions goes through one shared `delta(a, b)`** from the
     start; the wrap is then a change to that one function.

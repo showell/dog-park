@@ -5,7 +5,8 @@
 
 import {
   dog_px, viewportFromPark, parkFromViewport, keptOnScreen, keptInWorld, viewportKeptOnWorld,
-  overviewFrame, view_target, dogOfTarget,
+  overviewFrame, overviewCentredOn, overviewShowing, overviewMoved, overviewScrolled, overviewJumped,
+  view_target, dogOfTarget, scrollOfTarget,
 } from "./scene.js";
 import { hit } from "./blit.js";
 
@@ -45,6 +46,9 @@ export function axisScroll(viewportAt, length, reachPx) {
 //   { kind: "dragging", dogId, offsetX, offsetY }
 //       a dog by its number, held where it was grabbed: the pointer is
 //       (offsetX, offsetY) from the dog's centre, so the dog doesn't jump
+//   { kind: "scrolling", axis, lastX, lastY }
+//       the overview's scrollbar on `axis` ("x" or "y") held, from the
+//       pointer's last viewport point
 //
 // AN EVENT, in viewport points:
 //
@@ -53,6 +57,7 @@ export function axisScroll(viewportAt, length, reachPx) {
 //                                   page knows
 //   { type: "move", x, y }
 //   { type: "up" }  { type: "cancel" }
+//   { type: "wheel", dx, dy }       a wheel or trackpad scroll, in px
 //   { type: "z" }                   the key that flips near and the overview
 //
 // AN INTENT, what the page does about it, in order:
@@ -63,6 +68,8 @@ export function axisScroll(viewportAt, length, reachPx) {
 //   { kind: "letgo" }                       the dog in hand goes, kept on the
 //                                           leash (at the next tick, after its drags)
 //   { kind: "pan", parkX, parkY }           the viewport's top-left is now here
+//   { kind: "scroll", parkX, parkY }        the overview's window's top-left
+//                                           is now here (scene.js's overviewFrame)
 //   { kind: "mode", mode }                  "near" or "overview" from now on
 //
 // No intent at all is an empty list.
@@ -71,14 +78,22 @@ export const resting = { kind: "resting" };
 
 // What `event` means to a hand in `mode`, the press on `hitId` (what
 // blit.js's `hit` answered over the list last drawn, null for nothing) with
-// the viewport as it is: the hand after it, and the intents.
-export function meaning(hand, event, hitId, mode, viewport) {
+// the viewport as it is and the overview's window at `overviewAt` (its
+// top-left, a park point): the hand after it, and the intents.
+export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX: 0, parkY: 0 }) {
+  const o = overviewFrame(viewport.width, viewport.height, overviewAt);
+  const scrollTo = (at) => (at.parkX === o.at.parkX && at.parkY === o.at.parkY ? [] : [{ kind: "scroll", parkX: at.parkX, parkY: at.parkY }]);
   switch (event.type) {
     case "down": {
       if (mode === "overview") {
-        // The view's rectangle moves only when it is pressed.
-        const hand2 = hitId === view_target ? { kind: "panning", lastX: event.x, lastY: event.y } : resting;
-        return { hand: hand2, intents: [] };
+        // The view's rectangle moves only when it is pressed; a scrollbar's
+        // thumb is held where pressed, and a press on its track jumps the
+        // thumb there, then holds it.
+        if (hitId === view_target) return { hand: { kind: "panning", lastX: event.x, lastY: event.y }, intents: [] };
+        const bar = scrollOfTarget(hitId);
+        if (bar === "none") return { hand: resting, intents: [] };
+        const hand2 = { kind: "scrolling", axis: bar.axis, lastX: event.x, lastY: event.y };
+        return { hand: hand2, intents: bar.part === "thumb" ? [] : scrollTo(overviewJumped(o, bar.axis, event.x, event.y)) };
       }
       const dogId = dogOfTarget(hitId);
       if (dogId === "none" || event.dogAt === "none") {
@@ -96,14 +111,22 @@ export function meaning(hand, event, hitId, mode, viewport) {
         // against it; in the overview, the view's rectangle moves with it.
         const dx = event.x - hand.lastX;
         const dy = event.y - hand.lastY;
-        const o = overviewFrame(viewport.width, viewport.height);
         const want = mode === "near"
           ? { parkX: viewport.parkX - dx, parkY: viewport.parkY - dy }
           : { parkX: viewport.parkX + dx / o.scale, parkY: viewport.parkY + dy / o.scale };
         const to = viewportKeptOnWorld(viewport, want.parkX, want.parkY);
+        // In the overview, the window follows the view's rectangle past its edge.
+        const follow = mode === "near" ? [] : scrollTo(overviewShowing(o, { ...viewport, ...to }));
         return {
           hand: { kind: "panning", lastX: event.x, lastY: event.y },
-          intents: [{ kind: "pan", parkX: to.parkX, parkY: to.parkY }],
+          intents: [{ kind: "pan", parkX: to.parkX, parkY: to.parkY }, ...follow],
+        };
+      }
+      if (hand.kind === "scrolling") {
+        const d = hand.axis === "x" ? event.x - hand.lastX : event.y - hand.lastY;
+        return {
+          hand: { ...hand, lastX: event.x, lastY: event.y },
+          intents: scrollTo(overviewScrolled(o, hand.axis, d)),
         };
       }
       if (hand.kind !== "dragging") return { hand, intents: [] };
@@ -116,9 +139,18 @@ export function meaning(hand, event, hitId, mode, viewport) {
     case "up":
     case "cancel":
       return { hand: resting, intents: hand.kind === "dragging" ? [{ kind: "letgo" }] : [] };
+    case "wheel":
+      // The overview's window scrolls with the wheel, as a page's content
+      // does; near, a wheel means nothing.
+      if (mode !== "overview") return { hand, intents: [] };
+      return { hand, intents: scrollTo(overviewMoved(o, event.dx / o.scale, event.dy / o.scale)) };
     case "z": {
-      const flipped = { kind: "mode", mode: mode === "near" ? "overview" : "near" };
-      return { hand: resting, intents: hand.kind === "dragging" ? [{ kind: "letgo" }, flipped] : [flipped] };
+      // The overview opens on a window centred on the view.
+      const centred = overviewCentredOn(viewport);
+      const flipped = mode === "near"
+        ? [{ kind: "mode", mode: "overview" }, { kind: "scroll", parkX: centred.parkX, parkY: centred.parkY }]
+        : [{ kind: "mode", mode: "near" }];
+      return { hand: resting, intents: hand.kind === "dragging" ? [{ kind: "letgo" }, ...flipped] : flipped };
     }
     default:
       throw new Error(`no pointer event ${event.type}`);

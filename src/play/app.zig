@@ -12,7 +12,7 @@
 //!                    cookie here)
 //!   POST /tiles      {"tiles": [{"col", "row", "is": "new" | "held"}]}: the
 //!                    whole set, replacing yours → the dogs and the cows in
-//!                    the tiles named new; refused past 25 tiles
+//!                    the tiles named new; refused past 64 tiles
 //!   POST /leash      {"dog"}                       → leashed, or held by another
 //!   POST /release    {"dog"}                       → released, or not held
 //!   POST /move       {"dog", "path": [[park_x, park_y], ...]}: the dog's
@@ -41,7 +41,8 @@ const HumanId = humans.HumanId;
 /// Where the page lives, from the directory the server runs in.
 const page_dir = "solo";
 
-/// The longest request body: fifty tiles at about 25 bytes each.
+/// The longest request body: 64 tiles at about 33 bytes each, or a move's
+/// 100 points at about 14.
 pub const longest_body = 4096;
 
 /// The most any route reads of a body (webbox's body rule): every route's is

@@ -34,9 +34,12 @@ export function keptOnScreen(viewport, parkX, parkY) {
 
 // ── tiles and the world ─────────────────────────────────────────────────────
 
+// The world: `world_tiles` by `world_tiles` tiles (the server's tiles.zig),
+// its edges clamping; the populated park is the 10 x 10 tiles in its middle.
+// A page subscribes to at most `most_tiles` (the server refuses more).
 export const tile_px = 500;
-export const most_tiles = 25;
-export const world_tiles = 10;
+export const most_tiles = 64;
+export const world_tiles = 64;
 export const world_px = world_tiles * tile_px;
 
 // A park point kept in the world.
@@ -96,17 +99,97 @@ export function wantedTiles(viewport) {
 
 // ── the overview's frame ────────────────────────────────────────────────────
 
-// The whole world fits the screen, `overview_margin_px` in from its edges:
-// a park point at (parkX, parkY) is at origin + park * scale on screen.
-const overview_margin_px = 20;
+// **THE OVERVIEW IS A WINDOW ONTO THE WORLD**, never all of it: the screen,
+// `overview_margin_px` in from its edges, at the scale that puts
+// `overview_tiles` tiles across its shorter side (the scale the whole 10 x
+// 10 world had, so a critter's dot is as visible as it was). Its top-left,
+// `at`, is a park point, kept so the window stays in the world; a park
+// point (parkX, parkY) is at origin + park * scale on screen. Two
+// scrollbars in the margins, along the bottom and the right, say where the
+// window is in the world: a track the window's length, and a thumb on it as
+// long, and as far along, as the window is in the world.
+export const overview_margin_px = 20;
+export const overview_tiles = 10;
+const scrollbar_px = 12;
 
-export function overviewFrame(width, height) {
-  const scale = Math.min(width - 2 * overview_margin_px, height - 2 * overview_margin_px) / world_px;
+export function overviewFrame(width, height, at) {
+  const m = overview_margin_px;
+  const scale = (Math.min(width, height) - 2 * m) / (overview_tiles * tile_px);
+  const window = { x: m, y: m, w: width - 2 * m, h: height - 2 * m };
+  const span = { parkW: window.w / scale, parkH: window.h / scale };
+  const kept = overviewKept(span, at);
+  const across = (m - scrollbar_px) / 2;
   return {
     scale,
-    originX: (width - world_px * scale) / 2,
-    originY: (height - world_px * scale) / 2,
+    originX: m - kept.parkX * scale,
+    originY: m - kept.parkY * scale,
+    at: kept,
+    window,
+    span,
+    tracks: {
+      x: { x: window.x, y: height - m + across, w: window.w, h: scrollbar_px },
+      y: { x: width - m + across, y: window.y, w: scrollbar_px, h: window.h },
+    },
   };
+}
+
+// The window's top-left kept so the window stays in the world (centred on
+// an axis it is wider than the world along).
+function overviewKept(span, at) {
+  const axis = (a, len) => (len >= world_px ? (world_px - len) / 2 : Math.min(Math.max(a, 0), world_px - len));
+  return { parkX: axis(at.parkX, span.parkW), parkY: axis(at.parkY, span.parkH) };
+}
+
+// The window's top-left for the overview just opened: centred on the
+// viewport, kept in the world.
+export function overviewCentredOn(viewport) {
+  const o = overviewFrame(viewport.width, viewport.height, { parkX: 0, parkY: 0 });
+  return overviewFrame(viewport.width, viewport.height, {
+    parkX: viewport.parkX + viewport.width / 2 - o.span.parkW / 2,
+    parkY: viewport.parkY + viewport.height / 2 - o.span.parkH / 2,
+  }).at;
+}
+
+// The window's top-left moved as little as shows the whole viewport (it is
+// always smaller than the window), kept in the world: a dragged view's
+// rectangle carries the window with it at the window's edge.
+export function overviewShowing(o, viewport) {
+  const axis = (a, len, v, vlen) => Math.min(Math.max(a, v + vlen - len), v);
+  const want = {
+    parkX: axis(o.at.parkX, o.span.parkW, viewport.parkX, viewport.width),
+    parkY: axis(o.at.parkY, o.span.parkH, viewport.parkY, viewport.height),
+  };
+  return overviewKept(o.span, want);
+}
+
+// The thumb on a scrollbar's track: as long, and as far along, as the
+// window is in the world.
+export function overviewThumb(o, axis) {
+  const t = o.tracks[axis];
+  if (axis === "x") return { x: t.x + (o.at.parkX / world_px) * t.w, y: t.y, w: (o.span.parkW / world_px) * t.w, h: t.h };
+  return { x: t.x, y: t.y + (o.at.parkY / world_px) * t.h, w: t.w, h: (o.span.parkH / world_px) * t.h };
+}
+
+// The window's top-left moved by (dParkX, dParkY), kept in the world.
+export function overviewMoved(o, dParkX, dParkY) {
+  return overviewKept(o.span, { parkX: o.at.parkX + dParkX, parkY: o.at.parkY + dParkY });
+}
+
+// The window's top-left with the thumb on `axis` dragged `d` px along its
+// track (the world moves the other way), kept in the world.
+export function overviewScrolled(o, axis, d) {
+  const t = o.tracks[axis];
+  return axis === "x" ? overviewMoved(o, (d * world_px) / t.w, 0) : overviewMoved(o, 0, (d * world_px) / t.h);
+}
+
+// The window's top-left with the thumb on `axis` centred on the track's
+// point at (x, y): a press on the track off the thumb jumps there.
+export function overviewJumped(o, axis, x, y) {
+  const t = o.tracks[axis];
+  const want = axis === "x"
+    ? { parkX: ((x - t.x) / t.w) * world_px - o.span.parkW / 2, parkY: o.at.parkY }
+    : { parkX: o.at.parkX, parkY: ((y - t.y) / t.h) * world_px - o.span.parkH / 2 };
+  return overviewKept(o.span, want);
 }
 
 export function overviewFromPark(o, parkX, parkY) {
@@ -121,6 +204,17 @@ export function overviewFromPark(o, parkX, parkY) {
 // overview's; nothing else can be hit.
 
 export const view_target = "view";
+
+// A scrollbar's track and its thumb, in the overview, by axis ("x" or "y").
+export function trackTarget(axis) { return `scroll:${axis}`; }
+export function thumbTarget(axis) { return `scroll:${axis}:thumb`; }
+
+// The axis a scrollbar target names, and whether it is the thumb; or "none"
+// for any other target.
+export function scrollOfTarget(id) {
+  const m = /^scroll:([xy])(:thumb)?$/.exec(id ?? "");
+  return m ? { axis: m[1], part: m[2] ? "thumb" : "track" } : "none";
+}
 
 export function dogTarget(dogId) { return `dog:${dogId}`; }
 
@@ -186,41 +280,60 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still) {
   return out;
 }
 
-// The overview: the whole world on the screen, each tile a square (white
-// and blue where subscribed, pink where not), each cow a brown dot and each
-// dog a smaller dark one (pale where its tile is not subscribed: only
-// remembered), the dog leashed last ringed, and the view a rectangle.
-export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed) {
-  const o = overviewFrame(viewport.width, viewport.height);
-  const out = [{ id: "ground", shape: "rect", x: 0, y: 0, w: viewport.width, h: viewport.height, fill: "#556", role: "scenery" }];
-  for (let row = 0; row < world_tiles; row++) {
-    for (let col = 0; col < world_tiles; col++) {
-      const odd = (col + row) % 2 === 1;
-      const fill = subscribed.has(tileKey({ col, row }))
-        ? (odd ? "#eaf3fc" : "#ffffff")
-        : (odd ? "#f2c4c4" : "#f8d8d8");
-      const at = overviewFromPark(o, col * tile_px, row * tile_px);
-      out.push({ id: `tile:${col},${row}`, shape: "rect", x: at.viewportX, y: at.viewportY,
-        w: tile_px * o.scale, h: tile_px * o.scale, fill, role: "scenery" });
-    }
+// The overview: a window onto the world (overviewFrame, its top-left `at`),
+// each tile in it a square (white and blue where subscribed, pink where
+// not), each cow a brown dot and each dog a smaller dark one (pale where its
+// tile is not subscribed: only remembered), the dog leashed last ringed;
+// the margins over what spills past the window; the view a rectangle; and
+// the two scrollbars.
+export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at) {
+  const o = overviewFrame(viewport.width, viewport.height, at);
+  const ground = "#556";
+  const out = [{ id: "ground", shape: "rect", x: 0, y: 0, w: viewport.width, h: viewport.height, fill: ground, role: "scenery" }];
+  for (const { col, row } of tilesMeeting(o.at.parkX, o.at.parkY, o.span.parkW, o.span.parkH)) {
+    const odd = (col + row) % 2 === 1;
+    const fill = subscribed.has(tileKey({ col, row }))
+      ? (odd ? "#eaf3fc" : "#ffffff")
+      : (odd ? "#f2c4c4" : "#f8d8d8");
+    const corner = overviewFromPark(o, col * tile_px, row * tile_px);
+    out.push({ id: `tile:${col},${row}`, shape: "rect", x: corner.viewportX, y: corner.viewportY,
+      w: tile_px * o.scale, h: tile_px * o.scale, fill, role: "scenery" });
   }
+  const shown = (c) => c.parkX >= o.at.parkX && c.parkX <= o.at.parkX + o.span.parkW
+    && c.parkY >= o.at.parkY && c.parkY <= o.at.parkY + o.span.parkH;
   const live = (c) => subscribed.has(tileKey(tileOf(c.parkX, c.parkY)));
   for (const c of cows) {
-    const at = overviewFromPark(o, c.parkX, c.parkY);
-    out.push({ id: `cow:${c.id}`, shape: "dot", x: at.viewportX, y: at.viewportY, w: 8, h: 8,
+    if (!shown(c)) continue;
+    const p = overviewFromPark(o, c.parkX, c.parkY);
+    out.push({ id: `cow:${c.id}`, shape: "dot", x: p.viewportX, y: p.viewportY, w: 8, h: 8,
       fill: live(c) ? "#7a4a1a" : "#c9a37a", role: "scenery" });
   }
   for (const d of dogs) {
-    const at = overviewFromPark(o, d.parkX, d.parkY);
-    out.push({ id: dogTarget(d.id), shape: "dot", x: at.viewportX, y: at.viewportY, w: 5, h: 5,
+    if (!shown(d)) continue;
+    const p = overviewFromPark(o, d.parkX, d.parkY);
+    out.push({ id: dogTarget(d.id), shape: "dot", x: p.viewportX, y: p.viewportY, w: 5, h: 5,
       fill: live(d) ? "#333" : "#a88", role: "scenery" });
     if (lastLeashed.kind === "dog" && lastLeashed.dogId === d.id) {
-      out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: at.viewportX, y: at.viewportY, w: 22, h: 22,
+      out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: p.viewportX, y: p.viewportY, w: 22, h: 22,
         stroke: "#d33", lineWidth: 3, role: "scenery" });
     }
   }
+  // The margins, over the tiles and dots that spill past the window.
+  const w = o.window;
+  for (const [id, x, y, mw, mh] of [
+    ["top", 0, 0, viewport.width, w.y],
+    ["bottom", 0, w.y + w.h, viewport.width, viewport.height - w.y - w.h],
+    ["left", 0, w.y, w.x, w.h],
+    ["right", w.x + w.w, w.y, viewport.width - w.x - w.w, w.h],
+  ]) out.push({ id: `margin:${id}`, shape: "rect", x, y, w: mw, h: mh, fill: ground, role: "scenery" });
   const corner = overviewFromPark(o, viewport.parkX, viewport.parkY);
   out.push({ id: view_target, shape: "frame", x: corner.viewportX, y: corner.viewportY,
     w: viewport.width * o.scale, h: viewport.height * o.scale, stroke: "#222", lineWidth: 2, role: "target" });
+  for (const axis of ["x", "y"]) {
+    const t = o.tracks[axis];
+    out.push({ id: trackTarget(axis), shape: "rect", x: t.x, y: t.y, w: t.w, h: t.h, fill: "#778", role: "target" });
+    const th = overviewThumb(o, axis);
+    out.push({ id: thumbTarget(axis), shape: "rect", x: th.x, y: th.y, w: th.w, h: th.h, fill: "#dde", role: "target" });
+  }
   return out;
 }

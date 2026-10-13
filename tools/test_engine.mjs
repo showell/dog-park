@@ -164,10 +164,10 @@ test("a drag between ticks lands at the tick: the last place the pointer gave, o
   assert.deepEqual(engine.view().was.dogs.get(1), { parkX: 2100, parkY: 2100 });
 });
 
-test("a first visit starts at the world's centre and says so; a leash from before is kept 80 ticks, then released", async () => {
+test("a first visit starts at the world's centre (16000, the populated park's middle) and says so; a leash from before is kept 80 ticks, then released", async () => {
   const { page, engine } = fakePage({ me: { viewport: {}, leash: { dog: 7 } } });
   await engine.load(() => screen);
-  assert.deepEqual(page.sent, [{ path: "/me" }, { path: "/viewport", body: { park_x: 2100, park_y: 2200 } }]);
+  assert.deepEqual(page.sent, [{ path: "/me" }, { path: "/viewport", body: { park_x: 16000 - 400, park_y: 16000 - 300 } }]);
   assert.deepEqual(engine.view().leashed, { kind: "kept", dogId: 7 });
   page.ticks(79);
   assert.deepEqual(engine.view().leashed, { kind: "kept", dogId: 7 });

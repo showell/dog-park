@@ -1,9 +1,9 @@
 // Dog Park, played: one human, the server keeping the dogs.
 //
 // THE PARK IS A CHECKERBOARD of 500 px tiles, each named by its column and
-// row, 10 by 10 of them: the world, which no dog leaves. The page
-// subscribes to the tiles around its viewport (at most 25; the page chooses
-// which), and the server keeps it told about the dogs in them. Each time
+// row, 64 by 64 of them: the world, which no dog leaves, its dogs and cows
+// in the 10 by 10 tiles in its middle. The page subscribes to the tiles
+// around its viewport (at most 64; the page chooses which), and the server keeps it told about the dogs in them. Each time
 // the tiles it wants change, it sends the whole set, each tile marked new
 // or held; the server replaces its set and answers with the dogs in the
 // tiles marked new. **A SUBSCRIPTION ONLY SAYS WHAT THE SERVER KEEPS YOU
@@ -34,10 +34,12 @@
 // sent) to where the dog is now. When nothing is lost on the way, the ack
 // says what the page already shows.
 //
-// "z" toggles the OVERVIEW: the whole world on the screen, the tiles you
-// know white and blue and the rest red, the dogs you know as dots (the dog
-// you leashed last ringed), and your view as a rectangle you can drag by
-// pressing inside it.
+// "z" toggles the OVERVIEW: a window onto the world, more of it than near
+// but never all, opening centred on your view: the tiles you know white
+// and blue and the rest red, the dogs you know as dots (the dog you leashed
+// last ringed), and your view as a rectangle you can drag by pressing
+// inside it (the window follows it past its edge). Its scrollbars, along
+// the bottom and the right, and the wheel, move the window over the world.
 //
 // The dev console says what the server acks: tiles, leashes, releases,
 // moves.
@@ -50,7 +52,7 @@
 // console, wires the DOM to it, and runs the frame loop and the drawing. It
 // starts only where there is a DOM, so node can import every module.
 
-import { nearScene, overviewScene, dogOfTarget } from "./scene.js";
+import { nearScene, overviewScene, dogOfTarget, world_px } from "./scene.js";
 import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
@@ -91,8 +93,11 @@ async function start() {
     now: () => performance.now(),
     log: console,
   });
-  // Near (the park at its size) or the overview (the whole world).
+  // Near (the park at its size) or the overview (a window onto the world).
   let mode = "near";
+  // The overview's window's top-left, a park point (scene.js's
+  // overviewFrame keeps it in the world); "z" centres it on the view.
+  let overviewAt = { parkX: world_px / 2, parkY: world_px / 2 };
   // What the human's hand is doing (pointer.js says the shapes).
   let hand = resting;
   // What the last frame drew, and in which mode: a press is on what the
@@ -110,16 +115,17 @@ async function start() {
   }
   await engine.load(fit);
 
-  // The page does what an event means, in order: the mode is the page's,
-  // the rest the engine's.
+  // The page does what an event means, in order: the mode and the
+  // overview's window are the page's, the rest the engine's.
   function apply(intents) {
     for (const i of intents) {
       if (i.kind === "mode") mode = i.mode;
+      else if (i.kind === "scroll") overviewAt = { parkX: i.parkX, parkY: i.parkY };
       else engine.intent(i);
     }
   }
   function handle(event, hitId = null) {
-    const out = meaning(hand, event, hitId, mode, engine.view().viewport);
+    const out = meaning(hand, event, hitId, mode, engine.view().viewport, overviewAt);
     hand = out.hand;
     apply(out.intents);
   }
@@ -137,6 +143,14 @@ async function start() {
   canvas.addEventListener("pointermove", (e) => handle({ type: "move", x: e.offsetX, y: e.offsetY }));
   canvas.addEventListener("pointerup", () => handle({ type: "up" }));
   canvas.addEventListener("pointercancel", () => handle({ type: "cancel" }));
+  canvas.addEventListener("wheel", (e) => {
+    // The overview's own; near, the browser keeps its wheel (a pinch's zoom).
+    if (mode !== "overview") return;
+    e.preventDefault();
+    // A line or a page of scroll as px, as a browser would scroll a page.
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1;
+    handle({ type: "wheel", dx: e.deltaX * unit, dy: e.deltaY * unit });
+  }, { passive: false });
 
   // Each frame: the ticks due run (the edge bands, near, among them), then
   // the scene drawn, near between the last two ticks.
@@ -144,7 +158,7 @@ async function start() {
     engine.frame(nowMs, mode === "near" ? panPointer(hand) : "none");
     const v = engine.view();
     drawn = mode === "overview"
-      ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed) }
+      ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed, overviewAt) }
       : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }) };
     draw(ctx, drawn.objects);
     requestAnimationFrame(frame);

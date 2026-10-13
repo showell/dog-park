@@ -64,21 +64,75 @@ test("the tiles wanted: the widest margin within the cap", () => {
   const small = scene.wantedTiles({ parkX: 2000, parkY: 2000, width: 1000, height: 700 });
   assert.equal(small.length, 12);
   assert.deepEqual([small[0], small.at(-1)], [{ col: 3, row: 3 }, { col: 6, row: 5 }]);
-  // 1600 square at (1200, 1200): 250 px meets 6 x 6, past the cap; 125 px meets cols and rows 2..5.
-  const mid = scene.wantedTiles({ parkX: 1200, parkY: 1200, width: 1600, height: 1600 });
-  assert.equal(mid.length, 16);
-  assert.deepEqual([mid[0], mid.at(-1)], [{ col: 2, row: 2 }, { col: 5, row: 5 }]);
-  // 1800 square at (1100, 1100): 250 and 125 px both meet 6 x 6; no margin meets 2..5.
-  const wide = scene.wantedTiles({ parkX: 1100, parkY: 1100, width: 1800, height: 1800 });
-  assert.equal(wide.length, 16);
-  assert.deepEqual([wide[0], wide.at(-1)], [{ col: 2, row: 2 }, { col: 5, row: 5 }]);
+  // The cap is 64 tiles, 8 x 8 (the server's tiles.zig).
+  assert.equal(scene.most_tiles, 64);
+  // 1600 square at (1200, 1200): 250 px meets 6 x 6, within the cap.
+  const square = scene.wantedTiles({ parkX: 1200, parkY: 1200, width: 1600, height: 1600 });
+  assert.equal(square.length, 36);
+  assert.deepEqual([square[0], square.at(-1)], [{ col: 1, row: 1 }, { col: 6, row: 6 }]);
+  // 3300 square at (2200, 2200): 250 px meets 9 x 9, past the cap; 125 px meets cols and rows 4..11.
+  const mid = scene.wantedTiles({ parkX: 2200, parkY: 2200, width: 3300, height: 3300 });
+  assert.equal(mid.length, 64);
+  assert.deepEqual([mid[0], mid.at(-1)], [{ col: 4, row: 4 }, { col: 11, row: 11 }]);
+  // 4000 square at (2000, 2000): 250 and 125 px both meet 10 x 10; no margin meets 4..11.
+  const wide = scene.wantedTiles({ parkX: 2000, parkY: 2000, width: 4000, height: 4000 });
+  assert.equal(wide.length, 64);
+  assert.deepEqual([wide[0], wide.at(-1)], [{ col: 4, row: 4 }, { col: 11, row: 11 }]);
 });
 
-test("the overview frame fits the world with its margin, centred", () => {
-  const o = scene.overviewFrame(1040, 700);
-  assert.equal(o.scale, 660 / scene.world_px);
-  assert.deepEqual(scene.overviewFromPark(o, 0, 0), { viewportX: 190, viewportY: 20 });
-  assert.deepEqual(scene.overviewFromPark(o, scene.world_px, scene.world_px), { viewportX: 850, viewportY: 680 });
+test("the world is 64 x 64 tiles, the server's; its middle is the populated park's", () => {
+  assert.equal(scene.world_tiles, 64);
+  assert.equal(scene.world_px, 32000);
+  // The park: 10 x 10 tiles from 13,500 px (tiles.zig's park_offset_px).
+  assert.equal(scene.world_px / 2, 13500 + 10 * scene.tile_px / 2);
+  assert.deepEqual(scene.keptInWorld(31999.5, 32000), { parkX: 31999, parkY: 31999 });
+  assert.deepEqual(scene.tilesMeeting(31990, 31990, 50, 50), [{ col: 63, row: 63 }]);
+});
+
+test("the overview frame: a window 10 tiles across its shorter side, at its top-left, kept in the world", () => {
+  // 1040 x 700: the window is 1000 x 660 on screen, 660 px for 5000 park px
+  // (the scale the whole 10 x 10 world had): 7576 x 5000 of the world.
+  const o = scene.overviewFrame(1040, 700, { parkX: 0, parkY: 0 });
+  assert.equal(o.scale, 660 / 5000);
+  assert.deepEqual(o.window, { x: 20, y: 20, w: 1000, h: 660 });
+  assert.deepEqual(o.span, { parkW: 1000 / 0.132, parkH: 5000 });
+  assert.deepEqual(scene.overviewFromPark(o, 0, 0), { viewportX: 20, viewportY: 20 });
+  // Never the whole world.
+  assert.ok(o.span.parkW < scene.world_px && o.span.parkH < scene.world_px);
+  // The window's top-left at (13500, 14000): that point is the window's corner.
+  const mid = scene.overviewFrame(1040, 700, { parkX: 13500, parkY: 14000 });
+  assert.deepEqual(scene.overviewFromPark(mid, 13500, 14000), { viewportX: 20, viewportY: 20 });
+  // Past the world's far corner, or before its near one, the window is kept in it.
+  assert.deepEqual(scene.overviewFrame(1040, 700, { parkX: 99999, parkY: 99999 }).at, { parkX: 32000 - 1000 / 0.132, parkY: 27000 });
+  assert.deepEqual(scene.overviewFrame(1040, 700, { parkX: -5, parkY: -5 }).at, { parkX: 0, parkY: 0 });
+  // The scrollbars in the margins, the window's length; each thumb as long,
+  // and as far along, as the window is in the world.
+  assert.deepEqual(o.tracks, { x: { x: 20, y: 684, w: 1000, h: 12 }, y: { x: 1024, y: 20, w: 12, h: 660 } });
+  assert.deepEqual(scene.overviewThumb(o, "x"), { x: 20, y: 684, w: (1000 / 0.132 / 32000) * 1000, h: 12 });
+  assert.deepEqual(scene.overviewThumb(mid, "y"), { x: 1024, y: 20 + (14000 / 32000) * 660, w: 12, h: (5000 / 32000) * 660 });
+});
+
+test("the overview opens centred on the view, the park's middle on a first visit's", () => {
+  // 800 x 600: 560 px for 5000 park px; the window 760 / 0.112 park px wide.
+  const at = scene.overviewCentredOn({ parkX: 15600, parkY: 15700, width: 800, height: 600 });
+  assert.deepEqual(at, { parkX: 16000 - 760 / 0.112 / 2, parkY: 13500 });
+  // Near the world's corner: kept in the world.
+  assert.deepEqual(scene.overviewCentredOn({ parkX: 0, parkY: 0, width: 800, height: 600 }), { parkX: 0, parkY: 0 });
+});
+
+test("the overview's window moves: by a thumb's drag, a track's jump, and to show the view", () => {
+  const o = scene.overviewFrame(1040, 700, { parkX: 10000, parkY: 10000 });
+  // A thumb dragged 10 px along its 1000 px track: 320 park px.
+  assert.deepEqual(scene.overviewScrolled(o, "x", 10), { parkX: 10320, parkY: 10000 });
+  assert.deepEqual(scene.overviewScrolled(o, "y", -66), { parkX: 10000, parkY: 10000 - 3200 });
+  assert.deepEqual(scene.overviewScrolled(o, "x", -5000), { parkX: 0, parkY: 10000 });
+  // A press at the track's middle centres the thumb there: the window's middle at the world's.
+  assert.deepEqual(scene.overviewJumped(o, "x", 520, 690), { parkX: 16000 - 1000 / 0.132 / 2, parkY: 10000 });
+  assert.deepEqual(scene.overviewMoved(o, 100, -200), { parkX: 10100, parkY: 9800 });
+  // A view inside the window leaves it; one past its edge moves it as little as shows it.
+  const view = { width: 1040, height: 700 };
+  assert.deepEqual(scene.overviewShowing(o, { ...view, parkX: 12000, parkY: 12000 }), o.at);
+  assert.deepEqual(scene.overviewShowing(o, { ...view, parkX: 9000, parkY: 14800 }), { parkX: 9000, parkY: 14800 + 700 - 5000 });
 });
 
 test("the edge bands: nothing in the middle, faster deeper in, a tick's speeds", () => {
@@ -165,14 +219,15 @@ test("the near scene: tiles, then cows, then dogs, the leashed dog ringed", () =
   assert.ok(!ids(scene.nearScene(viewport, dogs, cows, { kind: "none" })).includes("dog:7:ring"));
 });
 
-test("the overview scene: shades by subscription, dots by freshness, the last leashed ringed, the view on top", () => {
-  // 1040 x 700: scale 660 / 5000, origin (190, 20); a tile is 66 px.
+test("the overview scene: the window's tiles shaded by subscription, its dots by freshness, the last leashed ringed, the margins, the view, the scrollbars", () => {
+  // 1040 x 700, the window at the world's corner: scale 660 / 5000, origin
+  // (20, 20); a tile is 66 px, and 16 x 10 of them meet the window.
   const viewport = { parkX: 500, parkY: 1000, width: 1040, height: 700 };
   const subscribed = new Map([["1,2", true], ["0,0", true]]);
-  const dogs = [{ id: 7, parkX: 600, parkY: 1100 }, { id: 3, parkX: 4000, parkY: 4000 }];
-  const cows = [{ id: 23, parkX: 50, parkY: 50 }, { id: 24, parkX: 2600, parkY: 50 }];
-  const over = scene.overviewScene(viewport, dogs, cows, subscribed, { kind: "dog", dogId: 3 });
-  assert.equal(over.length, 1 + 100 + 2 + 2 + 1 + 1);
+  const dogs = [{ id: 7, parkX: 600, parkY: 1100 }, { id: 3, parkX: 4000, parkY: 4000 }, { id: 9, parkX: 20000, parkY: 100 }];
+  const cows = [{ id: 23, parkX: 50, parkY: 50 }, { id: 24, parkX: 2600, parkY: 50 }, { id: 25, parkX: 50, parkY: 5001 }];
+  const over = scene.overviewScene(viewport, dogs, cows, subscribed, { kind: "dog", dogId: 3 }, { parkX: 0, parkY: 0 });
+  assert.equal(over.length, 1 + 160 + 2 + 2 + 1 + 4 + 1 + 4);
   assert.deepEqual(over[0], { id: "ground", shape: "rect", x: 0, y: 0, w: 1040, h: 700, fill: "#556", role: "scenery" });
   const byId = new Map(over.map((o) => [o.id, o]));
   // Subscribed: white and blue; not: two pinks.
@@ -180,19 +235,32 @@ test("the overview scene: shades by subscription, dots by freshness, the last le
   assert.equal(byId.get("tile:1,2").fill, "#eaf3fc");
   assert.equal(byId.get("tile:2,2").fill, "#f8d8d8");
   assert.equal(byId.get("tile:2,1").fill, "#f2c4c4");
-  assert.equal(byId.get("tile:1,2").x, 190 + 66);
+  assert.equal(byId.get("tile:1,2").x, 20 + 66);
   assert.equal(byId.get("tile:1,2").w, 500 * 660 / 5000);
+  assert.ok(byId.has("tile:15,9") && !byId.has("tile:16,9") && !byId.has("tile:15,10"));
   // A cow in a subscribed tile is dark brown, one elsewhere pale; 8 px across.
-  assert.deepEqual(byId.get("cow:23"), { id: "cow:23", shape: "dot", x: 190 + 50 * 0.132, y: 20 + 50 * 0.132, w: 8, h: 8, fill: "#7a4a1a", role: "scenery" });
+  assert.deepEqual(byId.get("cow:23"), { id: "cow:23", shape: "dot", x: 20 + 50 * 0.132, y: 20 + 50 * 0.132, w: 8, h: 8, fill: "#7a4a1a", role: "scenery" });
   assert.equal(byId.get("cow:24").fill, "#c9a37a");
+  // A critter outside the window is not drawn.
+  assert.ok(!byId.has("cow:25") && !byId.has("dog:9"));
   // A dog: dark when live, pale when remembered; 5 px across; the last leashed ringed, after its dot.
   assert.equal(byId.get("dog:7").fill, "#333");
   assert.equal(byId.get("dog:3").fill, "#a88");
   assert.equal(byId.get("dog:3").w, 5);
   assert.equal(byId.get("dog:3").role, "scenery");
-  assert.deepEqual(ids(over).slice(-4), ["dog:7", "dog:3", "dog:3:ring", "view"]);
   assert.deepEqual(byId.get("dog:3:ring"), { id: "dog:3:ring", shape: "ring", x: byId.get("dog:3").x, y: byId.get("dog:3").y, w: 22, h: 22, stroke: "#d33", lineWidth: 3, role: "scenery" });
-  assert.deepEqual(over.at(-1), { id: "view", shape: "frame", x: 190 + 500 * 0.132, y: 20 + 1000 * 0.132, w: 1040 * 0.132, h: 700 * 0.132, stroke: "#222", lineWidth: 2, role: "target" });
+  // Over the dots, the margins; then the view; then the scrollbars, each thumb over its track.
+  assert.deepEqual(ids(over).slice(-12), ["dog:7", "dog:3", "dog:3:ring", "margin:top", "margin:bottom", "margin:left", "margin:right",
+    "view", "scroll:x", "scroll:x:thumb", "scroll:y", "scroll:y:thumb"]);
+  assert.deepEqual(byId.get("margin:bottom"), { id: "margin:bottom", shape: "rect", x: 0, y: 680, w: 1040, h: 20, fill: "#556", role: "scenery" });
+  assert.deepEqual(byId.get("view"), { id: "view", shape: "frame", x: 20 + 500 * 0.132, y: 20 + 1000 * 0.132, w: 1040 * 0.132, h: 700 * 0.132, stroke: "#222", lineWidth: 2, role: "target" });
+  assert.deepEqual(byId.get("scroll:x"), { id: "scroll:x", shape: "rect", x: 20, y: 684, w: 1000, h: 12, fill: "#778", role: "target" });
+  assert.equal(byId.get("scroll:y:thumb").role, "target");
+  // The window in the park's middle: the park's critters there, drawn from its corner.
+  const mid = scene.overviewScene(viewport, [{ id: 0, parkX: 13655, parkY: 13850 }], [], subscribed, { kind: "none" }, { parkX: 13500, parkY: 13500 });
+  // (To a millionth of a px: the origin is 20 - 13500 * scale.)
+  const dog0 = mid.find((o) => o.id === "dog:0");
+  assert.deepEqual([dog0.x, dog0.y].map((v) => Math.round(v * 1e6) / 1e6), [20 + 155 * 0.132, 20 + 350 * 0.132]);
 });
 
 test("hit: the topmost target whose box holds the point, edges included", () => {
@@ -226,24 +294,33 @@ test("a press in the near scene names the topmost dog, and a cow or a tile is a 
   assert.equal(scene.dogOfTarget(scene.dogTarget(219)), 219);
 });
 
-test("a press in the overview is on the view's rectangle or nothing", () => {
+test("a press in the overview is on the view's rectangle, a scrollbar's thumb or track, or nothing", () => {
   const viewport = { parkX: 500, parkY: 1000, width: 1040, height: 700 };
-  const over = scene.overviewScene(viewport, [{ id: 7, parkX: 600, parkY: 1100 }], [], new Map(), { kind: "dog", dogId: 7 });
-  const view = over.at(-1);
+  const over = scene.overviewScene(viewport, [{ id: 7, parkX: 600, parkY: 1100 }], [], new Map(), { kind: "dog", dogId: 7 }, { parkX: 0, parkY: 0 });
+  const view = over.find((o) => o.id === scene.view_target);
   assert.equal(blit.hit(over, view.x, view.y), scene.view_target);
   assert.equal(blit.hit(over, view.x + view.w, view.y + view.h), scene.view_target);
   assert.equal(blit.hit(over, view.x - 1, view.y), null);
   assert.equal(blit.hit(over, 5, 5), null);
+  // The x thumb runs from 20 to about 257 on its track at y 684 to 696.
+  assert.equal(blit.hit(over, 100, 690), scene.thumbTarget("x"));
+  assert.equal(blit.hit(over, 600, 690), scene.trackTarget("x"));
+  assert.equal(blit.hit(over, 1030, 600), scene.trackTarget("y"));
+  assert.equal(blit.hit(over, 1030, 30), scene.thumbTarget("y"));
+  assert.deepEqual(scene.scrollOfTarget(scene.thumbTarget("y")), { axis: "y", part: "thumb" });
+  assert.deepEqual(scene.scrollOfTarget(scene.trackTarget("x")), { axis: "x", part: "track" });
+  assert.equal(scene.scrollOfTarget("view"), "none");
+  assert.equal(scene.scrollOfTarget(null), "none");
 });
 
 // ── what a pointer event means ──────────────────────────────────────────────
 
 // A gesture as a table: each row an event (and what the press hit), and the
 // hand and intents it must give, from the hand the row before left.
-function play(rows, { mode = "near", viewport } = {}) {
+function play(rows, { mode = "near", viewport, overviewAt } = {}) {
   let hand = pointer.resting;
   for (const [i, r] of rows.entries()) {
-    const out = pointer.meaning(hand, r.event, r.hit ?? null, r.mode ?? mode, viewport);
+    const out = pointer.meaning(hand, r.event, r.hit ?? null, r.mode ?? mode, viewport, overviewAt);
     assert.deepEqual(out, { hand: r.hand, intents: r.intents }, `row ${i}: ${JSON.stringify(r.event)}`);
     hand = out.hand;
   }
@@ -320,12 +397,54 @@ test("in the overview, a press on the view's rectangle drags it, scaled; one off
   ], { mode: "overview", viewport });
 });
 
-test('"z" mid-drag lets go and flips the mode; resting, it only flips', () => {
+test("in the overview, the view's rectangle dragged past the window's edge carries the window", () => {
+  // The window at (0, 0) is 7576 x 5000 park px; the view, 700 high, at y 4200: 100 px from its bottom.
+  const viewport = { parkX: 500, parkY: 4200, width: 1040, height: 700 };
+  play([
+    { event: { type: "down", x: 300, y: 600, dogAt: "none" }, hit: scene.view_target,
+      hand: { kind: "panning", lastX: 300, lastY: 600 }, intents: [] },
+    // 26.4 px down is 200 park px: the view's bottom at 5100, so the window's at 5100 too.
+    { event: { type: "move", x: 300, y: 626.4 },
+      hand: { kind: "panning", lastX: 300, lastY: 626.4 },
+      intents: [{ kind: "pan", parkX: 500, parkY: 4200 + 26.4 / 0.132 }, { kind: "scroll", parkX: 0, parkY: 4200 + 26.4 / 0.132 + 700 - 5000 }] },
+  ], { mode: "overview", viewport, overviewAt: { parkX: 0, parkY: 0 } });
+});
+
+test("in the overview, a scrollbar: the thumb held where pressed, the track jumping the thumb there; the wheel scrolls", () => {
+  const viewport = { parkX: 15000, parkY: 15000, width: 1040, height: 700 };
+  const overviewAt = { parkX: 10000, parkY: 10000 };
+  play([
+    { event: { type: "down", x: 400, y: 690, dogAt: "none" }, hit: scene.thumbTarget("x"),
+      hand: { kind: "scrolling", axis: "x", lastX: 400, lastY: 690 }, intents: [] },
+    // 10 px along the 1000 px track: 320 park px; the pointer's drift across it means nothing.
+    { event: { type: "move", x: 410, y: 650 },
+      hand: { kind: "scrolling", axis: "x", lastX: 410, lastY: 650 }, intents: [{ kind: "scroll", parkX: 10320, parkY: 10000 }] },
+    { event: { type: "up" }, hand: pointer.resting, intents: [] },
+  ], { mode: "overview", viewport, overviewAt });
+  play([
+    { event: { type: "down", x: 1030, y: 350, dogAt: "none" }, hit: scene.trackTarget("y"),
+      hand: { kind: "scrolling", axis: "y", lastX: 1030, lastY: 350 }, intents: [{ kind: "scroll", parkX: 10000, parkY: 16000 - 2500 }] },
+  ], { mode: "overview", viewport, overviewAt });
+  play([
+    { event: { type: "wheel", dx: 13.2, dy: -6.6 }, hand: pointer.resting, intents: [{ kind: "scroll", parkX: 10100, parkY: 9950 }] },
+    // Against the world's edge, nothing moves.
+    { event: { type: "wheel", dx: 0, dy: 0 }, hand: pointer.resting, intents: [] },
+  ], { mode: "overview", viewport, overviewAt });
+  play([
+    { event: { type: "wheel", dx: 0, dy: -9999 }, hand: pointer.resting, intents: [{ kind: "scroll", parkX: 10000, parkY: 0 }] },
+  ], { mode: "overview", viewport, overviewAt });
+  // Near, a wheel means nothing.
+  play([{ event: { type: "wheel", dx: 10, dy: 10 }, hand: pointer.resting, intents: [] }], { viewport });
+});
+
+test('"z" mid-drag lets go and flips the mode; resting, it only flips; the overview opens centred on the view', () => {
+  const centred = scene.overviewCentredOn(near);
+  const opened = { kind: "scroll", parkX: centred.parkX, parkY: centred.parkY };
   const held = { kind: "dragging", dogId: 7, offsetX: 0, offsetY: 0 };
   play([
     { event: { type: "down", x: 100, y: 200, dogAt: { parkX: 1100, parkY: 1200 } }, hit: "dog:7",
       hand: held, intents: [{ kind: "grab", dogId: 7 }] },
-    { event: { type: "z" }, hand: pointer.resting, intents: [{ kind: "letgo" }, { kind: "mode", mode: "overview" }] },
+    { event: { type: "z" }, hand: pointer.resting, intents: [{ kind: "letgo" }, { kind: "mode", mode: "overview" }, opened] },
     // The move after means nothing: the hand rests.
     { event: { type: "move", x: 120, y: 200 }, mode: "overview", hand: pointer.resting, intents: [] },
     { event: { type: "z" }, mode: "overview", hand: pointer.resting, intents: [{ kind: "mode", mode: "near" }] },
@@ -333,12 +452,15 @@ test('"z" mid-drag lets go and flips the mode; resting, it only flips', () => {
   // A pan under way just stops.
   play([
     { event: { type: "down", x: 0, y: 0, dogAt: "none" }, hand: { kind: "panning", lastX: 0, lastY: 0 }, intents: [] },
-    { event: { type: "z" }, hand: pointer.resting, intents: [{ kind: "mode", mode: "overview" }] },
+    { event: { type: "z" }, hand: pointer.resting, intents: [{ kind: "mode", mode: "overview" }, opened] },
   ], { viewport: near });
+  // A scrollbar held just stops.
+  assert.deepEqual(pointer.meaning({ kind: "scrolling", axis: "x", lastX: 0, lastY: 0 }, { type: "z" }, null, "overview", near),
+    { hand: pointer.resting, intents: [{ kind: "mode", mode: "near" }] });
 });
 
-test("no event outside the five", () => {
-  assert.throws(() => pointer.meaning(pointer.resting, { type: "wheel" }, null, "near", near), /no pointer event wheel/);
+test("no event outside the six", () => {
+  assert.throws(() => pointer.meaning(pointer.resting, { type: "keyup" }, null, "near", near), /no pointer event keyup/);
 });
 
 test("the edge bands each tick: a pan keeps going, a held dog carries the viewport", () => {
@@ -352,7 +474,7 @@ test("the edge bands each tick: a pan keeps going, a held dog carries the viewpo
   assert.deepEqual(pointer.edgeScroll({ kind: "pan", x: 800, y: 300 }, near),
     [{ kind: "pan", parkX: 1000 - f, parkY: 1000 }]);
   // ... and with the viewport's centre on the world's edge, it stops.
-  const east = { parkX: 4999 - 400, parkY: 1000, width: 800, height: 600 };
+  const east = { parkX: scene.world_px - 1 - 400, parkY: 1000, width: 800, height: 600 };
   assert.deepEqual(pointer.edgeScroll({ kind: "pan", x: 0, y: 300 }, east), []);
   // A dog held at the bottom edge: it and the viewport go south together.
   assert.deepEqual(pointer.edgeScroll(held(1400, 1580), near), [
@@ -373,8 +495,8 @@ test("where a hand holds a pan: the pointer, or none", () => {
 test("a press is on what was drawn in the mode it is made in", () => {
   const viewport = { parkX: 0, parkY: 0, width: 800, height: 600 };
   const nearList = scene.nearScene(viewport, [{ id: 1, emoji: "🐕", parkX: 100, parkY: 100 }], [], { kind: "none" });
-  const overList = scene.overviewScene(viewport, [], [], new Map(), { kind: "none" });
-  const view = overList.at(-1);
+  const overList = scene.overviewScene(viewport, [], [], new Map(), { kind: "none" }, { parkX: 0, parkY: 0 });
+  const view = overList.find((o) => o.id === scene.view_target);
   assert.equal(pointer.pressedOn({ mode: "near", objects: nearList }, "near", 100, 100), "dog:1");
   assert.equal(pointer.pressedOn({ mode: "overview", objects: overList }, "overview", view.x, view.y), scene.view_target);
   // Pressed after "z", before a frame drew the new mode: on nothing.

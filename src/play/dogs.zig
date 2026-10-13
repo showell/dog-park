@@ -11,15 +11,17 @@ pub const ParkPoint = struct { park_x: i32, park_y: i32 };
 
 pub const Dog = struct { emoji: []const u8, at: ParkPoint };
 
-/// The first layout: in every tile of the world, three dogs in a blue tile
-/// and two in a white one (a tile is blue when its column plus its row is
-/// odd), at these places in the tile. Their looks take turns.
+/// The first layout: in every tile of the populated park (tiles.zig), three
+/// dogs in a blue tile and two in a white one (a tile is blue when its
+/// column plus its row is odd, in the park's numbering or the world's: the
+/// park sits an even number of tiles in, summed over both axes), at these
+/// places in the tile. Their looks take turns.
 const in_blue = [_]ParkPoint{ .{ .park_x = 125, .park_y = 125 }, .{ .park_x = 375, .park_y = 250 }, .{ .park_x = 190, .park_y = 390 } };
 const in_white = [_]ParkPoint{ .{ .park_x = 155, .park_y = 350 }, .{ .park_x = 350, .park_y = 150 } };
 const looks = [_][]const u8{ "🐕", "🐩", "🦮", "🐶", "🐕‍🦺" };
 
-const blue_tiles = tiles.world_tiles * tiles.world_tiles / 2;
-const white_tiles = tiles.world_tiles * tiles.world_tiles - blue_tiles;
+const blue_tiles = tiles.park_tiles * tiles.park_tiles / 2;
+const white_tiles = tiles.park_tiles * tiles.park_tiles - blue_tiles;
 pub const dog_count = blue_tiles * in_blue.len + white_tiles * in_white.len;
 
 /// What a request names: one of the dogs, or none of them.
@@ -47,14 +49,14 @@ pub const Dogs = struct {
         var d: Dogs = undefined;
         var n: usize = 0;
         var row: i32 = 0;
-        while (row < tiles.world_tiles) : (row += 1) {
+        while (row < tiles.park_tiles) : (row += 1) {
             var col: i32 = 0;
-            while (col < tiles.world_tiles) : (col += 1) {
+            while (col < tiles.park_tiles) : (col += 1) {
                 const places: []const ParkPoint = if (@mod(col + row, 2) == 1) &in_blue else &in_white;
                 for (places) |p| {
                     d.list[n] = .{ .emoji = looks[n % looks.len], .at = .{
-                        .park_x = col * tiles.tile_px + p.park_x,
-                        .park_y = row * tiles.tile_px + p.park_y,
+                        .park_x = tiles.park_offset_px + col * tiles.tile_px + p.park_x,
+                        .park_y = tiles.park_offset_px + row * tiles.tile_px + p.park_y,
                     } };
                     n += 1;
                 }
@@ -67,7 +69,8 @@ pub const Dogs = struct {
     pub const ReadError = error{ NotDogs, WrongDogs };
 
     /// The dogs as written: exactly the laid-out dogs, in order, each where
-    /// it was kept. The looks are the layout's, so a file can't change them.
+    /// it was kept, in the world. The looks are the layout's, so a file
+    /// can't change them.
     pub fn read(bytes: []const u8) ReadError!Dogs {
         var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
         defer arena.deinit();
@@ -75,8 +78,9 @@ pub const Dogs = struct {
         if (w.dogs.len != dog_count) return error.WrongDogs;
         var d = laidOut();
         for (w.dogs, &d.list, 0..) |stored, *dog, i| {
-            if (stored.id != i or !std.mem.eql(u8, stored.emoji, dog.emoji)) return error.WrongDogs;
-            dog.at = .{ .park_x = stored.park_x, .park_y = stored.park_y };
+            const kept: ParkPoint = .{ .park_x = stored.park_x, .park_y = stored.park_y };
+            if (stored.id != i or !std.mem.eql(u8, stored.emoji, dog.emoji) or tiles.where(kept) == .outside_world) return error.WrongDogs;
+            dog.at = kept;
         }
         return d;
     }
@@ -108,23 +112,34 @@ pub const Dogs = struct {
 
 const testing = std.testing;
 
-test "the first layout: 250 dogs; the white tile (0, 0) holds two, the blue tile (1, 0) three; the last in tile (9, 9)" {
+test "the first layout: 250 dogs in the park, 13,500 px in; its white tile (0, 0) holds two, the blue (1, 0) three; the last in its (9, 9), the world's (36, 36)" {
     const d = Dogs.laidOut();
     try testing.expectEqual(@as(usize, 250), dog_count);
-    try testing.expectEqual(ParkPoint{ .park_x = 155, .park_y = 350 }, d.at(@enumFromInt(0)));
-    try testing.expectEqual(ParkPoint{ .park_x = 350, .park_y = 150 }, d.at(@enumFromInt(1)));
-    try testing.expectEqual(ParkPoint{ .park_x = 625, .park_y = 125 }, d.at(@enumFromInt(2)));
-    try testing.expectEqual(tiles.Tile{ .col = 9, .row = 9 }, tiles.Tile.of(d.at(@enumFromInt(dog_count - 1))));
+    try testing.expectEqual(ParkPoint{ .park_x = 13_655, .park_y = 13_850 }, d.at(@enumFromInt(0)));
+    try testing.expectEqual(ParkPoint{ .park_x = 13_850, .park_y = 13_650 }, d.at(@enumFromInt(1)));
+    try testing.expectEqual(ParkPoint{ .park_x = 14_125, .park_y = 13_625 }, d.at(@enumFromInt(2)));
+    try testing.expectEqual(tiles.Tile{ .col = 27, .row = 27 }, tiles.Tile.of(d.at(@enumFromInt(0))));
+    try testing.expectEqual(tiles.Tile{ .col = 36, .row = 36 }, tiles.Tile.of(d.at(@enumFromInt(dog_count - 1))));
 }
 
 test "dogs written read back the same, moves and all" {
     var d = Dogs.laidOut();
-    d.moveTo(@enumFromInt(2), .{ .park_x = -5000, .park_y = 77 });
+    d.moveTo(@enumFromInt(2), .{ .park_x = 0, .park_y = 31_999 });
     const bytes = try d.written(testing.allocator);
     defer testing.allocator.free(bytes);
     const back = try Dogs.read(bytes);
-    try testing.expectEqual(ParkPoint{ .park_x = -5000, .park_y = 77 }, back.at(@enumFromInt(2)));
+    try testing.expectEqual(ParkPoint{ .park_x = 0, .park_y = 31_999 }, back.at(@enumFromInt(2)));
     try testing.expectEqual(d.at(@enumFromInt(14)), back.at(@enumFromInt(14)));
+}
+
+test "a dogs file with a dog outside the world does not read, as a cows file's does not" {
+    for ([_]ParkPoint{ .{ .park_x = -1, .park_y = 77 }, .{ .park_x = 77, .park_y = 32_000 } }) |outside| {
+        var d = Dogs.laidOut();
+        d.moveTo(@enumFromInt(2), outside);
+        const bytes = try d.written(testing.allocator);
+        defer testing.allocator.free(bytes);
+        try testing.expectError(error.WrongDogs, Dogs.read(bytes));
+    }
 }
 
 test "a dogs file with a dog missing, out of order, or another look does not read" {

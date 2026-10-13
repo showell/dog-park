@@ -415,7 +415,8 @@ export function createEngine({ rule, post, getJSON, now, log }) {
       if (me.viewport.at) {
         Object.assign(viewport, viewportKeptOnWorld(viewport, me.viewport.at.park_x, me.viewport.at.park_y));
       } else {
-        // A first visit starts at the world's centre.
+        // A first visit starts at the world's centre, the populated park's
+        // middle.
         viewport.parkX = Math.round(world_px / 2 - viewport.width / 2);
         viewport.parkY = Math.round(world_px / 2 - viewport.height / 2);
         sendViewport();

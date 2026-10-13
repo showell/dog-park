@@ -60,9 +60,13 @@ try {
     if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
     return r.json();
   };
-  // The 5 x 5 tiles at the world's corner: 13 cows, and dog 0.
+  // The 5 x 5 tiles at the populated park's corner: 13 cows, and dog 0.
+  // The park is 10 x 10 tiles from tile (27, 27) of the 64 x 64 world, 13,500
+  // px in (tiles.zig's park_offset_px).
+  const park_at_tile = 27;
+  const park_at_px = park_at_tile * 500;
   const tiles = [];
-  for (let row = 0; row < 5; row++) for (let col = 0; col < 5; col++) tiles.push({ col, row, is: "new" });
+  for (let row = 0; row < 5; row++) for (let col = 0; col < 5; col++) tiles.push({ col: park_at_tile + col, row: park_at_tile + row, is: "new" });
   const seen = await post("/tiles", { tiles });
   // In half pixels, as the server keeps them.
   const serverCows = new Map(seen.cows.map((c) => [c.id, { halfX: c.half_x, halfY: c.half_y }]));
@@ -105,8 +109,8 @@ try {
         const step = 1 + random() * 59;
         const wobble = (random() - 0.5) * 12;
         at = {
-          parkX: Math.min(2499, Math.max(0, Math.round(at.parkX + (dx / len) * step + wobble))),
-          parkY: Math.min(2499, Math.max(0, Math.round(at.parkY + (dy / len) * step - wobble))),
+          parkX: Math.min(park_at_px + 2499, Math.max(park_at_px, Math.round(at.parkX + (dx / len) * step + wobble))),
+          parkY: Math.min(park_at_px + 2499, Math.max(park_at_px, Math.round(at.parkY + (dy / len) * step - wobble))),
         };
         path.push(at);
       }

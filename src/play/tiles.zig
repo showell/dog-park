@@ -1,16 +1,25 @@
-//! The park as a checkerboard of square tiles, `tile_px` a side, each named
-//! by its column and row; and the tiles a human has subscribed to (at most
-//! `most_subscribed`), which the human chooses.
+//! The world as a checkerboard of square tiles, `tile_px` a side, each named
+//! by its column and row; the populated park within it; and the tiles a
+//! human has subscribed to (at most `most_subscribed`), which the human
+//! chooses.
 
 const std = @import("std");
 const dogs = @import("dogs.zig");
 
 pub const tile_px = 500;
-pub const most_subscribed = 25;
+/// The most tiles a page holds at once: 8 x 8, the display's tiles on a
+/// large screen with the leash's region partly off it (docs/PHYSICS.md).
+pub const most_subscribed = 64;
 /// The world is `world_tiles` by `world_tiles` tiles, from tile (0, 0): park
-/// points 0 to `world_px` - 1 on each axis.
-pub const world_tiles = 10;
+/// points 0 to `world_px` - 1 on each axis. Its edges clamp (a torus later).
+pub const world_tiles = 64;
 pub const world_px = world_tiles * tile_px;
+/// **THE POPULATED PARK**: `park_tiles` by `park_tiles` tiles, its dogs and
+/// cows laid out in them (dogs.zig, cows.zig), its top-left corner
+/// `park_offset_px` in from the world's on each axis, so its middle is the
+/// world's. The rest of the world is empty ground.
+pub const park_tiles = 10;
+pub const park_offset_px = (world_tiles - park_tiles) / 2 * tile_px;
 
 /// Whether a park point is in the world.
 pub const Where = enum { in_world, outside_world };
@@ -102,26 +111,37 @@ fn namedTiles(n: usize, is: @FieldType(Named, "is")) [most_subscribed + 1]Named 
     return out;
 }
 
-test "subscriptions: 25 tiles named is the most; 26 is refused whole, and what was held stands" {
+test "subscriptions: 64 tiles named is the most; 65 is refused whole, and what was held stands" {
+    try testing.expectEqual(@as(usize, 64), most_subscribed);
+    const most = most_subscribed;
     var s: Subscribed = .{};
-    const first = namedTiles(25, .new);
-    try testing.expectEqual(Subscribing.replaced, s.replace(first[0..25]));
-    try testing.expectEqual(@as(usize, 25), s.len);
-    var more = namedTiles(26, .held);
-    more[25] = .{ .col = 9, .row = 9, .is = .new };
-    try testing.expectEqual(Subscribing{ .too_many = 26 }, s.replace(more[0..26]));
-    try testing.expectEqual(@as(usize, 25), s.len);
-    try testing.expect(!s.holds(.{ .col = 9, .row = 9 }));
+    const first = namedTiles(most, .new);
+    try testing.expectEqual(Subscribing.replaced, s.replace(first[0..most]));
+    try testing.expectEqual(@as(usize, most), s.len);
+    var more = namedTiles(most + 1, .held);
+    more[most] = .{ .col = world_tiles - 1, .row = world_tiles - 1, .is = .new };
+    try testing.expectEqual(Subscribing{ .too_many = most + 1 }, s.replace(more[0 .. most + 1]));
+    try testing.expectEqual(@as(usize, most), s.len);
+    try testing.expect(!s.holds(.{ .col = world_tiles - 1, .row = world_tiles - 1 }));
 }
 
-test "the world's edges: 0 and 4999 are in it, -1 and 5000 outside; a tile past them is refused" {
-    try testing.expectEqual(Where.in_world, where(.{ .park_x = 0, .park_y = 4999 }));
+test "the world is 64 x 64 tiles, 32,000 px a side; the park, 10 x 10, sits 13,500 px in on each axis, its middle the world's" {
+    try testing.expectEqual(@as(i32, 64), world_tiles);
+    try testing.expectEqual(@as(i32, 32_000), world_px);
+    try testing.expectEqual(@as(i32, 10), park_tiles);
+    try testing.expectEqual(@as(i32, 13_500), park_offset_px);
+    try testing.expectEqual(@as(i32, 0), @mod(park_offset_px, tile_px));
+    try testing.expectEqual(world_px, 2 * park_offset_px + park_tiles * tile_px);
+}
+
+test "the world's edges: 0 and 31999 are in it, -1 and 32000 outside; a tile past them is refused" {
+    try testing.expectEqual(Where.in_world, where(.{ .park_x = 0, .park_y = 31_999 }));
     try testing.expectEqual(Where.outside_world, where(.{ .park_x = -1, .park_y = 0 }));
-    try testing.expectEqual(Where.in_world, where(.{ .park_x = 4999, .park_y = 0 }));
-    try testing.expectEqual(Where.outside_world, where(.{ .park_x = 0, .park_y = 5000 }));
+    try testing.expectEqual(Where.in_world, where(.{ .park_x = 31_999, .park_y = 0 }));
+    try testing.expectEqual(Where.outside_world, where(.{ .park_x = 0, .park_y = 32_000 }));
     var s: Subscribed = .{};
-    try testing.expectEqual(Subscribing.replaced, s.replace(&.{.{ .col = 9, .row = 9, .is = .new }}));
-    try testing.expectEqual(Subscribing{ .outside_world = .{ .col = 10, .row = 9 } }, s.replace(&.{.{ .col = 10, .row = 9, .is = .new }}));
+    try testing.expectEqual(Subscribing.replaced, s.replace(&.{.{ .col = 63, .row = 63, .is = .new }}));
+    try testing.expectEqual(Subscribing{ .outside_world = .{ .col = 64, .row = 63 } }, s.replace(&.{.{ .col = 64, .row = 63, .is = .new }}));
 }
 
 test "a subscription replaces the set: a tile left out is dropped, one named twice is held once" {

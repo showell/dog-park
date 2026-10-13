@@ -1,4 +1,5 @@
-//! The cows: one in the middle of every white tile, and scared of moving
+//! The cows: one in the middle of every white tile of the populated park
+//! (tiles.zig), and scared of moving
 //! dogs. **THE SERVER MOVES THEM**, as a reaction to a dog's move; the page
 //! predicts them with this same file (cows_wasm.zig). Each critter is its
 //! sprite's square (a dog `dog_px` a side, a cow `cow_px`), centred on its
@@ -60,7 +61,7 @@ const lane_halves = (dog_px / 2 + cow_px / 2 + clearance_px) * halves;
 const lowest = (cow_px / 2) * halves;
 const highest = (tiles.world_px - cow_px / 2) * halves;
 
-pub const cow_count = tiles.world_tiles * tiles.world_tiles - tiles.world_tiles * tiles.world_tiles / 2;
+pub const cow_count = tiles.park_tiles * tiles.park_tiles - tiles.park_tiles * tiles.park_tiles / 2;
 
 fn inWorld(at: CowPoint) bool {
     return at.half_x >= lowest and at.half_x <= highest and at.half_y >= lowest and at.half_y <= highest;
@@ -204,17 +205,20 @@ const Written = struct { cows: []const struct { id: u32, half_x: i32, half_y: i3
 pub const Cows = struct {
     list: [cow_count]CowPoint,
 
-    /// One cow in the middle of every white tile (a tile is white when its
-    /// column plus its row is even), row by row.
+    /// One cow in the middle of every white tile of the populated park (a
+    /// tile is white when its column plus its row is even), row by row.
     pub fn laidOut() Cows {
         var c: Cows = undefined;
         var n: usize = 0;
         var row: i32 = 0;
-        while (row < tiles.world_tiles) : (row += 1) {
+        while (row < tiles.park_tiles) : (row += 1) {
             var col: i32 = 0;
-            while (col < tiles.world_tiles) : (col += 1) {
+            while (col < tiles.park_tiles) : (col += 1) {
                 if (@mod(col + row, 2) == 1) continue;
-                c.list[n] = halvesOf(.{ .park_x = col * tiles.tile_px + tiles.tile_px / 2, .park_y = row * tiles.tile_px + tiles.tile_px / 2 });
+                c.list[n] = halvesOf(.{
+                    .park_x = tiles.park_offset_px + col * tiles.tile_px + tiles.tile_px / 2,
+                    .park_y = tiles.park_offset_px + row * tiles.tile_px + tiles.tile_px / 2,
+                });
                 n += 1;
             }
         }
@@ -274,13 +278,14 @@ fn after(from: ParkPoint, to: ParkPoint, cow: CowPoint) CowPoint {
     return c[0];
 }
 
-test "the first layout: 50 cows, one in the middle of each white tile, in half pixels" {
+test "the first layout: 50 cows, one in the middle of each white tile of the park, 13,500 px in, in half pixels" {
     const c = Cows.laidOut();
     try testing.expectEqual(@as(usize, 50), cow_count);
-    try testing.expectEqual(h(500, 500), c.at(@enumFromInt(0)));
-    try testing.expectEqual(h(2500, 500), c.at(@enumFromInt(1)));
-    try testing.expectEqual(h(1500, 1500), c.at(@enumFromInt(5)));
-    try testing.expectEqual(pt(250, 250), parkPoint(c.at(@enumFromInt(0))));
+    try testing.expectEqual(h(27_500, 27_500), c.at(@enumFromInt(0)));
+    try testing.expectEqual(h(29_500, 27_500), c.at(@enumFromInt(1)));
+    try testing.expectEqual(h(28_500, 28_500), c.at(@enumFromInt(5)));
+    try testing.expectEqual(pt(13_750, 13_750), parkPoint(c.at(@enumFromInt(0))));
+    try testing.expectEqual(tiles.Tile{ .col = 36, .row = 36 }, tiles.Tile.of(parkPoint(c.at(@enumFromInt(cow_count - 1)))));
 }
 
 test "a dog moving 2 px north moves a cow ahead of it 1 px east or west, away from its line" {
@@ -335,14 +340,18 @@ test "in the lane: half speed while there is time; as fast as clears it by the t
 }
 
 test "the world's edge: no room to clear on the cow's side, the other side; no room to scoot, a shorter step or none" {
-    // Heading north at x 4950, the cow 10 px east of the line, 70 px ahead
-    // (the dog on it): east it has 10 px and needs 60; west, 80, all now.
-    try testing.expectEqual(h(9920 - 160, 1860), after(pt(4950, 1010), pt(4950, 1000), h(9920, 1860)));
+    // The east wall is the world's, at 32,000 px.
+    const wall = tiles.world_px;
+    try testing.expectEqual(@as(i32, 32_000), wall);
+    // Heading north 50 px from the wall, the cow 10 px east of the line, 70
+    // px ahead (the dog on it): east it has 10 px and needs 60; west, 80,
+    // all now.
+    try testing.expectEqual(h(2 * (wall - 40) - 160, 1860), after(pt(wall - 50, 1010), pt(wall - 50, 1000), h(2 * (wall - 40), 1860)));
     // Heading north, the cow 2 px from the east wall, ahead and well off
     // the line: 2 of its 5 px.
-    try testing.expectEqual(h(highest, 1600), after(pt(4600, 1010), pt(4600, 1000), h(highest - 4, 1600)));
+    try testing.expectEqual(h(highest, 1600), after(pt(wall - 400, 1010), pt(wall - 400, 1000), h(highest - 4, 1600)));
     // Against the wall already: none.
-    try testing.expectEqual(h(highest, 1600), after(pt(4600, 1010), pt(4600, 1000), h(highest, 1600)));
+    try testing.expectEqual(h(highest, 1600), after(pt(wall - 400, 1010), pt(wall - 400, 1000), h(highest, 1600)));
 }
 
 test "a dog jumping 500 px between reports doesn't pass through a cow: it clears the lane, never moves ahead" {
@@ -381,11 +390,12 @@ test "random paths near a cow (seeded): the squares never come within half a dog
 test "a replayed move scares every cow ahead of it, and only those, and says which" {
     var c = Cows.laidOut();
     var scared = [_]bool{false} ** cow_count;
-    // East along row 250 from (0, 250): cow 0 at (250, 250) is 250 px
-    // ahead; cow 1 at (1250, 250) too far.
-    replay(&c.list, &.{ pt(0, 250), pt(10, 250) }, &scared);
+    // East along the park's row 250 from its (0, 250): cow 0 at its (250,
+    // 250) is 250 px ahead; cow 1 at its (1250, 250) too far.
+    const o = tiles.park_offset_px;
+    replay(&c.list, &.{ pt(o, o + 250), pt(o + 10, o + 250) }, &scared);
     try testing.expect(scared[0] and !scared[1]);
-    try testing.expectEqual(h(500, 510), c.at(@enumFromInt(0)));
+    try testing.expectEqual(h(2 * o + 500, 2 * o + 510), c.at(@enumFromInt(0)));
 }
 
 test "cows written read back the same; a cow outside the world, missing or out of order does not read" {
