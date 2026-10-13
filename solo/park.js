@@ -10,10 +10,14 @@
 // TOLD OF**: the page remembers every dog it has seen, where it last saw
 // it, subscribed or not.
 //
+// THE PAGE TICKS 16 TIMES A SECOND, apart from its frames (engine.js): what
+// the pointer does is taken at the next tick, and the frames draw between
+// the last two ticks.
+//
 // Any dog you see can be picked up. Pressing a dog leashes it (the server is
-// told, and acks); dragging it sends where it is, never more than one
-// position waiting for its ack. The leash is let go when you press another
-// dog, or 5 s after you let go of the dog. Holding a dog near any edge of
+// told, and acks); dragging it sends where each tick put it, never more than
+// one path waiting for its ack. The leash is let go when you press another
+// dog, or 80 ticks (5 s) after you let go of the dog. Holding a dog near any edge of
 // the screen scrolls the viewport that way, the dog going with it.
 // Dragging anywhere else pans the park, like a tablecloth; holding the
 // pointer near an edge keeps the cloth moving that way. The server keeps
@@ -23,7 +27,7 @@
 // a dog's move scares the cows ahead of it aside, and the move's ack says
 // where each scared cow stepped to. A cow can't be picked up. **THE PAGE
 // PREDICTS THEM WITH THE SERVER'S OWN RULE** (/cows.wasm, the server's
-// cows.zig): every frame, from where the server last said the cows are, it
+// cows.zig): every tick, from where the server last said the cows are, it
 // replays each move the server has yet to answer, in the order the server
 // will take them: the one in flight, then each one waiting, from where the
 // server has that dog (its BEGIN point, which moves only when a move is
@@ -41,13 +45,13 @@
 // The page's modules: scene.js (the frames, tiles and the overview's
 // frame, and what a frame draws), pointer.js (what a pointer event means,
 // and the edge bands), blit.js (the drawing, and what a press is on),
-// engine.js (what the page knows, the leash, the viewport, the sends; no
-// DOM). This file gives the engine the real wire, clock, timers and
+// engine.js (what the page knows, the leash, the viewport, the sends, the
+// tick; no DOM). This file gives the engine the real wire, clock and
 // console, wires the DOM to it, and runs the frame loop and the drawing. It
 // starts only where there is a DOM, so node can import every module.
 
 import { nearScene, overviewScene, dogOfTarget } from "./scene.js";
-import { meaning, edgeScroll, inHand, pressedOn, resting } from "./pointer.js";
+import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
 
@@ -85,8 +89,6 @@ async function start() {
     post,
     getJSON,
     now: () => performance.now(),
-    setTimer: (f, ms) => setTimeout(f, ms),
-    clearTimer: (timer) => clearTimeout(timer),
     log: console,
   });
   // Near (the park at its size) or the overview (the whole world).
@@ -136,28 +138,18 @@ async function start() {
   canvas.addEventListener("pointerup", () => handle({ type: "up" }));
   canvas.addEventListener("pointercancel", () => handle({ type: "cancel" }));
 
-  const frame = () => {
-    engine.frame();
-    if (mode === "overview") {
-      const v = engine.view();
-      drawn = { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed) };
-    } else {
-      const dogId = inHand(hand);
-      const before = engine.view();
-      apply(edgeScroll(hand, before.viewport, dogId === "none" ? "none" : heldDog(before, dogId)));
-      const v = engine.view();
-      drawn = { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed) };
-    }
+  // Each frame: the ticks due run (the edge bands, near, among them), then
+  // the scene drawn, near between the last two ticks.
+  const frame = (nowMs) => {
+    engine.frame(nowMs, mode === "near" ? panPointer(hand) : "none");
+    const v = engine.view();
+    drawn = mode === "overview"
+      ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed) }
+      : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }) };
     draw(ctx, drawn.objects);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
-}
-
-function heldDog(view, dogId) {
-  const dog = view.dogs.get(dogId);
-  if (dog === undefined) throw new Error(`dog ${dogId} is in hand but not known`);
-  return dog;
 }
 
 if (typeof document !== "undefined") start().catch((e) => console.error("Dog Park did not start:", e.message));

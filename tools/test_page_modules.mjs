@@ -21,8 +21,20 @@ test("every module imports without a DOM", () => {
   assert.deepEqual(Object.keys(park), []);
 });
 
-test("the engine keeps no state of its own: its exports are a maker and a pure helper", () => {
-  assert.deepEqual(Object.keys(engine).sort(), ["createEngine", "wholePoint"]);
+test("the engine keeps no state of its own: its exports are a maker, pure helpers and constants", () => {
+  assert.deepEqual(Object.keys(engine).sort(), ["createEngine", "leash_kept_ticks", "most_catch_up_ticks", "tick_ms", "ticksDue", "wholePoint"]);
+});
+
+test("the ticks due: one per 62.5 ms begun, at most 8 after a stall, the rest dropped", () => {
+  assert.equal(engine.tick_ms, 62.5);
+  assert.deepEqual(engine.ticksDue(0, 62.4), { ticks: 0, lastTickMs: 0, dropped: 0 });
+  assert.deepEqual(engine.ticksDue(0, 62.5), { ticks: 1, lastTickMs: 62.5, dropped: 0 });
+  assert.deepEqual(engine.ticksDue(100, 300), { ticks: 3, lastTickMs: 287.5, dropped: 0 });
+  assert.deepEqual(engine.ticksDue(0, 8 * 62.5 + 1), { ticks: 8, lastTickMs: 500, dropped: 0 });
+  // A 2 s stall: 32 due, 8 run, the clock restarting at the frame.
+  assert.deepEqual(engine.ticksDue(0, 2000), { ticks: 8, lastTickMs: 2000, dropped: 24 });
+  // A clock that went back runs nothing.
+  assert.deepEqual(engine.ticksDue(500, 400), { ticks: 0, lastTickMs: 500, dropped: 0 });
 });
 
 test("the two frames are each other's inverse", () => {
@@ -69,17 +81,21 @@ test("the overview frame fits the world with its margin, centred", () => {
   assert.deepEqual(scene.overviewFromPark(o, scene.world_px, scene.world_px), { viewportX: 850, viewportY: 680 });
 });
 
-test("the edge bands: nothing in the middle, faster deeper in", () => {
+test("the edge bands: nothing in the middle, faster deeper in, a tick's speeds", () => {
+  // A tick's: what a frame was at 60 Hz ((2/3) * 0.7 and (16/3) * 0.7 px),
+  // times 60/16.
+  assert.equal(pointer.slowest_px_per_tick, 1.75);
+  assert.equal(pointer.fastest_px_per_tick, 14);
   assert.equal(pointer.bandSpeed(0), 0);
-  assert.equal(pointer.bandSpeed(pointer.band_px), pointer.fastest_px_per_frame);
-  assert.equal(pointer.bandSpeed(10 * pointer.band_px), pointer.fastest_px_per_frame);
+  assert.equal(pointer.bandSpeed(pointer.band_px), pointer.fastest_px_per_tick);
+  assert.equal(pointer.bandSpeed(10 * pointer.band_px), pointer.fastest_px_per_tick);
   assert.equal(pointer.axisScroll(400, 800, 0), 0);
-  assert.equal(pointer.axisScroll(800, 800, 0), pointer.fastest_px_per_frame);
-  assert.equal(pointer.axisScroll(0, 800, 0), -pointer.fastest_px_per_frame);
+  assert.equal(pointer.axisScroll(800, 800, 0), pointer.fastest_px_per_tick);
+  assert.equal(pointer.axisScroll(0, 800, 0), -pointer.fastest_px_per_tick);
   // A dog's reach: its centre comes no nearer the edge than its half-size.
-  assert.equal(pointer.axisScroll(780, 800, scene.dog_px / 2), pointer.fastest_px_per_frame);
+  assert.equal(pointer.axisScroll(780, 800, scene.dog_px / 2), pointer.fastest_px_per_tick);
   const shallow = pointer.axisScroll(800 - 20 - pointer.band_px + 8, 800, 20);
-  assert.ok(shallow > 0 && shallow < pointer.fastest_px_per_frame);
+  assert.ok(shallow > 0 && shallow < pointer.fastest_px_per_tick);
 });
 
 test("a dog's place is told as whole pixels", () => {
@@ -87,6 +103,38 @@ test("a dog's place is told as whole pixels", () => {
 });
 
 // ── what a frame draws, and what a press is on ──────────────────────────────
+
+test("between ticks: part way, snapped past 50 px, where it is when new", () => {
+  const was = { parkX: 100, parkY: 200 };
+  assert.deepEqual(scene.between(was, { parkX: 140, parkY: 180 }, 0), { parkX: 100, parkY: 200 });
+  assert.deepEqual(scene.between(was, { parkX: 140, parkY: 180 }, 0.25), { parkX: 110, parkY: 195 });
+  assert.deepEqual(scene.between(was, { parkX: 140, parkY: 180 }, 1), { parkX: 140, parkY: 180 });
+  assert.deepEqual(scene.between(was, { parkX: 150, parkY: 200 }, 0.5), { parkX: 125, parkY: 200 });
+  assert.deepEqual(scene.between(was, { parkX: 150.5, parkY: 200 }, 0.5), { parkX: 150.5, parkY: 200 });
+  assert.deepEqual(scene.between(was, { parkX: 100, parkY: 149 }, 0.5), { parkX: 100, parkY: 149 });
+  assert.deepEqual(scene.between(undefined, { parkX: 7, parkY: 8 }, 0.5), { parkX: 7, parkY: 8 });
+});
+
+test("the near scene between ticks: the viewport, the cows and the dogs each part way; places as they are", () => {
+  const viewport = { parkX: 450, parkY: 0, width: 600, height: 400 };
+  const dogs = [{ id: 7, emoji: "🐕", parkX: 520, parkY: 100 }, { id: 3, emoji: "🐩", parkX: 900, parkY: 300 }];
+  const cows = [{ id: 23, parkX: 600, parkY: 250 }];
+  const motion = {
+    alpha: 0.5,
+    was: { viewport: { parkX: 440, parkY: 0 }, dogs: new Map([[7, { parkX: 500, parkY: 100 }]]), cows: new Map([[23, { parkX: 500, parkY: 250 }]]) },
+  };
+  const byId = new Map(scene.nearScene(viewport, dogs, cows, { kind: "in_hand", dogId: 7 }, motion).map((o) => [o.id, o]));
+  // The viewport drawn at 445: dog 7 at 510, so x 65; its ring with it.
+  assert.equal(byId.get("tile:1,0").x, 55);
+  assert.deepEqual([byId.get("dog:7").x, byId.get("dog:7").y], [65, 100]);
+  assert.deepEqual([byId.get("dog:7:ring").x, byId.get("dog:7:ring").y], [65, 100]);
+  assert.equal(byId.get("dog:7:label").text, "(520, 100)");
+  // Dog 3 is new since the last tick: where it is. Cow 23 moved 100 px: snapped.
+  assert.equal(byId.get("dog:3").x, 455);
+  assert.equal(byId.get("cow:23").x, 155);
+  // With no motion, as it is.
+  assert.equal(scene.nearScene(viewport, dogs, cows, { kind: "none" }).find((o) => o.id === "dog:7").x, 70);
+});
 
 const ids = (objects) => objects.map((o) => o.id);
 
@@ -293,33 +341,33 @@ test("no event outside the five", () => {
   assert.throws(() => pointer.meaning(pointer.resting, { type: "wheel" }, null, "near", near), /no pointer event wheel/);
 });
 
-test("the edge bands each frame: a pan keeps going, a held dog carries the viewport", () => {
-  const f = pointer.fastest_px_per_frame;
-  // Resting, or a pan or a dog away from every edge: nothing.
-  assert.deepEqual(pointer.edgeScroll(pointer.resting, near, "none"), []);
-  assert.deepEqual(pointer.edgeScroll({ kind: "panning", lastX: 400, lastY: 300 }, near, "none"), []);
-  const held = { kind: "dragging", dogId: 9, offsetX: 0, offsetY: 0 };
-  assert.deepEqual(pointer.edgeScroll(held, near, { parkX: 1400, parkY: 1300 }), []);
+test("the edge bands each tick: a pan keeps going, a held dog carries the viewport", () => {
+  const f = pointer.fastest_px_per_tick;
+  // Nothing held, or a pan or a dog away from every edge: nothing.
+  assert.deepEqual(pointer.edgeScroll("none", near), []);
+  assert.deepEqual(pointer.edgeScroll({ kind: "pan", x: 400, y: 300 }, near), []);
+  const held = (parkX, parkY) => ({ kind: "dog", dogId: 9, parkX, parkY });
+  assert.deepEqual(pointer.edgeScroll(held(1400, 1300), near), []);
   // A pan held on the right edge: the park goes toward it, so the viewport away.
-  assert.deepEqual(pointer.edgeScroll({ kind: "panning", lastX: 800, lastY: 300 }, near, "none"),
+  assert.deepEqual(pointer.edgeScroll({ kind: "pan", x: 800, y: 300 }, near),
     [{ kind: "pan", parkX: 1000 - f, parkY: 1000 }]);
   // ... and with the viewport's centre on the world's edge, it stops.
   const east = { parkX: 4999 - 400, parkY: 1000, width: 800, height: 600 };
-  assert.deepEqual(pointer.edgeScroll({ kind: "panning", lastX: 0, lastY: 300 }, east, "none"), []);
+  assert.deepEqual(pointer.edgeScroll({ kind: "pan", x: 0, y: 300 }, east), []);
   // A dog held at the bottom edge: it and the viewport go south together.
-  assert.deepEqual(pointer.edgeScroll(held, near, { parkX: 1400, parkY: 1580 }), [
+  assert.deepEqual(pointer.edgeScroll(held(1400, 1580), near), [
     { kind: "drag", dogId: 9, parkX: 1400, parkY: 1580 + f },
     { kind: "pan", parkX: 1000, parkY: 1000 + f },
   ]);
   // A dog at the world's edge goes no further, and the viewport with it.
   const top = { parkX: 1000, parkY: -20, width: 800, height: 600 };
-  assert.deepEqual(pointer.edgeScroll(held, top, { parkX: 1400, parkY: 0 }), []);
+  assert.deepEqual(pointer.edgeScroll(held(1400, 0), top), []);
 });
 
-test("the dog in hand is a number", () => {
-  assert.equal(pointer.inHand(pointer.resting), "none");
-  assert.equal(pointer.inHand({ kind: "panning", lastX: 0, lastY: 0 }), "none");
-  assert.equal(pointer.inHand({ kind: "dragging", dogId: 219, offsetX: 0, offsetY: 0 }), 219);
+test("where a hand holds a pan: the pointer, or none", () => {
+  assert.equal(pointer.panPointer(pointer.resting), "none");
+  assert.deepEqual(pointer.panPointer({ kind: "panning", lastX: 3, lastY: 4 }), { x: 3, y: 4 });
+  assert.equal(pointer.panPointer({ kind: "dragging", dogId: 219, offsetX: 0, offsetY: 0 }), "none");
 });
 
 test("a press is on what was drawn in the mode it is made in", () => {

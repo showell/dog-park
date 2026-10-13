@@ -5,7 +5,9 @@
 // segment from where the server last said the cows are, as engine.js's
 // predictCows does) must equal where the server's acks then put them,
 // exactly. A batch is one to three moves, as a page sends them when one is
-// in flight and more wait; a move is a path of 1 to 12 points.
+// in flight and more wait; a move is a path of 1 to 12 points, one a tick
+// (the page sends where each tick put the dog, so a point is 1 to 60 px from
+// the last: up to a brisk drag's 1000 px a second).
 //
 //   zig build && node tools/test_cows_agree.mjs
 import { spawn } from "node:child_process";
@@ -91,16 +93,16 @@ try {
   const parkOf = (c) => ({ parkX: c.halfX / 2, parkY: c.halfY / 2 });
   let target = parkOf(serverCows.get(cowIds[0]));
   while (done < moves_wanted) {
-    // Head for a cow, wobbling, 1 to 40 px a move; now and then a new cow.
+    // Head for a cow, wobbling; now and then a new cow.
     if (random() < 0.05) target = parkOf(serverCows.get(cowIds[Math.floor(random() * cowIds.length)]));
-    // Frames: 1 to 15 px each, a path of 1 to 12 of them a move.
+    // Ticks: 1 to 60 px each, a path of 1 to 12 of them a move.
     const batch = [];
     let at = begin;
     for (let k = 1 + Math.floor(random() * 3); k > 0; k--) {
       const path = [];
       for (let n = 1 + Math.floor(random() * 12); n > 0; n--) {
         const dx = target.parkX - at.parkX, dy = target.parkY - at.parkY, len = Math.hypot(dx, dy) || 1;
-        const step = 1 + random() * 14;
+        const step = 1 + random() * 59;
         const wobble = (random() - 0.5) * 12;
         at = {
           parkX: Math.min(2499, Math.max(0, Math.round(at.parkX + (dx / len) * step + wobble))),

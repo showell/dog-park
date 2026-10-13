@@ -130,10 +130,33 @@ export function dogOfTarget(id) {
   return m ? Number(m[1]) : "none";
 }
 
+// **BETWEEN TICKS, A FRAME DRAWS EACH THING PART WAY** from where it was at
+// the tick before (`was`, a park point, or undefined: new since) to where
+// it is (`cur`), `alpha` of the way (0 to 1, the frame's way through its
+// tick). A move of more than `snap_px` on either axis in one tick is drawn
+// where it ends (a cow's jump, a dog the server put elsewhere): sliding
+// would draw it through whatever is between.
+export const snap_px = 50;
+
+export function between(was, cur, alpha) {
+  if (was === undefined || Math.abs(cur.parkX - was.parkX) > snap_px || Math.abs(cur.parkY - was.parkY) > snap_px) {
+    return { parkX: cur.parkX, parkY: cur.parkY };
+  }
+  return { parkX: was.parkX + (cur.parkX - was.parkX) * alpha, parkY: was.parkY + (cur.parkY - was.parkY) * alpha };
+}
+
+// Where everything is drawn as it is: no tick under way.
+export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), cows: new Map() } };
+
 // The park near: the tiles on screen (each a square of its shade, its name
 // in its middle), then each cow, then each dog, each with its place under
-// it, the leashed dog ringed. `dogs` and `cows` in the order they are drawn.
-export function nearScene(viewport, dogs, cows, leashed) {
+// it (where it is, not where it is drawn), the leashed dog ringed. `dogs`
+// and `cows` in the order they are drawn; `motion` = { alpha, was } (the
+// engine's view: was.viewport a park point, was.dogs and was.cows Maps of
+// them by id), each drawn `between` there and here, the leashed dog too.
+export function nearScene(viewportNow, dogs, cows, leashed, motion = still) {
+  const { alpha, was } = motion;
+  const viewport = { ...viewportNow, ...between(was.viewport, viewportNow, alpha) };
   const out = [];
   for (const t of tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height)) {
     const at = viewportFromPark(viewport, t.col * tile_px, t.row * tile_px);
@@ -143,21 +166,22 @@ export function nearScene(viewport, dogs, cows, leashed) {
     out.push({ id: `${id}:label`, shape: "text", x: at.viewportX + tile_px / 2, y: at.viewportY + tile_px / 2, w: 0, h: 0,
       text: `(${t.col}, ${t.row})`, font: "20px monospace", fill: "#9ab", role: "scenery" });
   }
-  const sprite = (id, critter, emoji, size, role) => {
-    const at = viewportFromPark(viewport, critter.parkX, critter.parkY);
+  const sprite = (id, critter, drawn, emoji, size, role) => {
+    const at = viewportFromPark(viewport, drawn.parkX, drawn.parkY);
     out.push({ id, shape: "glyph", x: at.viewportX, y: at.viewportY, w: size, h: size,
       text: emoji, fill: "#000", role });
     out.push({ id: `${id}:label`, shape: "text", x: at.viewportX, y: at.viewportY + size * 0.85, w: 0, h: 0,
       text: `(${Math.round(critter.parkX)}, ${Math.round(critter.parkY)})`, font: "11px monospace", fill: "#555", role: "scenery" });
   };
-  for (const c of cows) sprite(`cow:${c.id}`, c, cow_emoji, cow_px, "scenery");
+  for (const c of cows) sprite(`cow:${c.id}`, c, between(was.cows.get(c.id), c, alpha), cow_emoji, cow_px, "scenery");
   for (const d of dogs) {
+    const drawn = between(was.dogs.get(d.id), d, alpha);
     if (leashed.kind !== "none" && leashed.dogId === d.id) {
-      const at = viewportFromPark(viewport, d.parkX, d.parkY);
+      const at = viewportFromPark(viewport, drawn.parkX, drawn.parkY);
       out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: at.viewportX, y: at.viewportY, w: 2 * (dog_px * 0.7), h: 2 * (dog_px * 0.7),
         stroke: "#d33", lineWidth: 3, role: "scenery" });
     }
-    sprite(dogTarget(d.id), d, d.emoji, dog_px, "target");
+    sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target");
   }
   return out;
 }

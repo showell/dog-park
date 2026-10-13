@@ -1,6 +1,7 @@
-// The pointer, pure: how far the edge bands scroll, and what a pointer event
-// means (the hand after it, and what the page does). park.js's listeners
-// turn DOM events into these events and apply the intents.
+// The pointer, pure: how far the edge bands scroll a tick, and what a
+// pointer event means (the hand after it, and what the page does). park.js's
+// listeners turn DOM events into these events and apply the intents; the
+// engine runs the edge bands each tick.
 
 import {
   dog_px, viewportFromPark, parkFromViewport, keptOnScreen, keptInWorld, viewportKeptOnWorld,
@@ -12,18 +13,20 @@ import { hit } from "./blit.js";
 
 // A band along each edge of the screen, where a held dog scrolls the
 // viewport: from the dog's farthest place on screen (half its size from the
-// edge) `band_px` inward. Deeper in the band, faster.
+// edge) `band_px` inward. Deeper in the band, faster. The speeds are a
+// tick's: 28 and 224 px a second, the 7/15 and 56/15 px a frame they were
+// at 60 Hz, now the same at any frame rate.
 export const band_px = 80;
-export const slowest_px_per_frame = (2 / 3) * 0.7;
-export const fastest_px_per_frame = (16 / 3) * 0.7;
+export const slowest_px_per_tick = 1.75;
+export const fastest_px_per_tick = 14;
 
 export function bandSpeed(depthPx) {
   const depth = depthPx / band_px; // 0 at the band's inner edge, 1 at the screen's edge
   if (depth <= 0) return 0;
-  return slowest_px_per_frame + Math.min(depth, 1) * (fastest_px_per_frame - slowest_px_per_frame);
+  return slowest_px_per_tick + Math.min(depth, 1) * (fastest_px_per_tick - slowest_px_per_tick);
 }
 
-// How far the band moves the viewport this frame along one axis, toward the
+// How far the band moves the viewport this tick along one axis, toward the
 // far edge (negative: toward the near one), for something at `viewportAt` on
 // a screen `length` long that way, which comes no nearer an edge than
 // `reachPx` (a dog's half-size; 0 for the pointer): 0 outside both bands.
@@ -54,9 +57,11 @@ export function axisScroll(viewportAt, length, reachPx) {
 //
 // AN INTENT, what the page does about it, in order:
 //
-//   { kind: "grab", dogId }                 leash the dog
-//   { kind: "drag", dogId, parkX, parkY }   the dog is now here; tell the server
-//   { kind: "letgo" }                       the dog in hand goes, kept on the leash
+//   { kind: "grab", dogId }                 leash the dog (at the next tick)
+//   { kind: "drag", dogId, parkX, parkY }   the pointer puts the dog here; the
+//                                           next tick takes the last of these
+//   { kind: "letgo" }                       the dog in hand goes, kept on the
+//                                           leash (at the next tick, after its drags)
 //   { kind: "pan", parkX, parkY }           the viewport's top-left is now here
 //   { kind: "mode", mode }                  "near" or "overview" from now on
 //
@@ -120,39 +125,48 @@ export function meaning(hand, event, hitId, mode, viewport) {
   }
 }
 
-// What a frame's edge bands do to a hand, near: a pan held near an edge
-// keeps the cloth moving (the park toward that edge, so the viewport away
-// from it); a dog held near one carries the viewport with it, the dog
-// staying put on screen while it travels through the park, both stopping at
-// the world's edge. `dogAt` is the held dog's park point ("none" unless
-// dragging). Intents only when something moves. Speeds are per frame.
-export function edgeScroll(hand, viewport, dogAt) {
-  if (hand.kind === "panning") {
+// What a tick's edge bands do, near, to `band`, what is held:
+//
+//   "none"
+//   { kind: "pan", x, y }                 a pan, the pointer at viewport (x, y):
+//                                          held near an edge, it keeps the cloth
+//                                          moving (the park toward that edge, so
+//                                          the viewport away from it)
+//   { kind: "dog", dogId, parkX, parkY }  the held dog where the tick has it:
+//                                          near an edge, it carries the viewport
+//                                          with it, the dog staying put on screen
+//                                          while it travels through the park
+//
+// both stopping at the world's edge. Intents (a drag, then a pan, or a pan)
+// only when something moves.
+export function edgeScroll(band, viewport) {
+  if (band === "none") return [];
+  if (band.kind === "pan") {
     const want = {
-      parkX: viewport.parkX - axisScroll(hand.lastX, viewport.width, 0),
-      parkY: viewport.parkY - axisScroll(hand.lastY, viewport.height, 0),
+      parkX: viewport.parkX - axisScroll(band.x, viewport.width, 0),
+      parkY: viewport.parkY - axisScroll(band.y, viewport.height, 0),
     };
     const kept = viewportKeptOnWorld(viewport, want.parkX, want.parkY);
     if (kept.parkX === viewport.parkX && kept.parkY === viewport.parkY) return [];
     return [{ kind: "pan", parkX: kept.parkX, parkY: kept.parkY }];
   }
-  if (hand.kind !== "dragging") return [];
-  const at = viewportFromPark(viewport, dogAt.parkX, dogAt.parkY);
+  const at = viewportFromPark(viewport, band.parkX, band.parkY);
   const eastward = axisScroll(at.viewportX, viewport.width, dog_px / 2);
   const southward = axisScroll(at.viewportY, viewport.height, dog_px / 2);
-  const to = keptInWorld(dogAt.parkX + eastward, dogAt.parkY + southward);
-  const movedX = to.parkX - dogAt.parkX;
-  const movedY = to.parkY - dogAt.parkY;
+  const to = keptInWorld(band.parkX + eastward, band.parkY + southward);
+  const movedX = to.parkX - band.parkX;
+  const movedY = to.parkY - band.parkY;
   if (movedX === 0 && movedY === 0) return [];
   return [
-    { kind: "drag", dogId: hand.dogId, parkX: to.parkX, parkY: to.parkY },
+    { kind: "drag", dogId: band.dogId, parkX: to.parkX, parkY: to.parkY },
     { kind: "pan", parkX: viewport.parkX + movedX, parkY: viewport.parkY + movedY },
   ];
 }
 
-// The dog in a hand, by number, or "none".
-export function inHand(hand) {
-  return hand.kind === "dragging" ? hand.dogId : "none";
+// Where a hand holds a pan, for the edge bands: the pointer's viewport
+// point, or "none" (resting, or holding a dog: the engine knows that dog).
+export function panPointer(hand) {
+  return hand.kind === "panning" ? { x: hand.lastX, y: hand.lastY } : "none";
 }
 
 // What a press at (x, y) is on, in `mode`: `hit` over what the last frame
