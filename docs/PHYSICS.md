@@ -10,8 +10,9 @@ the page runs every tick, and the server re-runs, keeps and acks.
 playing, and may still change a foundational assumption here: it is that
 feel-driven. The server's side (re-running, keeping, `differ`) starts as
 provisional code for debugging, as the Safari drive and Lyn Rummy's drag
-and drop did, and firms up once the picture does. Draft 12, 2026-10-13:
-eleven cold reviews are folded in below.
+and drop did, and firms up once the picture does. Draft 13, 2026-10-13:
+twelve cold reviews are folded in below; the twelfth found it solid
+enough to build from, with the tests below catching the rest.
 
 Steve's rules, which everything here follows:
 - **No randomness.** A tick is a function of the board and the player's
@@ -72,8 +73,8 @@ Steve's rules, which everything here follows:
   every critter that moved, before and after, in rank order (the leashed
   dog, cows by number, dogs by number): a proof the server checks line by
   line. Each report carries a request number, and every answer echoes it:
-  `kept`, `differ` (naming the first line it disagrees with), `resume`,
-  `reload`, `taken over` or `stuck`.
+  `kept`, `differ` (naming the first line it disagrees with), `reload`,
+  `taken over` or `stuck`.
 - **No two critters should share space.** The leashed dog stops at a
   bump and the drag ends; a dog's own step stops where it would press
   into someone; only a cow lands on anyone, and whatever it lands on
@@ -265,8 +266,9 @@ width.
 **Arithmetic.** Every critter's position is an integer count of 256ths of
 a pixel, the cows' too (they are in halves today), with an integer
 square root for distances. **Every product is `i64`:** squared distances
-(in 256ths, up to about 7·10^13 across the 64 × 64 world; about 10^12
-within a region), a wish's direction times its length
+(in 256ths, about 7·10^13 along one axis of the 64 × 64 world and
+1.3·10^14 on its diagonal, well inside `i64`; about 10^12 within a
+region), a wish's direction times its length
 (about 8·10^9 at the extremes), and a total scaled to the speed. Only a
 quotient comes back to `i32`, and every `i32` holds a position, a
 displacement or a distance in the world. The cows' grid rule takes whole pixels today: it
@@ -366,7 +368,9 @@ then dogs by number. Sleepers and the world's edge never move.
   end square isn't pushed (cows ignore dogs; only where a cow ends
   counts). If every one of them finds such a spot, they all jump
   there, at once. If any has none, the cow stops just short of the first
-  critter **along its sweep** (ties by rank), and **pushes no one**; if it
+  critter **along its sweep** (any critter the sweep meets, a dog it only
+crosses included, so the cow never ends on one; ties by rank), and
+**pushes no one**; if it
   already overlaps that critter, it stays where it is on that axis. So no
   critter moves for a push that didn't happen, and no two pushed critters
   land together.
@@ -550,10 +554,14 @@ leashed, is just a `view` line. **An input while the page isn't ticking**
 (a `view`, a `held`, a `leash`, a `grab`, a `letgo`) takes the last
 recorded tick + 1, as a `leash` does (item 8); several at one tick apply
 in the order written. **At most 16 of the human's inputs a tick**
-(`leash`, `grab`, `letgo`, `release`), across reports; `view` and `held`
-never count, however long the human pans: at one tick, the latest `view`
-is the one in effect and the `held` lines add up, so the page may send
-just the latest view and the held set. During a replay held back at the byte
+(`leash`, `grab`, `letgo`, `release`), across reports; the page drops a
+17th (freezing makes many at one tick easy) and logs it. Several at one
+tick apply in the order recorded, so `grab`, `letgo`, `grab` at one tick
+leaves a drag on, with the first drag's displacements played before the
+`letgo` (item 7). `view` and `held` never count, however long the human
+pans: at one tick, **the page coalesces them** to one `view` (the latest)
+and one `held` naming only tiles in that view, so a long pan can't grow a
+report. During a replay held back at the byte
 budget (item 10), "the last recorded tick" is the last tick the page has
 recorded, never one inside the held-back ticks. While unleashed, any
 input other than a `view` or `held` starts the ticking at that tick.
@@ -645,10 +653,18 @@ viewport's 8. The page can't run 1041 until it holds all 25, so it froze
 until request 3's answer, `kept 1040` with the 17 new tiles' critters;
 then it wrote the `held 1041` above and ran the tick. Cow 43 (white tile
 6,8 of the park, at 16750, 17750 px) is 432 px from dog 219, so awake;
-the drag west finds it 206 px ahead and 380 px off the dog's line, inside
+the drag west finds it about 206 px ahead (cows.zig measures after each
+internal step: 205, then 203; the outcome is the same) and 380 px off the
+dog's line, inside
 the scare box and out of the lane, so it moves north half of each step:
 128 then 256 in 256ths, 1.5 px (4556.00 to 4554.80). No dog of another
-breed is within reach, and dog 223, of 219's breed (223 mod 4
+breed is within reach: this is a played board, not the first layout, so
+every dog but 219 and 223 has wandered beyond 500 px (laid out, dog 241,
+another breed, would stand 145 px from 219), while the cows stand where
+they were laid out. Cow 48 (white tile 7,9, at 17250, 18250 px) is 317 px
+from dog 219, so awake, but behind a drag west and unscared, and 187 px
+from dog 223, past the 90 px it keeps from cows: no line. Dog 223, of
+219's breed (223 mod 4
 = 3, as 219), stands 150 px east of it. The drag moves 219 3 px west, so
 223 is 153 px from its anchor: 53 px beyond the band's outer edge. Its
 one wish is (−13568, 0) in 256ths; scaled to the speed, its step is −16
@@ -665,7 +681,7 @@ drag, so it has no line after 1041.
 | `letgo T` | the drag ended at tick T because the human let go: the 80 ticks start |
 | `bump T dog N`, `bump T cow N` | the drag ended at tick T because the leashed dog pressed into that critter: the 80 ticks start, the leash stays |
 | `release T D` | the leash came off dog D at tick T (the 80 ticks ran out, or another dog was grabbed): the park sleeps |
-| `held T c,r …` | from the start of tick T, the page holds these tiles' critters (they arrived with an ack): an input, so the server counts exactly the tiles the page did |
+| `held T c,r …` | from the start of tick T, the page holds these tiles' critters (they arrived with an ack): an input, so the server counts exactly the tiles the page did. A tile list (here and in `view`, `state`) is a set: listed in any order, compared as a set |
 | `view T WxH c,r …` | from the start of tick T, the viewport's size and the tiles the page subscribes: which tiles the server sends, and which stay held. Never an input to the physics. Written whenever the subscription changes: a leash, a release, a pan, a resize, the region reaching new tiles |
 | `t T +ms` | tick T begins, `+ms` after `wall` (data only). `drag` and its displacements in 256ths, when the human dragged during it, each with `@ms` from the tick's start (data only); at most 16 a tick (the shared Zig adds up any more, item 2). A tick that bumps carries its whole recorded drag, merged and capped, the displacements after the bump included: the physics drops those, and the server finds the bump itself |
 | `dog N a > b`, `cow N a > b` | a critter whose position changed over tick T, from a to b, in cascade order: the leashed dog, then cows by number, then dogs by number. A line is the net move over the tick; a critter that ends the tick where it began is not listed, even if it moved within it |
@@ -706,10 +722,16 @@ on, whose `req` must match), and any such answer ends that request; every
 other answer is dropped unread.
 - **No answer:** if none comes within 5 s of wall time, the page abandons
   the exchange and sends request R again, **byte for byte the same**;
-  anything recorded since waits for R + 1.
+  anything recorded since waits for R + 1. **After three identical
+  resends, or on any answer that isn't the protocol's** (a 413 from the
+  body limit, a 5xx, a body it can't parse), the page reloads; if that
+  happens to its first report after a load, it stops and says so, rather
+  than loop.
 - **The server keeps its last answer.** A report whose R is the last one
   it answered gets that same answer again: nothing is re-run, logged or
-  counted. A report whose R is one more is a new request, and from then
+  counted. It keeps a hash of that report's body too: a report reusing R
+  with a different body is a page bug, refused (`differ K+1 none` its
+  header line) and logged. A report whose R is one more is a new request, and from then
   on R is the last answered, whatever the answer (a refusal included).
   Any other R is refused (`differ K+1 none` its header line).
 - **`req ?`:** the server couldn't read the header, so it answered no R,
@@ -738,30 +760,29 @@ req 4
 kept 1041
 differ 1042 dog 223 42d1.f0,46d2.00 > 42d1.e0,46d2.00
 state leash 219 drag on view 1280x800 (the 25 tiles) held (the same 25)
-board 1042 dog 219 4239.00,46d2.00 cow 43 416e.00,4554.80 dog 223 42d1.f0,46d2.00
+board 1042 dog 219 4239.00,46d2.00 cow 43 416e.00,4554.80 cow 48 4362.00,474a.00 dog 223 42d1.f0,46d2.00
 ```
 
 In the second: ticks through 1041 are kept; the server's own line for
 1042; at the start of 1042, before its inputs, dog 219 leashed with the
 drag still on (the `letgo 1042` is an input of the unkept tick), the view
 from 1041 and all 25 tiles held (written out in full on the wire); the
-three awake critters, which are also the three the report named, as tick
-1041 left them. No `input` lines: no earlier request kept an input for 1042.
+four awake critters, as tick 1041 left them: the three the report named,
+and cow 48, which didn't move. No `input` lines: no earlier request kept an input for 1042.
 No `tile` lines: every subscribed tile is held.
 
 | answer line | says |
 |---|---|
 | `req R` | first in every answer to a report: the report's request number. `req ?`, alone, when the server can't read the header; the page takes it as the answer to the exchange it came back on, and reloads |
-| `epoch E` | first in a load's answer (a load is not a report and has no `req`): the new epoch; request numbers start at 1 |
-| `kept T` | the last kept tick, after this request. With no `differ` or `resume` after it, the whole report is kept: its ticks through T, and any inputs it carried for T + 1 after its last `t` line (they wait for that tick; a later report may add more for T + 1 before its `t` line). A report with no ticks gets `kept` its own `from` |
+| `epoch E` | first in a load's answer (a load is not a report and has no `req`; the table's "first in every answer" is for answers to reports): the new epoch; request numbers start at 1 |
+| `kept T` | the last kept tick, after this request. With no `differ` after it, the whole report is kept: its ticks through T, and any inputs it carried for T + 1 after its last `t` line (they wait for that tick; a later report may add more for T + 1 before its `t` line). A report with no ticks gets `kept` its own `from` |
 | `differ T <line>` | the server's run has this line at tick T, and the report lacks it or writes it differently. The report is kept through T − 1 (the `kept` above), nothing of its own at T |
 | `differ T none <line>` | the report has this line at tick T, and the server's run doesn't; also every **refused** line: malformed, out of bounds, an input whose precondition fails (below), or the `t` line of a tick whose region meets a tile not held |
-| `resume` | the report's `from` isn't the last kept tick. With request numbers only a page bug does that. The answer is `req R`, `resume`, `kept K`, `state`, then `input` and `tile` lines, as a load's (below), in this epoch: the page keeps its request numbering |
-| `state leash D\|none drag on\|ended E\|none view WxH c,r … held c,r …` | at the start of tick T (K + 1 for a load or `resume`), before that tick's inputs: who is leashed; whether a drag is on, or the tick E it ended (the release is due at E + 80), or none (unleashed); the view and the held tiles in effect |
+| `state leash D\|none drag on\|ended E\|none view WxH c,r … held c,r …` | at the start of tick T (K + 1 for a load), before that tick's inputs: who is leashed; whether a drag is on, or the tick E it ended (the release is due at E + 80), or none (unleashed); the view and the held tiles in effect |
 | `board T dog N a cow M b …` | with `differ`: the server's critters at the start of tick T, in rank order: every one it had awake, and every one the report named |
-| `input <line>` | with a load, a `resume` or a `differ`: an input an earlier request already kept for that tick (K + 1, or T), as written, in order, after the `state` line's moment. Only `release`, `leash`, `grab` and `letgo`: a `view` or `held` is in the `state` line. The page plays it at that tick and never sends it again |
+| `input <line>` | with a load or a `differ`: an input an earlier request already kept for that tick (K + 1, or T), as written, in order, after the `state` line's moment. Only `release`, `leash`, `grab` and `letgo`: a `view` or `held` is in the `state` line. The page plays it at that tick and never sends it again |
 | `tile c,r dog N a cow M b …` | in any answer but `req ?`: a subscribed tile's critters not yet named in a kept `held` this epoch, as they stand at the start of the tick after `kept`; the page applies them to its board at the last kept tick, to critters it hasn't received this epoch only |
-| `reload language N`, `reload physics H`, `reload epoch`, `reload differs` | the page speaks another version of the language (N is the server's); its physics isn't the server's (H is the server's); its epoch is not one this run of the server issued; three requests in a row were answered `differ` or `resume` |
+| `reload language N`, `reload physics H`, `reload epoch`, `reload from K`, `reload differs` | the page speaks another version of the language (N is the server's); its physics isn't the server's (H is the server's); its epoch is not one this run of the server issued; its `from` isn't the last kept tick K (with request numbers only a page bug does that, so the page starts again from a load); three requests in a row were answered `differ` |
 | `taken over` | a newer page load holds the park |
 | `stuck T` | the physics disagrees with itself at tick T (below): the page shows that, and doesn't tick |
 
@@ -801,7 +822,7 @@ are for that. Nobody should expect a rewind to fix the rule.
   start issues a new epoch,** so every open page reloads (`reload epoch`),
   and nothing kept per epoch needs to survive a restart. **The breaker**
   (`reload differs`) counts requests: three in a row on one epoch answered
-  `differ` or `resume` (a repeated answer to a resend counts nothing new):
+  `differ` (a repeated answer to a resend counts nothing new):
   something is wrong that rewinding won't fix. **The page and its wasm are
   served under the physics hash** (`/physics-5e0c91a2.wasm`; the page that
   names it is never cached), so a reload can't pick up stale code and loop
@@ -823,7 +844,7 @@ are for that. Nobody should expect a rewind to fix the rule.
 the language version (`reload language`); the physics hash (`reload
 physics`); the epoch (`taken over` for an older one this run issued,
 `reload epoch` for one it didn't); the request number (above); `from`
-(`resume` unless it is the last kept tick); then every other line. A
+(`reload from K` unless it is the last kept tick); then every other line. A
 header it can't read at all gets `req ?` alone (above); R stays
 unanswered.
 
@@ -876,11 +897,9 @@ tile c,r dog N a cow M b …
   start. **If the board has a let-go timer running** (or a drag on), the
   page starts ticking at once, at K + 1, so the `release` lands on the
   same tick on both sides. Request numbers start again at 1.
-- A second tab does the same and takes over. A `resume` answer is the
-  same lines with `req R` and `resume` instead of `epoch` (its order is
-  in the table), and the page takes it the same way, dropping its own
-  unkept ticks and keeping its request numbering. A `resume` logs nothing:
-  the epoch carries on, and so do its view and held tiles.
+- A second tab does the same and takes over.
+- **`req ?` to a load** means the page can't write its own load line: it
+  stops with a message rather than reload into the same failure.
 
 **Why it's cheap to check.** The server keeps the board at its last kept
 tick and re-runs the report's ticks: the cascade over the awake critters,
@@ -918,7 +937,7 @@ sync. Of the two ways to restart, this is the simpler:
   answer are all made again at the load.
 
 If the log grows too big to keep, it is the first thing to trim: the
-snapshots alone are enough to resume.
+snapshots alone are enough to start from.
 
 ## For the first implementation (the page)
 
@@ -967,9 +986,12 @@ play says otherwise:
    keeps every recorded input word for word,** `view` and `held` included,
    even when the dog's path changes, with one addition: **when a replayed
    tick's region meets a tile not held at that tick,** the page writes
-   `view t` and `held t` for it at that tick if it already has the tile's
-   critters; if it hasn't, the replay stops there, and the later recorded
-   inputs wait (frozen, as at the window) until the tile arrives.
+   `view t` adding the tile at that tick, always, and sends it (a trailing
+   input if need be), so the server sends the tile. Only the `held t`
+   waits for the tile's critters: if the page already has them it writes
+   `held t` at once; if not, the replay stops at t, and the later recorded
+   inputs wait (frozen, as at the window) until the tile arrives, then the
+   replay resumes.
 7. **Order within a tick:** inputs before its `t` line, checked lines after
    the critter lines. A `letgo` takes effect after that tick's drag (the
    displacements recorded before the pointer went up still play). A
@@ -1033,14 +1055,13 @@ play says otherwise:
     same numbers, so the same ranks), sits at a fixed offset in the
     world's middle (every position plus 13,500 px, a one-time change to
     `dogs.json` and `cows.json` alongside the breeds'); the rest of the
-    world is empty ground for now. Today `dogs.zig` and `cows.zig` derive
+    world is empty ground for now (Steve, 2026-10-13: the 10 × 10 park in
+the middle is his call). Today `dogs.zig` and `cows.zig` derive
     their counts and layout from `world_tiles` (`dog_count`, `cow_count`,
     `laidOut`, and `read` requires exactly that count), so they must take
     the populated park's size instead: one constant for the world, one for
-    the park. *For Steve to confirm:* the alternative, populating the whole
-    world, means about 10,000 dogs and 2,000 cows, and every number
-    changes. Positions reach 8,192,000 in 256ths, squared distances about
-    7·10^13: `i32` and `i64` as above. The tiles divide the world evenly, so
+    the park. Positions reach 8,192,000 in 256ths, squared distances about
+    1.3·10^14 on the diagonal: `i32` and `i64` as above. The tiles divide the world evenly, so
     the wrap later is clean.
 
 **Likely to feel wrong first** (the review's guesses, for play to settle):
@@ -1073,15 +1094,19 @@ play says otherwise:
 
 ## Tests to write first
 
-The ninth, tenth and eleventh reviews' lists, to be the implementation's
-first tests:
+The ninth to twelfth reviews' lists, to be the implementation's first
+tests. **Write these three first:** the worked example as a golden
+fixture (26), subscribing more tiles changes nothing (12), and a lost
+answer with a trailing `leash` (15). Between them they pin the cow port,
+the cascade, the wish arithmetic, the wire format, `differ`, decision 13
+and the request numbering.
 
 1. **An unleashed pan:** a report with only a `view` gets its `tile`
    lines, and the page then writes `held`.
 2. **A `differ` at `from` + 1** produces a rewind, not a reload.
-3. **A lost answer:** the resend of the same request gets the server's
-   stored answer, and the page is unfrozen and sending from the new kept
-   tick within one round trip.
+3. **A lost answer:** after the 5 s timeout, the resend of the same
+   request gets the server's stored answer, and the page is unfrozen and
+   sending from the new kept tick within one round trip of the resend.
 4. **A reload after a kept trailing `leash` or `grab`:** the load's
    `input` lines carry it, and the next three reports are all kept.
 5. **A restart under a new physics hash** with a log tail after the
@@ -1090,9 +1115,10 @@ first tests:
    window.
 7. **A replay that hits 48 KiB while the human acts:** the new inputs take
    the tick after the last recorded one.
-8. **A cow lands on a dog with nothing valid around it** (a ring of
-   critters): the cow stops short of the first critter along its sweep and
-   pushes no one.
+8. **A cow lands on a dog with nothing valid around it** (a packed field
+   about 220 px deep, or a wall: a single ring isn't enough, since a spot
+   pressed against its outer side is within reach): the cow stops short of
+   the first critter along its sweep and pushes no one.
 9. **Coincident centres:** "away" goes east.
 10. **The leashed dog overlapping a sleeper,** dragged toward it, along it,
     and from Δ = 0: a bump only when |Δ| shrinks or Δ changes sign.
@@ -1122,11 +1148,13 @@ first tests:
     last whole report left it.
 20. **A cow on the line 70 px ahead, the drag stepping 1 px:** it moves
     70 px in that one step, and stays within the region.
-21. **Thirty unleashed pans:** no refusal and no `stuck`, however many
-    `view` and `held` lines pile up at one tick.
+21. **Thirty unleashed pans:** no refusal and no `stuck`, and the report
+    carries one `view` and one `held` for that tick, coalesced, however
+    long the panning.
 22. **A replay whose path reaches a new tile before its recorded `held`:**
-    the page writes `view`/`held` at that tick when it has the tile, and
-    stops there when it doesn't.
+    the page writes `view` at that tick and sends it; with the tile's
+    critters already in hand it writes `held` too, and without them it
+    stops there, the tile arrives, and the replay resumes.
 23. **A tile sent again after a `differ`** doesn't move critters the page
     is running.
 24. **A `req ?` loop:** a page that garbles its header ends in its stop
@@ -1134,6 +1162,20 @@ first tests:
 25. **The 10 × 10 park in the 64 × 64 world:** the shifted `dogs.json` and
     `cows.json` load with the same numbers, and the empty world around
     them reads as empty.
+26. **The worked example as a golden fixture:** the report above, its
+    `kept 1043` answer, and the `.e1` variant's exact `differ` answer,
+    byte for byte.
+27. **`cows.zig`'s tests, carried to 256ths** (item 1): every one of
+    today's tests, at the new scale, before any dog physics.
+28. **A worst-case push at the region's reach:** a scared cow at its
+    farthest from the dog's start, pushing a critter whose jump goes
+    outward; it lands inside the region or the cow stops short, the same
+    on both sides.
+29. **A canonical-form round trip:** every line the shared Zig writes
+    parses back to the same integers, and every other spelling of them
+    (padding, upper case, `+0.00`) is refused.
+30. **A 413:** a body over the limit gets the page reloading after its
+    resends, never resending for ever; after a load it stops.
 
 ## Decisions (Steve, 2026-10-13)
 
@@ -1195,6 +1237,16 @@ first tests:
     the swept rectangle; the region's tile range (`@divFloor`); the
     subscription order's ties by row, then column; and an unstated
     constraint, now stated: **the world is wider than the region plus its
-    reaches,** so no critter is ever seen twice. So **every difference
+    reaches,** so no critter is ever seen twice. *Also tied to today's
+    10 × 10 world* (to change with the move to 64 × 64, item 16): the
+    per-human viewport files (`humans.zig`, `/viewport`, `GET /me`) hold
+    park coordinates, so they shift by 13,500 px too or reset; `park.js`'s
+    `world_tiles = 10`, `most_tiles = 25`, `viewportKeptOnWorld` and the
+    first visit at the world's centre; and its whole-world overview, which
+    becomes a **scrolling window** (Steve): more tiles than the main view,
+    never the whole world, every critter still a visible dot, with
+    scrollbars to reach the rest. `dogs.zig`'s `read` has no in-world
+    check where `cows.zig`'s does; the load's resolve covers a dog outside
+    the world, but the two should match. So **every difference
     between two positions goes through one shared `delta(a, b)`** from the
     start; the wrap is then a change to that one function.
