@@ -1,6 +1,13 @@
 # Dog Park's physics, and the report that carries it
 
-**Status: designed, not built** (2026-10-13). The physics of the other
+**Status: the core is built** (2026-10-13): the board, the tick, the
+wire and the server's re-run of a report are `src/play/physics*.zig`, 59
+tests, passing natively and compiled to wasm32. Of the tests to write
+first (below), 8-12, 14, 20, 26, 27 and 29 pass, and 28 as far as the
+board alone can express it; 1-7, 13, 15-19, 21-25 and 30 wait for the
+server's protocol or the page. The page still plays today's `cows.zig`.
+
+**Designed** (2026-10-13). The physics of the other
 dogs, the cows' place in it, and the text report the page sends the
 server, under the client-driven design (the essay
 [the client drives](http://143.244.172.148:9100/notes/the-client-drives.md)):
@@ -101,7 +108,9 @@ d·i/n, truncated toward zero, in 256ths: 25 px is 6400, cut 2133, 2133,
 1. **the step is shaped first** (item 13): at the world's edge
    (provisional, decision 14), that axis's part is clamped so the dog's
    square stays in the world (the drag carries on);
-2. **the cows react,** by the grid rule, to the step as shaped;
+2. **the cows react,** by the grid rule, to the step as shaped (a step the
+   edge clamped to nothing gives them no turn, as `cows.zig` skips a zero
+   travel);
 3. **then the leashed dog takes it,** swept against where everyone now is,
    stopping **just short** of pressing into anyone (one axis at a time, so
    contact is an exact integer: no rounding).
@@ -192,7 +201,9 @@ the total if its squared length is at most the speed squared (exact, no
 root), else each axis of the total times the speed, divided by the total's
 length (`isqrt` of its squared length), truncated toward zero. **Every
 comparison of a length with a number is made squared,** the dead zone's
-too; `isqrt` appears only as a divisor. With today's numbers the first
+too; `isqrt` appears as a divisor, and as a length in one place: a
+wish's length against an edge is `isqrt(d²) − edge` (the excess over a
+band's outer edge, or the shortfall inside a distance). With today's numbers the first
 branch never runs: a total inside the speed (16/256 px) is inside the
 1 px dead zone too, so the dog stays put. It is there for when the speed
 is tuned past the dead zone.
@@ -246,7 +257,8 @@ park. Herds would form as the player leads an alpha among its kind.
 - **Why it matters:** the server refuses to start if a kept dog's look
   isn't the one its number gives.
 - **So:** going to four needs a one-time change to `dogs.json`, or a fresh
-  park.
+  park. **Still pending:** the physics takes the breed as n mod 4, while
+  today's `dogs.json` and `dogs.zig` still deal five looks.
 
 **Starting numbers,** all to be tuned by playing:
 
@@ -432,7 +444,9 @@ nearest valid one wins. A jump can therefore go as far as the pushed
 critter's side, plus the 100 px gap, plus the neighbour's side: about
 200 px for a dog pressed past a cow, 220 px for a cow. **Ties** are broken
 by the rank of the square that made the candidate (for a corner, the
-higher-ranked of its two, then the other's; the swept area ranks with its
+higher-ranked of its two, then the other's; a way out counts its own
+square's rank twice, so it comes before a corner made with that same square
+and a lower-ranked one; the swept area ranks with its
 cow, just after the cow's own square), then by direction in a fixed
 order: east, south, west, north, then the corners NE, SE, SW, NW (a
 corner's direction is its x side, then its y side: x from an east side
@@ -626,7 +640,9 @@ last tick the server kept. For now it says a lot. It names every critter
 that moved, where it was and where it went, **in rank order** (the
 leashed dog, then cows by number, then dogs by number: a dog a cow pushed
 is listed among the dogs, its one net line), so the report is the
-calculation written out and the server checks it line by line.
+calculation written out and the server checks it line by line. (The
+physics hash `5e0c91a2` in the examples is a placeholder; the real one is
+`physics_wire.physics_hash`, a compile-time CRC-32 of the physics' sources.)
 
 ```
 dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4
@@ -686,7 +702,7 @@ drag, so it has no line after 1041.
 | `held T c,r …` | from the start of tick T, the page holds these tiles' critters (they arrived with an ack): an input, so the server counts exactly the tiles the page did. A tile list (here and in `view`, `state`) is a set: listed in any order, compared as a set |
 | `view T WxH c,r …` | from the start of tick T, the viewport's size and the tiles the page subscribes: which tiles the server sends, and which stay held. Never an input to the physics. Written whenever the subscription changes: a leash, a release, a pan, a resize, the region reaching new tiles |
 | `t T +ms` | tick T begins, `+ms` after `wall` (data only). `drag` and its displacements in 256ths, when the human dragged during it, each with `@ms` from the tick's start (data only); at most 16 a tick (the shared Zig adds up any more, item 2). A tick that bumps carries its whole recorded drag, merged and capped, the displacements after the bump included: the physics drops those, and the server finds the bump itself |
-| `dog N a > b`, `cow N a > b` | a critter whose position changed over tick T, from a to b, in cascade order: the leashed dog, then cows by number, then dogs by number. A line is the net move over the tick; a critter that ends the tick where it began is not listed, even if it moved within it |
+| `dog N a > b`, `cow N a > b` | written with exactly one leading space, the one canonical form (none, or two, is refused); `differ` quotes a critter line unindented, the server's and the report's alike. A critter whose position changed over tick T, from a to b, in cascade order: the leashed dog, then cows by number, then dogs by number. A line is the net move over the tick; a critter that ends the tick where it began is not listed, even if it moved within it |
 | `rest T` | no critter's position changed over tick T, the human gave no input but a `view` or `held`, and no let-go timer is running: a fixed point, so the page stops ticking until the human acts again (`drag`, `grab`, `letgo`, `leash`; a `view` or `held` doesn't count). Tick numbers carry on across a rest |
 
 **Why before-and-after, and not a hash.** A hash says *whether* page and
@@ -785,9 +801,9 @@ No `tile` lines: every subscribed tile is held.
 | `epoch E` | first in a load's answer (a load is not a report and has no `req`; the table's "first in every answer" is for answers to reports): the new epoch; request numbers start at 1 |
 | `kept T` | the last kept tick, after this request. With no `differ` after it, the whole report is kept: its ticks through T, and any inputs it carried for T + 1 after its last `t` line (they wait for that tick; a later report may add more for T + 1 before its `t` line). A report with no ticks gets `kept` its own `from` |
 | `differ T <line>` | the server's run has this line at tick T, and the report lacks it or writes it differently. The report is kept through T − 1 (the `kept` above), nothing of its own at T |
-| `differ T none <line>` | the report has this line at tick T, and the server's run doesn't; also every **refused** line: malformed, out of bounds, an input whose precondition fails (below), or the `t` line of a tick whose region meets a tile not held |
-| `state leash D\|none drag on\|ended E\|none view WxH c,r … held c,r …` | at the start of tick T (K + 1 for a load), before that tick's inputs: who is leashed; whether a drag is on, or the tick E it ended (the release is due at E + 80), or none (unleashed); the view and the held tiles in effect |
-| `board T dog N a cow M b …` | with `differ`: the server's critters at the start of tick T, in rank order: every one it had awake, and every one the report named |
+| `differ T none <line>` | the report has this line at tick T, and the server's run doesn't; also every **refused** line: malformed, out of bounds, an input whose precondition fails (below), or the `t` line of a tick whose region meets a tile not held. A malformed line belongs to the current tick if it looks like a critter, `bump` or `rest` line; anything else after a tick's checked lines, to the next tick |
+| `state leash D\|none drag on\|ended E\|none view WxH c,r … held c,r …` | at the start of tick T (K + 1 for a load), before that tick's inputs: who is leashed; whether a drag is on, or the tick E it ended (the release is due at E + 80), or none (unleashed); the view and the held tiles in effect, a `view` or `held` an earlier request kept for T included. The server writes tiles row, then column; a tile listed twice in one list is refused |
+| `board T dog N a cow M b …` | with `differ`: the server's critters at the start of tick T, in rank order: every one it had awake at the start of T (around the `state` line's leashed dog), and every one the report named |
 | `input <line>` | with a load or a `differ`: an input an earlier request already kept for that tick (K + 1, or T), as written, in order, after the `state` line's moment. Only `release`, `leash`, `grab` and `letgo`: a `view` or `held` is in the `state` line. The page plays it at that tick and never sends it again |
 | `tile c,r dog N a cow M b …` | in any answer but `req ?`: a subscribed tile's critters not yet named in a kept `held` this epoch, as they stand at the start of the tick after `kept`; the page applies them to its board at the last kept tick, to critters it hasn't received this epoch only |
 | `reload language N`, `reload physics H`, `reload epoch`, `reload from K`, `reload differs` | the page speaks another version of the language (N is the server's); its physics isn't the server's (H is the server's); its epoch is not one this run of the server issued; its `from` isn't the last kept tick K (with request numbers only a page bug does that, so the page starts again from a load); three requests in a row were answered `differ` |
@@ -958,7 +974,10 @@ play says otherwise:
 1. **Cows go to 256ths first,** before any dog physics: port `cows.zig`
    from half pixels, carrying its tests over. "Half as far" becomes the
    step halved and truncated; the lane is 70 px centre to centre (17920: a dog's half, a cow's half and
-   the 20 px clearance, as `lane_halves` is today). One change of
+   the 20 px clearance, as `lane_halves` is today). The port rounds in
+   256ths, so it can differ from `cows.zig`'s half pixels by a fraction
+   (a lane reached as 5974/256 px where half pixels gave 47 halves), as
+   intended: the port is the rule from now on, not a copy of its rounding. One change of
    behaviour to expect: a cow in today's 400 px scare box but more than
    500 px from the leashed dog (the box's corners reach 566 px) is now
    asleep. The port carries over the cows' edge rules (`room()`, the step
@@ -976,9 +995,10 @@ play says otherwise:
    displacement that crosses a budget has that axis cut to what is left
    (the other axis untouched), and that axis plays no more this tick. The
    budget counts the input, not where the dog ended up after a clamp. It suits x-then-y and needs no square root. (Past 16,
-   displacements are first added into the 16th.)
+   displacements are first added into the 16th, which keeps the last one's `@ms`.)
 4. **A dog's own wish step is swept like the drag:** x then y, stopping
-   where it would press in. Sliding along a face comes free.
+   where it would press in. Sliding along a face comes free. Its edge
+   clamp and its sweep can go in either order: both only shorten the step.
 5. **`grab T`** records the pointer going down on the leashed dog (a
    `leash T D` implies it): a held, still pointer keeps the let-go timer
    from starting, and a rewind's board needs to know a drag is on.
@@ -1051,7 +1071,7 @@ play says otherwise:
     whose region isn't. This replaces any stall on the drag: the dog never
     moves where the page can't see.
 15. **Determinism in the shared Zig:**
-    - explicit `i32`/`i64` everywhere (`usize` is 32 bits in wasm and 64
+    - explicit `i32`/`i64` everywhere, and `u64` for tick numbers (`usize` is 32 bits in wasm and 64
       natively);
     - never iterate a hash map: sort awake critters by number, neighbours
       by rank;
@@ -1129,8 +1149,10 @@ and the request numbering.
    pressed against its outer side is within reach): the cow stops short of
    the first critter along its sweep and pushes no one.
 9. **Coincident centres:** "away" goes east.
-10. **The leashed dog overlapping a sleeper,** dragged toward it, along it,
-    and from Δ = 0: a bump only when |Δ| shrinks or Δ changes sign.
+10. **The leashed dog overlapping an awake dog,** dragged toward it, along
+    it, and from Δ = 0: a bump only when |Δ| shrinks or Δ changes sign. (A
+    sleeper can't overlap the leashed dog: anything within 40 px of it is
+    within 500 px, so awake.)
 11. **A wasm-against-native fuzz** of the wish arithmetic at the `i64`
     extremes.
 12. **Subscribing more tiles changes nothing:** the same non-tile inputs
