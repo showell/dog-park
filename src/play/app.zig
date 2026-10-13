@@ -5,7 +5,8 @@
 //! viewport was, and who holds which dog on a leash.
 //!
 //!   GET  /           solo/index.html, read from disk each time
-//!   GET  /park.js    solo/park.js, read from disk each time
+//!   GET  /NAME.js    solo/NAME.js, read from disk each time: the page's
+//!                    modules (park.js its entry), NAME `[a-z_]+`
 //!   GET  /cows.wasm  the cows' rule (cows.zig), compiled in
 //!   GET  /me         your viewport and your leash (a first visit gets its
 //!                    cookie here)
@@ -129,7 +130,7 @@ fn keepCows(io: Io, alloc: std.mem.Allocator) !void {
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: *webbox.bus.Bus) !void {
     const path = http.pathOf(try http.target(req, alloc));
     if (std.mem.eql(u8, path, "/")) return pageFile(req, io, alloc, "index.html", "text/html; charset=utf-8");
-    if (std.mem.eql(u8, path, "/park.js")) return pageFile(req, io, alloc, "park.js", "text/javascript; charset=utf-8");
+    if (pageScript(path)) |name| return pageFile(req, io, alloc, name, "text/javascript; charset=utf-8");
     if (std.mem.eql(u8, path, "/cows.wasm")) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return req.respond(@embedFile("cows.wasm"), .{ .extra_headers = &.{
@@ -335,10 +336,33 @@ fn dogNamed(req: *std.http.Server.Request, asked: u32) !?dogs.DogId {
 const SetCookie = union(enum) { none, header: []const u8 };
 
 /// A file of the page, read from disk on every request, never cached.
+/// The page's script a path names, `/NAME.js` with NAME `[a-z_]+` (one
+/// segment, so never outside `solo/`), as its file name; null for any other
+/// path.
+fn pageScript(path: []const u8) ?[]const u8 {
+    if (path.len < 1 or path[0] != '/') return null;
+    const name = path[1..];
+    if (!std.mem.endsWith(u8, name, ".js")) return null;
+    const stem = name[0 .. name.len - ".js".len];
+    if (stem.len == 0) return null;
+    for (stem) |c| if (!(std.ascii.isLower(c) or c == '_')) return null;
+    return name;
+}
+
+test "pageScript takes one lower-case name ending .js, and nothing else" {
+    try std.testing.expectEqualStrings("park.js", pageScript("/park.js").?);
+    try std.testing.expectEqualStrings("blit.js", pageScript("/blit.js").?);
+    try std.testing.expectEqualStrings("page_bits.js", pageScript("/page_bits.js").?);
+    for ([_][]const u8{ "/", "/.js", "/park.jsx", "/park.json", "/Park.js", "/park2.js", "/a/park.js", "/../park.js", "/..js", "/park.js/", "park.js", "/park-x.js", "/park.js.js" }) |p| {
+        try std.testing.expectEqual(@as(?[]const u8, null), pageScript(p));
+    }
+}
+
+/// A page file read from `solo/`, or 404 when there is none of that name.
 fn pageFile(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, name: []const u8, content_type: []const u8) !void {
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     const path = try std.fs.path.join(alloc, &.{ page_dir, name });
-    const body = try webbox.store.read(io, alloc, path, .limited(1024 * 1024));
+    const body = (try webbox.store.readOrNull(io, alloc, path, .limited(1024 * 1024))) orelse return http.notFound(req);
     return req.respond(body, .{ .extra_headers = &.{
         .{ .name = "content-type", .value = content_type },
         .{ .name = "cache-control", .value = "no-store" },

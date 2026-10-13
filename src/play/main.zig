@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .default_port = 9103,
         .default_trusted_proxy = "127.0.0.1",
         .default_auth_dir = "~/DogParkAuth",
-        .routes_hint = "(/, /park.js, GET /me, POST /tiles, /leash, /release, /move, /viewport)",
+        .routes_hint = "(/, /*.js, GET /me, POST /tiles, /leash, /release, /move, /viewport)",
         .free_space = unread,
     }, report);
 }
