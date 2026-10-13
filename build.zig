@@ -203,8 +203,7 @@ fn nodeTest(b: *std.Build, file: []const u8) *std.Build.Step {
 }
 
 /// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
-/// lists, in its order. zig-metal-unikernel's build.zig computes the same
-/// for its Dog Park kernel, from the same list.
+/// lists, in its order.
 fn physicsHash(b: *std.Build, dir: []const u8) u32 {
     const io = b.graph.io;
     const list_path = b.fmt("{s}/physics_sources.zon", .{dir});

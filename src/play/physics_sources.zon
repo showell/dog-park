@@ -1,8 +1,7 @@
 // **THE PHYSICS HASH'S SOURCES** (physics_wire.zig's `physics_hash`): the
 // files, in src/play/, that decide a tick's lines and their text, and the
 // page's exports. build.zig computes a CRC-32 over them, in this order, at
-// configure time, and so does zig-metal-unikernel's (its Dog Park kernel):
-// this list is the one source of truth for both.
+// configure time.
 .{
     "physics.zig",
     "physics_jump.zig",

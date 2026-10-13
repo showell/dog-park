@@ -832,16 +832,28 @@ const PageBoard = struct {
 };
 
 test "subscribing more tiles changes nothing: the server's board, a page holding only the region's tiles and one holding a large display's give the same lines, every tick" {
-    // Two walks: a walk's bumps depend on its seed (dogs flee a drag a
-    // pixel at a time), and the bump is what the comparison most needs.
-    var bumps: usize = 0;
+    // Two walks on seeds that bump early: a walk's bumps depend on its seed
+    // (dogs flee a drag a pixel at a time), and the bump is what the
+    // comparison most needs, so each walk must have one, and a letgo.
+    // A hundred ticks each; four hundred in the slow tier.
+    const ticks: physics.Tick = switch (fuzz) {
+        .fast => 100,
+        .full => 400,
+    };
     var moved: usize = 0;
-    for ([_]u64{ 1, 9 }) |seed| try walkCompared(seed, &bumps, &moved);
-    try testing.expect(bumps > 0);
+    for ([_]u64{ 1, 2 }) |seed| {
+        const walk = try walkCompared(seed, ticks);
+        try testing.expect(walk.bumps > 0);
+        try testing.expect(walk.letgos > 0);
+        moved += walk.moved;
+    }
     try testing.expect(moved > 100);
 }
 
-fn walkCompared(seed: u64, bumps: *usize, moved: *usize) !void {
+const Walk = struct { bumps: usize = 0, letgos: usize = 0, moved: usize = 0 };
+
+fn walkCompared(seed: u64, ticks: physics.Tick) !Walk {
+    var walk: Walk = .{};
     var server = Board.laidOut();
     // Dog 112, in the park's middle.
     const leashed: u16 = 112;
@@ -855,7 +867,7 @@ fn walkCompared(seed: u64, bumps: *usize, moved: *usize) !void {
     var humans: [2]physics.Human = undefined;
     var nh: usize = 1;
     humans[0] = .{ .leash = leashed };
-    while (t <= 400) : (t += 1) {
+    while (t <= ticks) : (t += 1) {
         // The page holds the region's tiles before it runs the tick.
         if (server.leashedDog() == null and nh == 0) {
             humans[0] = .{ .leash = leashed };
@@ -873,6 +885,7 @@ fn walkCompared(seed: u64, bumps: *usize, moved: *usize) !void {
         if (rand.uintLessThan(u32, 40) == 0 and server.leashedDog() != null) {
             humans[nh] = .letgo;
             nh += 1;
+            walk.letgos += 1;
         }
         const a = ticked(&server, t, humans[0..nh], drag.slice());
         const b = ticked(&small.board, t, humans[0..nh], drag.slice());
@@ -880,14 +893,15 @@ fn walkCompared(seed: u64, bumps: *usize, moved: *usize) !void {
         try testing.expectEqualSlices(physics.Checked, a.slice(), b.slice());
         try testing.expectEqualSlices(physics.Checked, a.slice(), c.slice());
         nh = 0;
-        if (bumpOf(&a) != null) bumps.* += 1;
-        moved.* += a.len;
+        if (bumpOf(&a) != null) walk.bumps += 1;
+        walk.moved += a.len;
         // After a bump or a letgo, grab again now and then.
         if (server.hold == .leashed and server.hold.leashed.drag != .on and rand.uintLessThan(u32, 4) == 0) {
             humans[0] = .grab;
             nh = 1;
         }
     }
+    return walk;
 }
 
 // ------------------------------------------- the arithmetic on every target
