@@ -86,6 +86,19 @@ test "the first layout in 256ths: the physics' board is dogs.zig's and cows.zig'
     }
 }
 
+test "the first layout is the golden one: every dog and cow where the old whole- and half-pixel layout put it, every critter present, no one leashed" {
+    const b = Board.laidOut();
+    var crc = std.hash.Crc32.init();
+    crc.update(std.mem.sliceAsBytes(&b.dogs));
+    crc.update(std.mem.sliceAsBytes(&b.cows));
+    crc.update(std.mem.sliceAsBytes(&b.dog_known));
+    crc.update(std.mem.sliceAsBytes(&b.cow_known));
+    try testing.expectEqual(@as(u32, 870706651), crc.final());
+    try testing.expectEqual(physics.Hold.none, b.hold);
+    try testing.expectEqual(Point{ .x = 13575 * 256, .y = 13575 * 256 }, b.dogs[0]);
+    try testing.expectEqual(Point{ .x = 13750 * 256, .y = 13750 * 256 }, b.cows[0]);
+}
+
 /// A drag's way: an axis, and which way along it.
 const Way = struct { axis: physics.Axis, way: i32 };
 const four_ways = [_]Way{ .{ .axis = .x, .way = 1 }, .{ .axis = .x, .way = -1 }, .{ .axis = .y, .way = 1 }, .{ .axis = .y, .way = -1 } };
