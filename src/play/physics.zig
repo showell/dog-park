@@ -801,7 +801,12 @@ fn wishes(sc: *Scene) void {
 
 /// The step dog `i` wants: its wishes summed, the dead zone, the speed.
 pub fn wishStep(sc: *const Scene, i: usize) Point {
-    const total = wishTotal(sc, i);
+    return stepOf(wishTotal(sc, i));
+}
+
+/// The step a total of wishes comes to: none inside the dead zone; the
+/// total itself within the speed; else scaled to the speed.
+pub fn stepOf(total: Point) Point {
     const t2 = len2(total);
     if (t2 < @as(i64, dead_zone) * dead_zone) return .{ .x = 0, .y = 0 };
     if (t2 <= @as(i64, speed) * speed) return total;
@@ -866,7 +871,7 @@ fn away(from: Point, p: Point, length: i32) Point {
 
 /// A wish `length` long along `v`: each axis of `v` times the length,
 /// divided by `v`'s length (`isqrt`), truncated toward zero.
-fn wishAlong(v: Point, length: i32) Point {
+pub fn wishAlong(v: Point, length: i32) Point {
     const l = isqrt(len2(v));
     return .{
         .x = @intCast(@divTrunc(@as(i64, v.x) * length, l)),

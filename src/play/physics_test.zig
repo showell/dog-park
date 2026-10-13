@@ -696,3 +696,23 @@ test "subscribing more tiles changes nothing: the server's board, a page holding
     try testing.expect(bumps > 0);
     try testing.expect(moved > 100);
 }
+
+// ------------------------------------------- the arithmetic on every target
+
+test "the wish arithmetic at the i64 extremes gives the same bits on every target: a seeded fuzz, folded into one checksum (test 11)" {
+    var prng: std.Random.DefaultPrng = .init(11);
+    const rand = prng.random();
+    var crc = std.hash.Crc32.init();
+    for (0..200_000) |k| {
+        // Vectors across the whole world (squared lengths to 1.3e14), wish
+        // lengths to the follow distance (products to 3e12).
+        const span: i32 = if (k % 2 == 0) physics.world else physics.px(500);
+        const v: Point = .{ .x = rand.intRangeAtMost(i32, -span, span), .y = rand.intRangeAtMost(i32, -span, span) };
+        if (v.x == 0 and v.y == 0) continue;
+        const w = physics.wishAlong(v, rand.intRangeAtMost(i32, 0, physics.follow));
+        const s = physics.stepOf(.{ .x = rand.intRangeAtMost(i32, -physics.world, physics.world), .y = rand.intRangeAtMost(i32, -physics.world, physics.world) });
+        const r = physics.isqrt(physics.len2(v));
+        crc.update(std.mem.asBytes(&[_]i64{ w.x, w.y, s.x, s.y, r }));
+    }
+    try testing.expectEqual(@as(u32, 1780965645), crc.final());
+}
