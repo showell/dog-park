@@ -108,10 +108,11 @@ export fn reset() void {
     begun = @splat(.{});
 }
 
-/// Board `to` becomes a copy of board `from`, with no inputs begun.
+/// Board `to` becomes a copy of board `from`, the inputs begun on it
+/// included (a tick tried on `scratch` is the tick `live` would run).
 export fn copyBoard(from: u32, to: u32) void {
     boards[to] = boards[from];
-    begun[to] = .{};
+    begun[to] = begun[from];
 }
 
 /// The inputs begun on a board are forgotten (its next tick has none yet).

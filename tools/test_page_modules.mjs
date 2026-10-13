@@ -22,7 +22,14 @@ test("every module imports without a DOM", () => {
 });
 
 test("the engine keeps no state of its own: its exports are a maker, pure helpers and constants", () => {
-  assert.deepEqual(Object.keys(engine).sort(), ["createEngine", "leash_kept_ticks", "most_catch_up_ticks", "tick_ms", "ticksDue", "wholePoint"]);
+  assert.deepEqual(Object.keys(engine).sort(), ["answer_ms", "backoff_ms", "budget_bytes", "createEngine", "most_catch_up_ticks", "most_humans", "spacing_ms", "tick_ms", "ticksDue", "window_ticks"]);
+  // docs/PHYSICS.md's numbers.
+  assert.deepEqual(engine.backoff_ms, [5000, 10000, 20000, 40000, 60000]);
+  assert.equal(engine.window_ticks, 32);
+  assert.equal(engine.budget_bytes, 48 * 1024);
+  assert.equal(engine.spacing_ms, 250);
+  assert.equal(engine.answer_ms, 5000);
+  assert.equal(engine.most_humans, 16);
 });
 
 test("the ticks due: one per 62.5 ms begun, at most 8 after a stall, the rest dropped", () => {
@@ -74,10 +81,14 @@ test("the tiles wanted: the widest margin within the cap", () => {
   const mid = scene.wantedTiles({ parkX: 2200, parkY: 2200, width: 3300, height: 3300 });
   assert.equal(mid.length, 64);
   assert.deepEqual([mid[0], mid.at(-1)], [{ col: 4, row: 4 }, { col: 11, row: 11 }]);
-  // 4000 square at (2000, 2000): 250 and 125 px both meet 10 x 10; no margin meets 4..11.
+  // 4000 square at (2000, 2000): every margin meets 10 x 10, past the cap;
+  // the screen's own tiles are 8 x 8, cols and rows 4..11.
   const wide = scene.wantedTiles({ parkX: 2000, parkY: 2000, width: 4000, height: 4000 });
   assert.equal(wide.length, 64);
   assert.deepEqual([wide[0], wide.at(-1)], [{ col: 4, row: 4 }, { col: 11, row: 11 }]);
+  // 4100 square: the screen itself meets 10 x 10, past the cap: all of
+  // them (the subscription keeps the nearest 64).
+  assert.equal(scene.wantedTiles({ parkX: 1950, parkY: 1950, width: 4100, height: 4100 }).length, 100);
 });
 
 test("the world is 64 x 64 tiles, the server's; its middle is the populated park's", () => {
@@ -152,8 +163,31 @@ test("the edge bands: nothing in the middle, faster deeper in, a tick's speeds",
   assert.ok(shallow > 0 && shallow < pointer.fastest_px_per_tick);
 });
 
-test("a dog's place is told as whole pixels", () => {
-  assert.deepEqual(engine.wholePoint({ parkX: 10.5, parkY: -3.4 }), { parkX: 11, parkY: -3 });
+test("the subscription: the region's tiles first, then the display's nearest the centre, at most 64", () => {
+  // 1000 x 700 at (2000, 2000): the display's 12 tiles (cols 3..6, rows
+  // 3..5), the centre (2500, 2350) in tile 5,4.
+  const v = { parkX: 2000, parkY: 2000, width: 1000, height: 700 };
+  const display = scene.subscription([], v);
+  assert.equal(display.length, 12);
+  assert.deepEqual(display.slice(0, 2), [{ col: 4, row: 4 }, { col: 5, row: 4 }]);
+  // The region first, whatever the distance; a tile in both once.
+  const region = [{ col: 40, row: 40 }, { col: 4, row: 4 }];
+  const both = scene.subscription(region, v);
+  assert.deepEqual(both.slice(0, 3), [{ col: 40, row: 40 }, { col: 4, row: 4 }, { col: 5, row: 4 }]);
+  assert.equal(both.length, 13);
+  // Over the cap: the region's 25 and the display's nearest 39.
+  const big = { parkX: 2000, parkY: 2000, width: 4000, height: 4000 };
+  const r25 = [];
+  for (let c = 30; c < 35; c++) for (let r = 30; r < 35; r++) r25.push({ col: c, row: r });
+  const capped = scene.subscription(r25, big);
+  assert.equal(capped.length, 64);
+  assert.deepEqual(capped.slice(0, 25), r25);
+  // The nearest display tiles to (4000, 4000): the four around it.
+  assert.deepEqual(capped.slice(25, 29), [{ col: 7, row: 7 }, { col: 8, row: 7 }, { col: 7, row: 8 }, { col: 8, row: 8 }]);
+});
+
+test("a dog's look is its breed, n mod 4", () => {
+  assert.deepEqual(scene.dog_looks, ["🐕", "🐩", "🦮", "🐕‍🦺"]);
 });
 
 // ── what a frame draws, and what a press is on ──────────────────────────────
@@ -328,17 +362,20 @@ function play(rows, { mode = "near", viewport, overviewAt } = {}) {
 
 const near = { parkX: 1000, parkY: 1000, width: 800, height: 600 };
 
-test("a gesture on a dog: grab where pressed, drags that keep it on screen, let go", () => {
+test("a gesture on a dog: grab where pressed, drags as displacements, let go", () => {
   // Dog 219 at park (1100, 1200), so at viewport (100, 200); pressed 5 px right and 3 px up of its centre.
-  const held = { kind: "dragging", dogId: 219, offsetX: 5, offsetY: -3 };
   play([
     { event: { type: "down", x: 105, y: 197, dogAt: { parkX: 1100, parkY: 1200 } }, hit: "dog:219",
-      hand: held, intents: [{ kind: "grab", dogId: 219 }] },
+      hand: { kind: "dragging", dogId: 219, lastX: 105, lastY: 197 }, intents: [{ kind: "grab", dogId: 219 }] },
     { event: { type: "move", x: 115, y: 190 },
-      hand: held, intents: [{ kind: "drag", dogId: 219, parkX: 1110, parkY: 1193 }] },
-    // Past the screen's left edge: held a half dog in from it.
-    { event: { type: "move", x: -50, y: 190 },
-      hand: held, intents: [{ kind: "drag", dogId: 219, parkX: 1020, parkY: 1193 }] },
+      hand: { kind: "dragging", dogId: 219, lastX: 115, lastY: 190 }, intents: [{ kind: "drag", dogId: 219, dx: 10, dy: -7 }] },
+    // Past the screen's edge: the displacement all the same (the tick
+    // decides where the dog goes).
+    { event: { type: "move", x: -50.5, y: 190 },
+      hand: { kind: "dragging", dogId: 219, lastX: -50.5, lastY: 190 }, intents: [{ kind: "drag", dogId: 219, dx: -165.5, dy: 0 }] },
+    // A move that goes nowhere means nothing.
+    { event: { type: "move", x: -50.5, y: 190 },
+      hand: { kind: "dragging", dogId: 219, lastX: -50.5, lastY: 190 }, intents: [] },
     { event: { type: "up" }, hand: pointer.resting, intents: [{ kind: "letgo" }] },
     // A move with nothing in hand means nothing; so does a second up.
     { event: { type: "move", x: 300, y: 300 }, hand: pointer.resting, intents: [] },
@@ -346,16 +383,12 @@ test("a gesture on a dog: grab where pressed, drags that keep it on screen, let 
   ], { viewport: near });
 });
 
-test("a drag stops at the world's edge", () => {
-  // The viewport hangs past the world's top-left corner.
-  const corner = { parkX: -300, parkY: -200, width: 800, height: 600 };
+test("a cancel lets go too", () => {
   play([
     { event: { type: "down", x: 400, y: 300, dogAt: { parkX: 100, parkY: 100 } }, hit: "dog:5",
-      hand: { kind: "dragging", dogId: 5, offsetX: 0, offsetY: 0 }, intents: [{ kind: "grab", dogId: 5 }] },
-    { event: { type: "move", x: 30, y: 30 },
-      hand: { kind: "dragging", dogId: 5, offsetX: 0, offsetY: 0 }, intents: [{ kind: "drag", dogId: 5, parkX: 0, parkY: 0 }] },
+      hand: { kind: "dragging", dogId: 5, lastX: 400, lastY: 300 }, intents: [{ kind: "grab", dogId: 5 }] },
     { event: { type: "cancel" }, hand: pointer.resting, intents: [{ kind: "letgo" }] },
-  ], { viewport: corner });
+  ], { viewport: near });
 });
 
 test("a press on empty ground pans: the viewport against the pointer", () => {
@@ -440,7 +473,7 @@ test("in the overview, a scrollbar: the thumb held where pressed, the track jump
 test('"z" mid-drag lets go and flips the mode; resting, it only flips; the overview opens centred on the view', () => {
   const centred = scene.overviewCentredOn(near);
   const opened = { kind: "scroll", parkX: centred.parkX, parkY: centred.parkY };
-  const held = { kind: "dragging", dogId: 7, offsetX: 0, offsetY: 0 };
+  const held = { kind: "dragging", dogId: 7, lastX: 100, lastY: 200 };
   play([
     { event: { type: "down", x: 100, y: 200, dogAt: { parkX: 1100, parkY: 1200 } }, hit: "dog:7",
       hand: held, intents: [{ kind: "grab", dogId: 7 }] },
@@ -489,7 +522,7 @@ test("the edge bands each tick: a pan keeps going, a held dog carries the viewpo
 test("where a hand holds a pan: the pointer, or none", () => {
   assert.equal(pointer.panPointer(pointer.resting), "none");
   assert.deepEqual(pointer.panPointer({ kind: "panning", lastX: 3, lastY: 4 }), { x: 3, y: 4 });
-  assert.equal(pointer.panPointer({ kind: "dragging", dogId: 219, offsetX: 0, offsetY: 0 }), "none");
+  assert.equal(pointer.panPointer({ kind: "dragging", dogId: 219, lastX: 0, lastY: 0 }), "none");
 });
 
 test("a press is on what was drawn in the mode it is made in", () => {

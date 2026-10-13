@@ -10,6 +10,8 @@
 export const dog_px = 40;
 export const cow_px = dog_px * 1.5;
 export const cow_emoji = "🐄";
+// The four breeds: dog n has look n mod 4 (dogs.zig's `looks`).
+export const dog_looks = ["🐕", "🐩", "🦮", "🐕‍🦺"];
 
 // ── frames ──────────────────────────────────────────────────────────────────
 
@@ -92,9 +94,27 @@ export function wantedTiles(viewport) {
     const near = tilesMeeting(viewport.parkX - m, viewport.parkY - m, viewport.width + 2 * m, viewport.height + 2 * m);
     if (near.length <= most_tiles) return near;
   }
-  const shown = tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height);
-  console.error(`a screen this big shows ${shown.length} tiles, past the ${most_tiles} a page may subscribe`);
-  return shown.slice(0, most_tiles);
+  // A screen this big shows more than a page may subscribe: the
+  // subscription keeps those nearest its centre.
+  return tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height);
+}
+
+// **WHAT THE PAGE SUBSCRIBES** (docs/PHYSICS.md item 11, decision 13): the
+// region's tiles first (while a dog is leashed: the physics can't tick
+// without them), then the display's (`wantedTiles`), nearest the
+// viewport's centre first (the square metric, from each tile's centre;
+// ties by row, then column), at most `most_tiles` in all.
+export function subscription(regionTiles, viewport) {
+  const out = new Map(regionTiles.map((t) => [tileKey(t), t]));
+  const cx = viewport.parkX + viewport.width / 2;
+  const cy = viewport.parkY + viewport.height / 2;
+  const away = (t) => Math.max(Math.abs((t.col + 0.5) * tile_px - cx), Math.abs((t.row + 0.5) * tile_px - cy));
+  const display = wantedTiles(viewport).sort((a, b) => away(a) - away(b) || a.row - b.row || a.col - b.col);
+  for (const t of display) {
+    if (out.size >= most_tiles) break;
+    out.set(tileKey(t), t);
+  }
+  return [...out.values()];
 }
 
 // ── the overview's frame ────────────────────────────────────────────────────
@@ -336,4 +356,13 @@ export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at)
     out.push({ id: thumbTarget(axis), shape: "rect", x: th.x, y: th.y, w: th.w, h: th.h, fill: "#dde", role: "target" });
   }
   return out;
+}
+
+// A message across the screen, over whatever is drawn: why the page has
+// stopped, or what it waits for.
+export function messageScene(viewport, text) {
+  return [
+    { id: "message:back", shape: "rect", x: 0, y: viewport.height / 2 - 30, w: viewport.width, h: 60, fill: "rgba(0,0,0,0.7)", role: "scenery" },
+    { id: "message", shape: "text", x: viewport.width / 2, y: viewport.height / 2, w: 0, h: 0, text, font: "18px sans-serif", fill: "#fff", role: "scenery" },
+  ];
 }

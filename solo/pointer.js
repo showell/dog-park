@@ -4,7 +4,7 @@
 // engine runs the edge bands each tick.
 
 import {
-  dog_px, viewportFromPark, parkFromViewport, keptOnScreen, keptInWorld, viewportKeptOnWorld,
+  dog_px, viewportFromPark, keptInWorld, viewportKeptOnWorld,
   overviewFrame, overviewCentredOn, overviewShowing, overviewMoved, overviewScrolled, overviewJumped,
   view_target, dogOfTarget, scrollOfTarget,
 } from "./scene.js";
@@ -43,9 +43,12 @@ export function axisScroll(viewportAt, length, reachPx) {
 //
 //   { kind: "resting" }
 //   { kind: "panning", lastX, lastY }        from the pointer's last viewport point
-//   { kind: "dragging", dogId, offsetX, offsetY }
-//       a dog by its number, held where it was grabbed: the pointer is
-//       (offsetX, offsetY) from the dog's centre, so the dog doesn't jump
+//   { kind: "dragging", dogId, lastX, lastY }
+//       a dog by its number, held, from the pointer's last viewport point:
+//       **A DRAG IS A DISPLACEMENT** (docs/PHYSICS.md), how far the pointer
+//       moved, which the next tick adds to where the dog actually is; the
+//       pointer never puts the dog anywhere, so the two may drift apart (a
+//       bump, the 100 px cap, the world's edge, a freeze)
 //   { kind: "scrolling", axis, lastX, lastY }
 //       the overview's scrollbar on `axis` ("x" or "y") held, from the
 //       pointer's last viewport point
@@ -63,8 +66,8 @@ export function axisScroll(viewportAt, length, reachPx) {
 // AN INTENT, what the page does about it, in order:
 //
 //   { kind: "grab", dogId }                 leash the dog (at the next tick)
-//   { kind: "drag", dogId, parkX, parkY }   the pointer puts the dog here; the
-//                                           next tick takes the last of these
+//   { kind: "drag", dogId, dx, dy }         the pointer moved the dog (dx, dy)
+//                                           px; the next tick plays them in order
 //   { kind: "letgo" }                       the dog in hand goes, kept on the
 //                                           leash (at the next tick, after its drags)
 //   { kind: "pan", parkX, parkY }           the viewport's top-left is now here
@@ -99,9 +102,8 @@ export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX
       if (dogId === "none" || event.dogAt === "none") {
         return { hand: { kind: "panning", lastX: event.x, lastY: event.y }, intents: [] };
       }
-      const at = viewportFromPark(viewport, event.dogAt.parkX, event.dogAt.parkY);
       return {
-        hand: { kind: "dragging", dogId, offsetX: event.x - at.viewportX, offsetY: event.y - at.viewportY },
+        hand: { kind: "dragging", dogId, lastX: event.x, lastY: event.y },
         intents: [{ kind: "grab", dogId }],
       };
     }
@@ -130,11 +132,11 @@ export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX
         };
       }
       if (hand.kind !== "dragging") return { hand, intents: [] };
-      // The held dog under the pointer, as far as the screen allows.
-      const want = parkFromViewport(viewport, event.x - hand.offsetX, event.y - hand.offsetY);
-      const onScreen = keptOnScreen(viewport, want.parkX, want.parkY);
-      const to = keptInWorld(onScreen.parkX, onScreen.parkY);
-      return { hand, intents: [{ kind: "drag", dogId: hand.dogId, parkX: to.parkX, parkY: to.parkY }] };
+      // How far the pointer moved: near, a viewport px is a park px.
+      const dx = event.x - hand.lastX;
+      const dy = event.y - hand.lastY;
+      if (dx === 0 && dy === 0) return { hand, intents: [] };
+      return { hand: { ...hand, lastX: event.x, lastY: event.y }, intents: [{ kind: "drag", dogId: hand.dogId, dx, dy }] };
     }
     case "up":
     case "cancel":

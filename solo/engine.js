@@ -1,433 +1,707 @@
-// The engine: what the page knows and how it talks to the server, with no
-// DOM. The dogs and cows it has seen, the tiles subscribed, the leash, the
-// viewport, the sends, the cows' rule, and the tick. Everything it does over
-// the wire or with the clock goes through what `createEngine` is given, so
-// node can drive it; one engine is one page.
+// The engine: the page's side of docs/PHYSICS.md, with no DOM. The physics
+// runs in the wasm (physics.js), the very code the server judges with; this
+// keeps THE RECORD (what the human did, tick by tick), runs it, writes the
+// reports and takes the answers. Everything it does over the wire or with
+// a clock goes through what `createEngine` is given, so node can drive it;
+// one engine is one page load.
 //
-// **THE PAGE TICKS 16 TIMES A SECOND** (docs/PHYSICS.md's tick, 62.5 ms),
-// apart from the frames: `frame(nowMs)` runs the ticks due since the last,
-// 0 or more, and everything that moves a critter or the viewport by itself
-// happens in a tick. The pointer's grab, drag and letgo are recorded as they
-// come and applied, in order, at the next tick: the held dog lands where the
-// pointer last put it before the tick. The edge bands move the held dog (and
-// the viewport with it), or a pan held at an edge moves the viewport, a
-// tick's worth each tick. The leash's let-go is 80 ticks. The tiles are
-// synced, the moved dog's place sent and the cows predicted once a tick. A
-// pan by the pointer itself moves the viewport at once: it moves no critter.
+// **THE RECORD** is a list of entries after the last tick the server kept
+// (K), each a line of the report:
+//   { kind: "human", t, h, dog, text }   leash, release, grab or letgo at t
+//   { kind: "view", t, width, height, tiles, text }
+//   { kind: "held", t, tiles, text }
+//   { kind: "tick", t, wallMs, drag, checked, flags }   drag as capped
+// `cursor` says how many of them the live board has run; past it (a replay
+// held back for a tile or the byte budget) they wait. A report carries the
+// run entries; the kept ones leave the record, moving the KEPT board on
+// (replayed there); a `differ` lays the server's board over KEPT and runs
+// the rest of the record again from there (the rewind).
 //
-// Between ticks the frames draw each critter, and the viewport, between
-// where it was at the tick before and where it is now (`view().alpha`, the
-// way through the tick; scene.js's `between`).
-//
-//   createEngine({ rule, post, getJSON, now, log })
-//     rule        the cows' rule, /cows.wasm's exports
-//     post        (path, body) -> Promise of the answer's JSON; rejects on
-//                 no answer or one not ok
-//     getJSON     (path) -> Promise of the answer's JSON
-//     now         () -> ms, for the moves' round trips in the log
+//   createEngine({ physics, post, now, wall, setTimer, clearTimer, log, reload })
+//     physics     physics.js's wrapper over the wasm
+//     post        (path, text) -> Promise of { status, text }; rejects when
+//                 nothing came back
+//     now         () -> ms, the page's clock (performance.now)
+//     wall        () -> Unix ms, recorded in reports as data only
+//     setTimer    (ms, fn) -> handle; clearTimer(handle)
 //     log         { log, warn, error }, the dev console
+//     reload      (why) -> the page loads afresh (a new epoch)
 //
-//   engine.load(measure)  asks /me where the viewport was and whose leash
-//                         is on; `measure()` -> { width, height }, the
-//                         screen, read once the answer is in
+//   engine.load(measure, at)  POST /load; `measure()` -> { width, height };
+//                         `at` a remembered viewport top-left { parkX,
+//                         parkY }, or "none" (the world's centre); a
+//                         leashed dog is put in the middle of the screen
 //   engine.resize({ width, height })
-//   engine.intent(i)      a pointer intent (pointer.js): grab, drag and letgo
-//                         wait for the next tick; a pan is applied at once
+//   engine.intent(i)      a pointer intent (pointer.js): grab, drag, letgo, pan
 //   engine.frame(nowMs, panAt)
-//                         each frame: the ticks due by `nowMs` run (the
-//                         first frame starts the clock and runs none);
-//                         `panAt` is where the pointer holds a pan, a
-//                         viewport point { x, y }, or "none" (pointer.js's
-//                         panPointer): the edge bands' pan. Answers the
-//                         number of ticks run
+//                         each frame: the ticks due by `nowMs` run (the first
+//                         frame starts the clock and runs none), then a report
+//                         goes if one is due; `panAt` is where the pointer holds
+//                         a pan (pointer.js's panPointer). Answers the ticks run
 //   engine.view()         plain data, copies: { viewport, dogs (a Map by id),
 //                         cows, subscribed (a Set of tile keys), leashed,
-//                         lastLeashed, tick, alpha, was } where `was` is
-//                         { viewport, dogs, cows }: the viewport's park point
-//                         and each critter's (Maps by id) at the tick before
+//                         lastLeashed, tick, alpha, was, status, holding }
+//   engine.debug()        the protocol's state, for tests and the console
 
-import { tileOf, tileKey, wantedTiles, world_px, viewportKeptOnWorld } from "./scene.js";
+import { LIVE, KEPT, SCRATCH, flag } from "./physics.js";
+import { tileKey, subscription, world_px, most_tiles, viewportKeptOnWorld, dog_looks } from "./scene.js";
 import { edgeScroll } from "./pointer.js";
 
 // The tick: 16 a second.
 export const tick_ms = 62.5;
-
-// **A STALL CATCHES UP AT MOST `most_catch_up_ticks`** (half a second): a
-// frame after a longer gap (a background tab, a slow machine) runs that
-// many, and the rest are dropped, never owed: the clock starts again from
-// that frame. The physics has no clock, so a dropped tick changes nothing
-// but how far the edge bands carried you.
+// A stall catches up at most this many ticks; the rest are dropped, never owed.
 export const most_catch_up_ticks = 8;
-
-// How long a dog stays on your leash after you let go of it: 5 s.
-export const leash_kept_ticks = 80;
-
-// The most points one move's path holds (dogs.zig's most_path_points): past
-// it, the newest point takes the last one's place.
-const most_path_points = 100;
-
-// **A COW THAT JUMPS IS SAID** (Steve saw big jumps): one predicted more
-// than `jump_px` from where the last tick had it is logged, with what moved
-// it: the rule (the page's own prediction) or the server's word. A tick is
-// 3.75 frames at 60 Hz, so this is the 8 px a frame it was.
-const jump_px = 30;
-
-// Where a dog is, as the whole pixel the server is told.
-export function wholePoint(dog) {
-  return { parkX: Math.round(dog.parkX), parkY: Math.round(dog.parkY) };
-}
+// The page runs at most this many ticks past the last kept one.
+export const window_ticks = 32;
+// A report goes at once at this much unsent text, and the physics freezes
+// there (the server's body limit is 64 KiB).
+export const budget_bytes = 48 * 1024;
+// No sooner than this after the last report went.
+export const spacing_ms = 250;
+// An exchange with no answer in this long is abandoned and tried again.
+export const answer_ms = 5000;
+// Between tries of one request: 5 s, then 10, 20, 40, and 60 for ever.
+export const backoff_ms = [5000, 10000, 20000, 40000, 60000];
+// The most of the human's inputs at one tick.
+export const most_humans = 16;
 
 // The ticks a frame at `nowMs` runs, the last tick having begun at
 // `lastTickMs`: those whose start has come, at most `most_catch_up_ticks`;
-// and when the last of them began (`nowMs` itself when some were dropped:
-// the clock starts again there). `dropped` is how many were.
+// and when the last of them began (`nowMs` itself when some were dropped).
 export function ticksDue(lastTickMs, nowMs) {
   const due = Math.max(0, Math.floor((nowMs - lastTickMs) / tick_ms));
   if (due <= most_catch_up_ticks) return { ticks: due, lastTickMs: lastTickMs + due * tick_ms, dropped: 0 };
   return { ticks: most_catch_up_ticks, lastTickMs: nowMs, dropped: due - most_catch_up_ticks };
 }
 
-export function createEngine({ rule, post, getJSON, now, log }) {
-  // ── what the page knows ───────────────────────────────────────────────────
+const keyed = (tiles) => new Map(tiles.map((t) => [tileKey(t), t]));
+const sameKeys = (a, b) => a.size === b.size && [...a.keys()].every((k) => b.has(k));
+const px = (v256) => v256 / 256;
 
-  // The viewport: its top-left a park point, its size the screen's.
+export function createEngine({ physics, post, now, wall, setTimer, clearTimer, log, reload }) {
+  // ── what the page shows ───────────────────────────────────────────────────
+
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
-  // Every dog the page has seen, by id, where it last saw it: live in a tile
-  // subscribed, remembered (perhaps stale) in one that is not.
-  const known = new Map();
-  // Every cow the page has seen, by id, where the SERVER last said it is, in
-  // HALF park pixels (cows.zig's CowPoint): halfX / 2 is its park x.
-  const serverCows = new Map();
-  // The cows the server told of since the last frame, and by what: so a cow
-  // that jumps can be said to have jumped by the rule or by the server.
-  const toldOf = new Map();
-  // The cows as drawn: `serverCows` with the unanswered moves replayed
-  // (predictCows), each frame.
-  let knownCows = new Map();
-  // Where the server has each dog, or will once the move in flight lands: a
-  // move's BEGIN point. Set by the tiles' answer and by each send.
-  const beginPoints = new Map();
-  // The tiles the server has acked as subscribed, by key.
-  let subscribed = new Map();
-
-  // The dog on your leash, by id: none, or one held in your hand, or one let
-  // go of and kept on the leash until tick `untilTick`, when it is let go.
-  // **THE DOG IN YOUR HAND IS THE LEASH'S `in_hand`**: a grab leashes, and
-  // nothing but a grab or a letgo changes the leash while a dog is held.
-  let leashed = { kind: "none" };
-  // The dog you leashed last, by id, for the overview: none yet, or one.
+  // "loading" | "playing" | { stopped: message } | { reloading: why }
+  let status = { kind: "loading" };
+  // The critters on the live board, drawn; and where they were at the tick
+  // before (the frames draw between).
+  let dogs = new Map();
+  let cows = new Map();
+  let wasDogs = new Map();
+  let wasCows = new Map();
+  const wasViewport = { parkX: 0, parkY: 0 };
   let lastLeashed = { kind: "none" };
+
+  // ── the protocol's state ──────────────────────────────────────────────────
+
+  let epoch = null; // { ms, count }
+  let K = 0; // the last kept tick
+  // The human's inputs the server kept for K + 1 ({ h, dog }), and the view
+  // and held tiles in effect there.
+  let keptInputs = [];
+  let keptView = { width: 0, height: 0, tiles: new Map() };
+  let keptHeld = new Map();
+  // The record past K, and how much of it the live board has run.
+  let record = [];
+  let cursor = 0;
+  // The view and held tiles at the cursor.
+  let view = { width: 0, height: 0, tiles: new Map() };
+  let held = new Map();
+  // Every tile whose critters came in a `tile` line this epoch.
+  const received = new Set();
+  // The last subscription wanted, so a coalesced view isn't written again.
+  let lastWanted = "";
+  // Requests: the last number used, the one in flight ({ req, count, x }),
+  // when the last went, and how many have been answered this epoch.
+  let req = 0;
+  let flight = null;
+  let lastSendMs = -Infinity;
+  let answered = 0;
+  // The exchange in flight (a load's or a report's), and a count to tell a
+  // late answer from the current one.
+  let current = null;
+  let exchanges = 0;
 
   // ── the tick ──────────────────────────────────────────────────────────────
 
-  // The clock: "unstarted" until the first frame, then when the last tick
-  // began (a frame's ms). `tick` counts the ticks run.
   let clock = "unstarted";
-  let tick = 0;
-  // How far the last frame was through its tick, 0 to 1 (1 before any).
   let alpha = 1;
-  // The pointer's grab, drag and letgo intents since the last tick, in order.
-  let inputs = [];
-  // Where the viewport and each critter were at the tick before this one:
-  // the frames draw between there and here.
-  const wasViewport = { parkX: 0, parkY: 0 };
-  let wasDogs = new Map();
-  let wasCows = new Map();
+  // Whether the page ticks: a rest or a release stops it; the human's input
+  // starts it.
+  let ticking = false;
+  // Whether the pointer holds the leashed dog (a grab or leash until a
+  // letgo or a bump).
+  let holding = false;
+  // A replay gained a bump: its drags and letgos are dropped until a grab.
+  let dropping = false;
+  // The pointer's displacements since the last tick, in 256ths ([dx, dy,
+  // ms]), and the fractions of a 256th not yet given.
+  let pendingDrag = [];
+  const fraction = { x: 0, y: 0 };
 
-  function heardOfCow(c, by) {
-    serverCows.set(c.id, { id: c.id, halfX: c.half_x, halfY: c.half_y });
-    toldOf.set(c.id, by);
+  // ── the record ────────────────────────────────────────────────────────────
+
+  function lastTick() {
+    for (let i = record.length - 1; i >= 0; i--) if (record[i].kind === "tick") return record[i].t;
+    return K;
+  }
+  const nextTick = () => lastTick() + 1;
+  // Where the unsent entries start: past the request in flight.
+  const unsentFrom = () => (flight ? flight.count : 0);
+
+  function bytesOf(e) {
+    if (e.kind === "tick") return e.checked.length + 24 + 26 * e.drag.length;
+    return e.text.length;
   }
 
-  // ── the leash ─────────────────────────────────────────────────────────────
-
-  // A leash is asked for and the dog moved at once (optimistic); the ack is
-  // only said, for now.
-  function leashTo(dogId) {
-    if (leashed.kind !== "none" && leashed.dogId !== dogId) releaseLeash();
-    const already = leashed.kind !== "none" && leashed.dogId === dogId;
-    leashed = { kind: "in_hand", dogId };
-    lastLeashed = { kind: "dog", dogId };
-    if (already) return;
-    post("/leash", { dog: dogId }).then(
-      (ack) => log.log("leashed", ack),
-      (e) => log.error("leash failed:", e.message),
-    );
+  function unsentBytes() {
+    let n = 0;
+    for (let i = unsentFrom(); i < cursor; i++) n += bytesOf(record[i]);
+    return n;
   }
 
-  // Let go of the dog in your hand: it stays on the leash
-  // `leash_kept_ticks` from this tick.
-  function keepOnLeash() {
-    if (leashed.kind !== "in_hand") return;
-    leashed = { kind: "kept", dogId: leashed.dogId, untilTick: tick + leash_kept_ticks };
+  function humansAt(t) {
+    let n = t === K + 1 ? keptInputs.length : 0;
+    for (const e of record) if (e.kind === "human" && e.t === t) n++;
+    return n;
   }
 
-  function releaseLeash() {
-    if (leashed.kind === "none") return;
-    const dogId = leashed.dogId;
-    leashed = { kind: "none" };
-    post("/release", { dog: dogId }).then(
-      (ack) => log.log("released", ack),
-      (e) => log.error("release failed:", e.message),
-    );
+  function applyView(e) {
+    view = { width: e.width, height: e.height, tiles: keyed(e.tiles) };
+    for (const k of [...held.keys()]) if (!view.tiles.has(k)) held.delete(k);
   }
 
-  // ── sends: at most one waiting each, the latest sent when it is acked ─────
-
-  // waiting: "none", or the move in flight: its dog's id, where the server
-  // had the dog (`begin`), and the path sent. pending: each dog's path not
-  // sent yet, by dog id, in the order the server will be sent them.
-  const moves = { waiting: "none", pending: new Map() };
-
-  // The last point the server has, or will have once told, of a dog.
-  function lastPoint(dogId) {
-    const pending = moves.pending.get(dogId);
-    return pending ? pending.path[pending.path.length - 1] : beginPoints.get(dogId);
+  function applyHeld(e) {
+    for (const t of e.tiles) held.set(tileKey(t), t);
   }
 
-  // **THE PATH THE PAGE SAW**: once a tick, where a dog the tick moved now
-  // is joins its path when it has moved a whole pixel (one point a tick),
-  // and the path goes when nothing is in flight. The server replays the
-  // cows' rule along it, segment by segment, as the page does (predictCows).
-  function sendMove(dogId) {
-    const at = wholePoint(known.get(dogId));
-    const last = lastPoint(dogId);
-    if (last && last.parkX === at.parkX && last.parkY === at.parkY) return;
-    let pending = moves.pending.get(dogId);
-    if (!pending) {
-      pending = { dogId, path: [] };
-      moves.pending.set(dogId, pending);
+  // An entry added at the end: run at once when everything before it has.
+  function append(e) {
+    record.push(e);
+    if (cursor === record.length - 1) {
+      if (e.kind === "view") applyView(e);
+      else if (e.kind === "held") applyHeld(e);
+      cursor++;
     }
-    if (pending.path.length === most_path_points) pending.path[most_path_points - 1] = at;
-    else pending.path.push(at);
-    if (moves.waiting === "none") sendNext();
   }
 
-  function sendNext() {
-    const [next] = moves.pending.values();
-    if (next === undefined) return;
-    moves.pending.delete(next.dogId);
-    const { dogId, path } = next;
-    const begin = beginPoints.get(dogId);
-    moves.waiting = { dogId, begin, path };
-    beginPoints.set(dogId, path[path.length - 1]);
-    const sentMs = now();
-    post("/move", { dog: dogId, path: path.map((p) => [p.parkX, p.parkY]) }).then(
-      (ack) => {
-        for (const c of ack.cows) heardOfCow(c, "a move's ack");
-        const scared = ack.cows.length ? `, scaring ${ack.cows.map((c) => `cow ${c.id} to (${c.half_x / 2}, ${c.half_y / 2})`).join(", ")}` : "";
-        log.log(`moved ${ack.moved} along ${path.length} points to (${ack.park_x}, ${ack.park_y}) in ${Math.round(now() - sentMs)} ms${scared}`);
-      },
-      (e) => {
-        // Not moved: the server has the dog where it had it.
-        if (begin) beginPoints.set(dogId, begin);
-        log.error("move failed:", e.message);
-      },
-    ).finally(() => {
-      moves.waiting = "none";
-      sendNext();
-    });
-  }
-
-  // Whether a move of the dog `id` is in flight or waiting.
-  function moving(id) {
-    return (moves.waiting !== "none" && moves.waiting.dogId === id) || moves.pending.has(id);
-  }
-
-  // The viewport as it is when the send goes: one in flight, and at most one
-  // more due once it lands.
-  const viewportSends = { waiting: false, due: false };
-
-  function sendViewport() {
-    if (viewportSends.waiting) { viewportSends.due = true; return; }
-    viewportSends.waiting = true;
-    post("/viewport", { park_x: Math.round(viewport.parkX), park_y: Math.round(viewport.parkY) }).then(
-      () => {},
-      (e) => log.error("viewport failed:", e.message),
-    ).finally(() => {
-      viewportSends.waiting = false;
-      if (viewportSends.due) {
-        viewportSends.due = false;
-        sendViewport();
-      }
-    });
-  }
-
-  // The tiles, once a tick: when none is waiting and the tiles wanted differ
-  // from those subscribed, the whole set wanted is sent, each tile marked new
-  // (its dogs wanted) or held (its dogs known). The answer is the truth for
-  // each new tile: the dogs remembered there are dropped (one may have
-  // wandered off), but for one on your leash (in your hand or not, or
-  // grabbed and waiting for the tick), and the answer's dogs taken, drawn
-  // where they are from the next frame (no sliding there). A dog in a tile
-  // left out is remembered where it was.
-  const tileSends = { waiting: false };
-
-  function syncTiles() {
-    if (tileSends.waiting) return;
-    const wanted = new Map(wantedTiles(viewport).map((t) => [tileKey(t), t]));
-    const added = [...wanted.keys()].filter((k) => !subscribed.has(k)).length;
-    const dropped = [...subscribed.keys()].filter((k) => !wanted.has(k)).length;
-    if (added === 0 && dropped === 0) return;
-    tileSends.waiting = true;
-    const named = [...wanted].map(([k, t]) => ({ col: t.col, row: t.row, is: subscribed.has(k) ? "held" : "new" }));
-    post("/tiles", { tiles: named }).then(
-      (ack) => {
-        subscribed = wanted;
-        const fresh = new Set(named.filter((t) => t.is === "new").map(tileKey));
-        const onLeash = (id) => (leashed.kind !== "none" && leashed.dogId === id)
-          || inputs.some((i) => i.kind === "grab" && i.dogId === id);
-        let replaced = 0;
-        for (const [id, d] of known) {
-          if (!onLeash(id) && fresh.has(tileKey(tileOf(d.parkX, d.parkY)))) { known.delete(id); replaced++; }
-        }
-        for (const d of ack.dogs) {
-          if (onLeash(d.id) || moving(d.id)) continue;
-          known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
-          wasDogs.set(d.id, { parkX: d.park_x, parkY: d.park_y });
-          beginPoints.set(d.id, { parkX: d.park_x, parkY: d.park_y });
-        }
-        for (const [id, c] of serverCows) {
-          if (fresh.has(tileKey(tileOf(c.halfX / 2, c.halfY / 2)))) serverCows.delete(id);
-        }
-        for (const c of ack.cows) heardOfCow(c, "the tiles' answer");
-        log.log(`tiles: ${added} new, ${dropped} dropped, ${ack.subscribed} subscribed; ${ack.dogs.length} dogs arrived for ${replaced} remembered, ${known.size} known; ${ack.cows.length} cows arrived, ${serverCows.size} known`);
-      },
-      (e) => log.error("tiles failed:", e.message),
-    ).finally(() => { tileSends.waiting = false; });
-  }
-
-  // ── the cows' rule, the server's own ─────────────────────────────────────
-
-  // The cows as the server will have them once it has taken every move the
-  // page has made: the server's last word, then the path in flight, then
-  // each path waiting, from its dog's begin point, in the order the server
-  // will take them (cows.zig's replay, in the wasm). Each segment, once
-  // seen, never changes, so a tick only adds to this. In park pixels, to
-  // the half.
-  function predictCows() {
-    const ids = [...serverCows.keys()].slice(0, rule.cowCapacity());
-    const at = new Int32Array(rule.memory.buffer, rule.cowPositions(), 2 * ids.length);
-    ids.forEach((id, i) => {
-      const c = serverCows.get(id);
-      at[2 * i] = c.halfX;
-      at[2 * i + 1] = c.halfY;
-    });
-    const points = new Int32Array(rule.memory.buffer, rule.pathPoints(), 2 * rule.pathCapacity());
-    const replay = (begin, path) => {
-      if (begin === undefined) return; // a dog the server has not told of: nothing to start from
-      [begin, ...path].forEach((p, i) => {
-        points[2 * i] = p.parkX;
-        points[2 * i + 1] = p.parkY;
-      });
-      rule.replay(ids.length, 1 + path.length);
-    };
-    if (moves.waiting !== "none") replay(moves.waiting.begin, moves.waiting.path);
-    for (const { dogId, path } of moves.pending.values()) replay(beginPoints.get(dogId), path);
-    const out = new Map();
-    ids.forEach((id, i) => out.set(id, { id, parkX: at[2 * i] / 2, parkY: at[2 * i + 1] / 2 }));
-    return out;
-  }
-
-  function sayJumps(before, after) {
-    for (const [id, c] of after) {
-      const was = before.get(id);
-      if (was === undefined) continue;
-      const by = Math.hypot(c.parkX - was.parkX, c.parkY - was.parkY);
-      if (by > jump_px) {
-        log.warn(`cow ${id} jumped ${by.toFixed(1)} px, (${was.parkX}, ${was.parkY}) to (${c.parkX}, ${c.parkY}), by ${toldOf.get(id) ?? "the rule"}`);
-      }
+  // The unsent entry of `kind` at tick `t` just before `at` (only inputs of
+  // that tick between), to coalesce into; or null.
+  function coalescing(kind, t, at) {
+    for (let i = at - 1; i >= unsentFrom(); i--) {
+      const e = record[i];
+      if (e.t !== t || e.kind === "tick") return null;
+      if (e.kind === kind) return e;
     }
-    toldOf.clear();
+    return null;
   }
 
-  // ── what the page asks of it ─────────────────────────────────────────────
+  // **A VIEW AT TICK t**: the page coalesces a tick's views to one, the
+  // union of every view written for it (the newest's tiles first, at most
+  // 64), so a tile one of them added is never dropped. Inserted at `at`.
+  function writeView(t, wanted, at = record.length) {
+    const width = Math.round(viewport.width);
+    const height = Math.round(viewport.height);
+    const tiles = [...keyed(wanted).values()].slice(0, most_tiles);
+    const into = coalescing("view", t, at);
+    if (into) {
+      const union = keyed(tiles);
+      for (const old of into.tiles) if (union.size < most_tiles && !union.has(tileKey(old))) union.set(tileKey(old), old);
+      into.tiles = [...union.values()];
+      into.width = width;
+      into.height = height;
+      into.text = physics.viewLine(t, width, height, into.tiles);
+      if (record.indexOf(into) < cursor) applyView(into);
+      return;
+    }
+    const e = { kind: "view", t, width, height, tiles: [...tiles], text: physics.viewLine(t, width, height, tiles) };
+    if (at === record.length) return append(e);
+    record.splice(at, 0, e);
+    applyView(e);
+    cursor++;
+  }
 
-  function heldDog(dogId) {
-    const dog = known.get(dogId);
-    if (dog === undefined) throw new Error(`dog ${dogId} is in hand but not known`);
-    return dog;
+  // **A HELD AT TICK t**, coalesced the same way.
+  function writeHeld(t, tiles, at = record.length) {
+    const into = coalescing("held", t, at);
+    if (into) {
+      const union = keyed(into.tiles);
+      for (const n of tiles) union.set(tileKey(n), n);
+      into.tiles = [...union.values()];
+      into.text = physics.heldLine(t, into.tiles);
+      if (record.indexOf(into) < cursor) applyHeld(into);
+      return;
+    }
+    const e = { kind: "held", t, tiles: [...tiles], text: physics.heldLine(t, tiles) };
+    if (at === record.length) return append(e);
+    record.splice(at, 0, e);
+    applyHeld(e);
+    cursor++;
+  }
+
+  // **ONE OF THE HUMAN'S INPUTS** at the next tick: run at once on the live
+  // board when nothing waits before it. A 17th at one tick is dropped, as
+  // is one whose precondition fails; both are said.
+  function writeHuman(h, dog = 0) {
+    const t = nextTick();
+    if (humansAt(t) >= most_humans) {
+      log.warn(`a ${h} at tick ${t} dropped: ${most_humans} inputs there already`);
+      return false;
+    }
+    const e = { kind: "human", t, h, dog, text: "" };
+    if (cursor === record.length) {
+      const r = physics.human(LIVE, h, t, dog);
+      if (r.refused !== undefined) {
+        log.warn(`a ${h} ${dog} at tick ${t} refused (${r.refused}), dropped`);
+        return false;
+      }
+      e.text = r.text;
+      record.push(e);
+      cursor++;
+    } else record.push(e);
+    ticking = true;
+    return true;
+  }
+
+  // **THE SUBSCRIPTION** (decision 13): the region's tiles and the display's,
+  // written as a view at the next tick when what the page wants changes;
+  // and a held for every tile in the view whose critters came this epoch
+  // and that isn't held. Only with nothing waiting in the record.
+  function syncSubscription() {
+    if (cursor !== record.length || status.kind !== "playing") return;
+    const t = nextTick();
+    const want = subscription(physics.region(LIVE), viewport);
+    const wantKey = `${Math.round(viewport.width)}x${Math.round(viewport.height)} ${want.map(tileKey).sort().join(" ")}`;
+    if (wantKey !== lastWanted) {
+      lastWanted = wantKey;
+      const same = sameKeys(keyed(want), view.tiles) && view.width === Math.round(viewport.width) && view.height === Math.round(viewport.height);
+      if (!same) writeView(t, want);
+    }
+    const toHold = [...view.tiles.values()].filter((n) => received.has(tileKey(n)) && !held.has(tileKey(n)));
+    if (toHold.length) writeHeld(t, toHold);
+  }
+
+  const regionHeld = () => physics.region(LIVE).every((n) => held.has(tileKey(n)));
+
+  // ── the live tick ─────────────────────────────────────────────────────────
+
+  // One 62.5 ms slot: the record's waiting entries first; then, when the
+  // page ticks and nothing freezes it, the next tick with the pointer's
+  // drag and the edge bands'.
+  function slot(panAt) {
+    wasViewport.parkX = viewport.parkX;
+    wasViewport.parkY = viewport.parkY;
+    wasDogs = dogs;
+    wasCows = cows;
+    if (status.kind !== "playing") return;
+    if (cursor < record.length) {
+      resume();
+      if (cursor < record.length) return;
+    }
+    const dragOn = physics.drag(LIVE) === "on";
+    if (!(holding && dragOn) && panAt !== "none") {
+      for (const e of edgeScroll({ kind: "pan", x: panAt.x, y: panAt.y }, viewport)) moveViewport(e.parkX, e.parkY);
+    }
+    if (pendingDrag.length && dragOn) ticking = true;
+    if (!ticking) return;
+    const t = nextTick();
+    if (t > K + window_ticks) return;
+    if (unsentBytes() >= budget_bytes) return;
+    syncSubscription();
+    if (!regionHeld()) return;
+    const drag = pendingDrag;
+    pendingDrag = [];
+    // The edge band carries the held dog, and the viewport follows it as
+    // far as the tick took it that way.
+    const leashedDog = physics.leashed(LIVE);
+    const before = leashedDog === "none" ? null : dogs.get(leashedDog);
+    let band = { x: 0, y: 0 };
+    if (holding && dragOn && before) {
+      const e = edgeScroll({ kind: "dog", dogId: leashedDog, parkX: before.parkX, parkY: before.parkY }, viewport);
+      if (e.length) band = { x: e[0].parkX - before.parkX, y: e[0].parkY - before.parkY };
+      if (band.x !== 0 || band.y !== 0) drag.push([Math.round(band.x * 256), Math.round(band.y * 256), 0]);
+    }
+    const r = physics.tick(LIVE, t, drag);
+    record.push({ kind: "tick", t, wallMs: wall(), drag: r.drag, checked: r.checked, flags: r.flags });
+    cursor++;
+    ticked(r.flags);
+    refresh(false);
+    if (before && (band.x !== 0 || band.y !== 0)) {
+      const after = dogs.get(leashedDog);
+      const follow = (b, moved) => (b === 0 || Math.sign(moved) !== Math.sign(b) ? 0 : Math.sign(b) * Math.min(Math.abs(b), Math.abs(moved)));
+      moveViewport(viewport.parkX + follow(band.x, after.parkX - before.parkX), viewport.parkY + follow(band.y, after.parkY - before.parkY));
+    }
+  }
+
+  function ticked(flags) {
+    if (flags & flag.bump) {
+      // The drag is over: the pointer is let go (the leash stays on).
+      holding = false;
+      pendingDrag = [];
+    }
+    ticking = !(flags & (flag.rest | flag.release));
+  }
+
+  // **THE REPLAY**: the record's entries past the cursor, run on the live
+  // board (docs/PHYSICS.md item 6): every input word for word; a view
+  // written for a tile the tick's region needs and the view lacks, and a
+  // held for one whose critters the page has; stopping at a tick whose
+  // region still isn't held (until the tile comes) or at the byte budget.
+  // A tick that bumped and no longer does stands as a letgo there; one that
+  // bumps now and didn't drops the drags and letgos after it until a grab.
+  function resume() {
+    while (cursor < record.length) {
+      const e = record[cursor];
+      if (e.kind === "human") {
+        if (dropping && e.h === "letgo") { record.splice(cursor, 1); continue; }
+        if (dropping && (e.h === "grab" || e.h === "leash")) dropping = false;
+        const r = physics.human(LIVE, e.h, e.t, e.dog);
+        if (r.refused !== undefined) {
+          log.warn(`replay: a ${e.h} ${e.dog} at tick ${e.t} refused (${r.refused}), dropped`);
+          record.splice(cursor, 1);
+          continue;
+        }
+        e.text = r.text;
+        cursor++;
+        ticking = true;
+        continue;
+      }
+      if (e.kind === "view") { applyView(e); cursor++; continue; }
+      if (e.kind === "held") {
+        const ok = e.tiles.filter((n) => view.tiles.has(tileKey(n)) && received.has(tileKey(n)));
+        if (ok.length === 0) { record.splice(cursor, 1); continue; }
+        if (ok.length !== e.tiles.length) { e.tiles = ok; e.text = physics.heldLine(e.t, ok); }
+        applyHeld(e);
+        cursor++;
+        continue;
+      }
+      if (unsentBytes() >= budget_bytes) return;
+      const missing = physics.region(LIVE).filter((n) => !held.has(tileKey(n)));
+      if (missing.length) {
+        const unviewed = missing.filter((n) => !view.tiles.has(tileKey(n)));
+        if (unviewed.length) writeView(e.t, [...physics.region(LIVE), ...view.tiles.values()], cursor);
+        const holdable = missing.filter((n) => received.has(tileKey(n)));
+        if (holdable.length) writeHeld(e.t, holdable, cursor);
+        if (!regionHeld()) return;
+      }
+      const drag = dropping ? [] : e.drag;
+      if (e.flags & flag.bump) {
+        physics.copy(LIVE, SCRATCH);
+        if (!(physics.tick(SCRATCH, e.t, drag).flags & flag.bump)) {
+          const r = physics.human(LIVE, "letgo", e.t);
+          if (r.text !== undefined) {
+            record.splice(cursor, 0, { kind: "human", t: e.t, h: "letgo", dog: 0, text: r.text });
+            cursor++;
+          }
+        }
+      }
+      const r = physics.tick(LIVE, e.t, drag);
+      if ((r.flags & flag.bump) && !(e.flags & flag.bump)) dropping = true;
+      e.drag = r.drag;
+      e.checked = r.checked;
+      e.flags = r.flags;
+      cursor++;
+      ticked(r.flags);
+    }
+  }
+
+  // ── what the page draws ───────────────────────────────────────────────────
+
+  // The live board's critters, in park px; `snap`: drawn where they are,
+  // with no slide from before (a load, a rewind, a tile's arrival).
+  function refresh(snap) {
+    const c = physics.critters(LIVE);
+    dogs = new Map(c.dogs.map((d) => [d.id, { id: d.id, emoji: dog_looks[d.id % dog_looks.length], parkX: px(d.x), parkY: px(d.y) }]));
+    cows = new Map(c.cows.map((d) => [d.id, { id: d.id, parkX: px(d.x), parkY: px(d.y) }]));
+    if (snap) {
+      wasDogs = dogs;
+      wasCows = cows;
+    }
   }
 
   function moveViewport(parkX, parkY) {
     viewport.parkX = parkX;
     viewport.parkY = parkY;
-    sendViewport();
   }
 
-  // One tick: what was is now where things are; the pointer's inputs, in
-  // order; the leash let go when its ticks have run (a grab this tick came
-  // first); the edge bands (the held dog and the viewport with it, or a
-  // pan held at an edge); each dog moved sent; the tiles synced; the cows
-  // predicted.
-  function runTick(panAt) {
-    tick++;
+  // ── the wire ──────────────────────────────────────────────────────────────
+
+  // **ONE REQUEST, TRIED UNTIL ANSWERED**: no answer within 5 s, or a 5xx,
+  // and it goes again byte for byte, the tries 5, 10, 20, 40 and then 60 s
+  // apart, never given up; an answer to an abandoned try is dropped unread.
+  function exchange(path, body, onAnswer) {
+    const x = { path, body, onAnswer, tries: 0, triedMs: 0, id: 0, timer: null };
+    current = x;
+    attempt(x);
+    return x;
+  }
+
+  function attempt(x) {
+    const id = ++exchanges;
+    x.id = id;
+    x.tries++;
+    x.triedMs = now();
+    x.timer = setTimer(answer_ms, () => failed(x, id, `no answer in ${answer_ms / 1000} s`));
+    post(x.path, x.body).then(
+      (r) => {
+        if (current !== x || x.id !== id) return;
+        if (r.status >= 500) return failed(x, id, `a ${r.status}`);
+        clearTimer(x.timer);
+        current = null;
+        x.onAnswer(r);
+      },
+      (e) => failed(x, id, e.message),
+    );
+  }
+
+  function failed(x, id, why) {
+    if (current !== x || x.id !== id) return;
+    clearTimer(x.timer);
+    x.id = 0;
+    const wait = backoff_ms[Math.min(x.tries - 1, backoff_ms.length - 1)];
+    const delay = Math.max(0, x.triedMs + wait - now());
+    log.warn(`${x.path}, try ${x.tries}: ${why}; again in ${Math.round(delay)} ms, the same bytes`);
+    x.timer = setTimer(delay, () => { if (current === x) attempt(x); });
+  }
+
+  function stop(message) {
+    status = { kind: "stopped", message };
+    if (current && current.timer !== null) clearTimer(current.timer);
+    current = null;
+    log.error(`Dog Park stopped: ${message}`);
+  }
+
+  // A reload answer, a 413, an unreadable answer, `req ?`: the page loads
+  // afresh, unless this was the first report after its load, which a load
+  // just answered (another would loop).
+  function startAgain(why) {
+    if (answered === 0) return stop(`the first report after a load was answered ${why}: the page's reports can't be taken`);
+    status = { kind: "reloading", why };
+    log.warn(`reloading: ${why}`);
+    reload(why);
+  }
+
+  // **A REPORT**: every run entry, after the header and `from K`; `wall`
+  // the first tick's, each `t` line's `+ms` from it.
+  function send() {
+    const count = cursor;
+    const firstTick = record.slice(0, count).find((e) => e.kind === "tick");
+    const wallMs = firstTick ? firstTick.wallMs : "none";
+    let body = physics.header(epoch, req + 1, K, wallMs);
+    for (const e of record.slice(0, count)) {
+      body += e.kind === "tick" ? physics.tLine(e.t, e.wallMs - wallMs, e.drag) + e.checked : e.text;
+    }
+    req++;
+    lastSendMs = now();
+    flight = { req, count };
+    flight.x = exchange("/report", body, takeAnswer);
+  }
+
+  function pump() {
+    if (status.kind !== "playing") return;
+    if (cursor < record.length) resume();
+    syncSubscription();
+    if (flight || cursor === 0) return;
+    if (now() - lastSendMs >= spacing_ms || unsentBytes() >= budget_bytes) send();
+  }
+
+  // ── the answers ───────────────────────────────────────────────────────────
+
+  function takeAnswer(r) {
+    const sent = flight;
+    flight = null;
+    if (r.status === 413) return startAgain("413, the report past the body limit");
+    if (r.status !== 200) return startAgain(`${r.status}`);
+    const lines = r.text.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    if (lines[0] === "req ?") return startAgain("req ?, its header unreadable");
+    if (lines[0] !== `req ${sent.req}`) return startAgain(`"${lines[0]}" to req ${sent.req}`);
+    const second = lines[1] ?? "";
+    if (second.startsWith("reload ")) return startAgain(second);
+    if (second === "taken over") return stop("a newer page load holds the park (another tab, or a reload)");
+    if (second.startsWith("stuck ")) return stop(`the physics disagrees with itself at tick ${second.slice(6)}`);
+    const kept = /^kept (\d+)$/.exec(second);
+    if (!kept) return startAgain(`an answer that doesn't read: "${second}"`);
+    const T = Number(kept[1]);
+    const rest = lines.slice(2);
+    const ok = rest.length && rest[0].startsWith("differ ") ? differ(sent, T, rest) : keep(sent, T, rest);
+    if (!ok) return;
+    answered++;
+    refresh(true);
+    pump();
+  }
+
+  // **KEPT T**: the request's entries are the server's now: the kept board
+  // moves on through them, and they leave the record.
+  function keep(sent, T, rest) {
+    const entries = record.slice(0, sent.count);
+    const ran = entries.filter((e) => e.kind === "tick").map((e) => e.t);
+    const last = ran.length ? ran.at(-1) : K;
+    if (T !== last) { startAgain(`kept ${T} to a report that ran to ${last}`); return false; }
+    advanceKept(entries);
+    record.splice(0, sent.count);
+    cursor -= sent.count;
+    K = T;
+    return tileLines(rest);
+  }
+
+  // **DIFFER T**: kept through T - 1; the state, the inputs kept for T and
+  // the board at T's start laid over the kept board; then the record from T
+  // runs again on it (the rewind).
+  function differ(sent, keptTo, rest) {
+    const m = /^differ (\d+) (.*)$/.exec(rest[0]);
+    const T = m ? Number(m[1]) : NaN;
+    if (!m || T !== keptTo + 1) { startAgain(`a differ that doesn't read: "${rest[0]}"`); return false; }
+    log.warn(`differ at tick ${T}: the server's line ${m[2]}`);
+    let at = 1;
+    const stateLine = rest[at++] ?? "";
+    const inputs = [];
+    while ((rest[at] ?? "").startsWith("input ")) inputs.push(rest[at++]);
+    const boardLine = rest[at++] ?? "";
+    const thenTiles = rest.slice(at);
+    const keptPart = record.slice(0, sent.count).filter((e) => e.t < T);
+    advanceKept(keptPart);
+    K = keptTo;
+    const s = physics.readState(stateLine, KEPT);
+    if (s === "malformed") { startAgain(`a state line that doesn't read: "${stateLine}"`); return false; }
+    keptView = { width: s.view.width, height: s.view.height, tiles: keyed(s.view.tiles) };
+    keptHeld = keyed(s.held);
+    keptInputs = [];
+    for (const line of inputs) {
+      const i = physics.readInput(line);
+      if (i === "malformed") { startAgain(`an input line that doesn't read: "${line}"`); return false; }
+      keptInputs.push({ h: i.h, dog: i.dog });
+    }
+    if (physics.readBoard(boardLine, KEPT) !== T) { startAgain(`a board line that doesn't read: "${boardLine}"`); return false; }
+    record.splice(0, keptPart.length);
+    if (!tileLines(thenTiles)) return false;
+    rewind();
+    return true;
+  }
+
+  // The kept board, moved on through entries the server kept: the inputs
+  // kept for K + 1 and every entry up to the last tick run; any inputs
+  // after it wait for the next tick, kept.
+  function advanceKept(entries) {
+    const lastTickAt = entries.map((e) => e.kind).lastIndexOf("tick");
+    if (lastTickAt >= 0) {
+      physics.clearBegun(KEPT);
+      for (const i of keptInputs) physics.human(KEPT, i.h, K + 1, i.dog);
+      keptInputs = [];
+    }
+    entries.forEach((e, i) => {
+      if (e.kind === "view") {
+        keptView = { width: e.width, height: e.height, tiles: keyed(e.tiles) };
+        for (const k of [...keptHeld.keys()]) if (!keptView.tiles.has(k)) keptHeld.delete(k);
+      } else if (e.kind === "held") {
+        for (const n of e.tiles) keptHeld.set(tileKey(n), n);
+      } else if (e.kind === "human") {
+        if (i > lastTickAt) keptInputs.push({ h: e.h, dog: e.dog });
+        else physics.human(KEPT, e.h, e.t, e.dog);
+      } else {
+        const r = physics.tick(KEPT, e.t, e.drag);
+        // The same code on the same inputs: a difference is a page bug.
+        if (r.checked !== e.checked) log.error(`the kept board's run of tick ${e.t} differs from the live one's`);
+      }
+    });
+  }
+
+  // The live board from the kept one, and the record run again on it.
+  function rewind() {
+    physics.copy(KEPT, LIVE);
+    physics.clearBegun(LIVE);
+    for (const i of keptInputs) physics.human(LIVE, i.h, K + 1, i.dog);
+    view = { width: keptView.width, height: keptView.height, tiles: new Map(keptView.tiles) };
+    held = new Map(keptHeld);
+    cursor = 0;
+    dropping = false;
+    lastWanted = "";
+    ticking = keptInputs.length > 0 || physics.drag(LIVE) !== "none";
+    resume();
+  }
+
+  // **TILE LINES**: each tile's critters on the live and kept boards, where
+  // the page hasn't received them this epoch.
+  function tileLines(lines) {
+    for (const line of lines) {
+      const t = physics.readTile(line, [LIVE, KEPT]);
+      if (t === "malformed") { startAgain(`a tile line that doesn't read: "${line.slice(0, 60)}"`); return false; }
+      received.add(tileKey(t));
+    }
+    return true;
+  }
+
+  // ── a load ────────────────────────────────────────────────────────────────
+
+  function loaded(r, at, done) {
+    if (r.status !== 200) return done(stop(`the load was answered ${r.status}`));
+    const lines = r.text.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    const first = lines[0] ?? "";
+    if (first === "req ?") return done(stop("the server can't read this page's load line"));
+    if (first.startsWith("reload physics")) return done(stop(`this page's physics (${physics.hash}) is not the server's (${first.slice(15)}): reload the page`));
+    if (first.startsWith("reload ")) return done(stop(`the load was answered "${first}"`));
+    if (first.startsWith("stuck ")) return done(stop(`the physics disagrees with itself at tick ${first.slice(6)}`));
+    const e = /^epoch (\d+)\.(\d+)$/.exec(first);
+    const k = /^kept (\d+)$/.exec(lines[1] ?? "");
+    if (!e || !k) return done(stop(`a load answer that doesn't read: "${first}"`));
+    physics.reset();
+    epoch = { ms: Number(e[1]), count: Number(e[2]) };
+    K = Number(k[1]);
+    const s = physics.readState(lines[2] ?? "", KEPT);
+    if (s === "malformed") return done(stop(`a load's state line that doesn't read: "${lines[2]}"`));
+    keptView = { width: s.view.width, height: s.view.height, tiles: keyed(s.view.tiles) };
+    keptHeld = keyed(s.held);
+    keptInputs = [];
+    let i = 3;
+    for (; (lines[i] ?? "").startsWith("input "); i++) {
+      const input = physics.readInput(lines[i]);
+      if (input === "malformed") return done(stop(`a load's input line that doesn't read: "${lines[i]}"`));
+      keptInputs.push({ h: input.h, dog: input.dog });
+    }
+    for (; i < lines.length; i++) {
+      const t = physics.readTile(lines[i], [LIVE, KEPT]);
+      if (t === "malformed") return done(stop(`a load's tile line that doesn't read: "${lines[i].slice(0, 60)}"`));
+      received.add(tileKey(t));
+    }
+    record = [];
+    req = 0;
+    answered = 0;
+    status = { kind: "playing" };
+    rewind();
+    refresh(true);
+    // The viewport: on the leashed dog, else where it was, else the world's
+    // centre (the populated park's middle).
+    const leashedDog = physics.leashed(LIVE);
+    if (leashedDog !== "none") {
+      const d = dogs.get(leashedDog);
+      lastLeashed = { kind: "dog", dogId: leashedDog };
+      Object.assign(viewport, viewportKeptOnWorld(viewport, d.parkX - viewport.width / 2, d.parkY - viewport.height / 2));
+    } else if (at !== "none") {
+      Object.assign(viewport, viewportKeptOnWorld(viewport, at.parkX, at.parkY));
+    } else {
+      viewport.parkX = Math.round(world_px / 2 - viewport.width / 2);
+      viewport.parkY = Math.round(world_px / 2 - viewport.height / 2);
+    }
     wasViewport.parkX = viewport.parkX;
     wasViewport.parkY = viewport.parkY;
-    wasDogs = new Map([...known].map(([id, d]) => [id, { parkX: d.parkX, parkY: d.parkY }]));
-    wasCows = new Map([...knownCows].map(([id, c]) => [id, { parkX: c.parkX, parkY: c.parkY }]));
-    const moved = new Set();
-    const taken = inputs;
-    inputs = [];
-    for (const i of taken) {
-      switch (i.kind) {
-        case "grab":
-          // A dog dragged this tick is sent before another's grab lets it go.
-          for (const id of moved) sendMove(id);
-          leashTo(i.dogId);
-          break;
-        case "drag": {
-          const dog = heldDog(i.dogId);
-          dog.parkX = i.parkX;
-          dog.parkY = i.parkY;
-          moved.add(i.dogId);
-          break;
-        }
-        case "letgo": keepOnLeash(); break;
-        default: throw new Error(`no input ${i.kind}`);
-      }
-    }
-    if (leashed.kind === "kept" && tick >= leashed.untilTick) releaseLeash();
-    const band = leashed.kind === "in_hand"
-      ? { kind: "dog", dogId: leashed.dogId, ...pointOf(heldDog(leashed.dogId)) }
-      : panAt === "none" ? "none" : { kind: "pan", x: panAt.x, y: panAt.y };
-    for (const e of edgeScroll(band, viewport)) {
-      if (e.kind === "drag") {
-        const dog = heldDog(e.dogId);
-        dog.parkX = e.parkX;
-        dog.parkY = e.parkY;
-        moved.add(e.dogId);
-      } else {
-        moveViewport(e.parkX, e.parkY);
-      }
-    }
-    for (const id of moved) sendMove(id);
-    syncTiles();
-    const drawn = predictCows();
-    sayJumps(knownCows, drawn);
-    knownCows = drawn;
+    // A drag on from before: nobody's pointer is down now. A drag on or a
+    // timer running: the page ticks at once, so the release lands on the
+    // tick it does on the server.
+    if (physics.drag(LIVE) === "on") writeHuman("letgo");
+    ticking = physics.drag(LIVE) !== "none";
+    log.log(`loaded: epoch ${epoch.ms}.${epoch.count}, kept ${K}, ${received.size} tiles, ${dogs.size} dogs and ${cows.size} cows`);
+    pump();
+    done();
   }
 
   return {
-    async load(measure) {
-      const me = await getJSON("/me");
+    load(measure, at = "none") {
       Object.assign(viewport, measure());
-      if (me.viewport.at) {
-        Object.assign(viewport, viewportKeptOnWorld(viewport, me.viewport.at.park_x, me.viewport.at.park_y));
-      } else {
-        // A first visit starts at the world's centre, the populated park's
-        // middle.
-        viewport.parkX = Math.round(world_px / 2 - viewport.width / 2);
-        viewport.parkY = Math.round(world_px / 2 - viewport.height / 2);
-        sendViewport();
-      }
-      wasViewport.parkX = viewport.parkX;
-      wasViewport.parkY = viewport.parkY;
-      // A dog still on your leash from before the reload: kept on it the
-      // usual ticks from now, then let go.
-      if (me.leash.dog !== undefined) {
-        leashed = { kind: "kept", dogId: me.leash.dog, untilTick: tick + leash_kept_ticks };
-      }
+      return new Promise((resolve) => {
+        exchange("/load", physics.loadLine(Math.round(viewport.width), Math.round(viewport.height)), (r) => loaded(r, at, resolve));
+      });
     },
 
     resize({ width, height }) {
@@ -436,18 +710,42 @@ export function createEngine({ rule, post, getJSON, now, log }) {
     },
 
     intent(i) {
+      if (status.kind !== "playing") return;
       switch (i.kind) {
-        case "grab":
-        case "letgo":
-          inputs.push({ ...i });
+        case "grab": {
+          const leashedNow = physics.leashed(LIVE);
+          if (leashedNow === i.dogId) writeHuman("grab");
+          else {
+            if (leashedNow !== "none") writeHuman("release", leashedNow);
+            if (!writeHuman("leash", i.dogId)) return;
+          }
+          holding = true;
+          pendingDrag = [];
+          fraction.x = 0;
+          fraction.y = 0;
+          lastLeashed = { kind: "dog", dogId: i.dogId };
           break;
-        case "drag":
-          heldDog(i.dogId);
-          inputs.push({ ...i });
+        }
+        case "drag": {
+          if (!holding) return;
+          // Whole 256ths go to the tick; the fraction stays for the next.
+          const x = fraction.x + i.dx * 256;
+          const y = fraction.y + i.dy * 256;
+          const dx = Math.trunc(x);
+          const dy = Math.trunc(y);
+          fraction.x = x - dx;
+          fraction.y = y - dy;
+          const ms = clock === "unstarted" ? 0 : Math.max(0, Math.round(now() - clock.lastTickMs));
+          if (dx !== 0 || dy !== 0) pendingDrag.push([dx, dy, ms]);
+          break;
+        }
+        case "letgo":
+          if (!holding) return;
+          holding = false;
+          writeHuman("letgo");
           break;
         case "pan":
-          // The pointer's own pan: the viewport moves now, and what the
-          // frames slide from moves with it, so a tick's slide carries on.
+          // The viewport moves now, and what the frames slide from with it.
           wasViewport.parkX += i.parkX - viewport.parkX;
           wasViewport.parkY += i.parkY - viewport.parkY;
           moveViewport(i.parkX, i.parkY);
@@ -460,30 +758,43 @@ export function createEngine({ rule, post, getJSON, now, log }) {
       if (clock === "unstarted") clock = { lastTickMs: nowMs };
       const due = ticksDue(clock.lastTickMs, nowMs);
       if (due.dropped > 0) log.warn(`a stall of ${Math.round(nowMs - clock.lastTickMs)} ms: ${due.ticks} ticks run, ${due.dropped} dropped`);
-      for (let k = 0; k < due.ticks; k++) runTick(panAt);
+      for (let k = 0; k < due.ticks; k++) slot(panAt);
       clock.lastTickMs = due.lastTickMs;
       alpha = Math.min(1, Math.max(0, (nowMs - clock.lastTickMs) / tick_ms));
+      pump();
       return due.ticks;
     },
 
     view() {
-      const plain = (l) => (l.kind === "none" ? { kind: "none" } : { kind: l.kind, dogId: l.dogId });
       const points = (m) => new Map([...m].map(([id, p]) => [id, { parkX: p.parkX, parkY: p.parkY }]));
+      const leashedDog = physics.leashed(LIVE);
+      const leashed = leashedDog === "none" ? { kind: "none" } : { kind: physics.drag(LIVE) === "on" ? "in_hand" : "kept", dogId: leashedDog };
       return {
         viewport: { ...viewport },
-        dogs: new Map([...known].map(([id, d]) => [id, { ...d }])),
-        cows: [...knownCows.values()].map((c) => ({ ...c })),
-        subscribed: new Set(subscribed.keys()),
-        leashed: plain(leashed),
-        lastLeashed: plain(lastLeashed),
-        tick,
+        dogs: new Map([...dogs].map(([id, d]) => [id, { ...d }])),
+        cows: [...cows.values()].map((c) => ({ ...c })),
+        subscribed: new Set(view.tiles.keys()),
+        leashed,
+        lastLeashed: { ...lastLeashed },
+        tick: lastTick(),
         alpha,
         was: { viewport: { ...wasViewport }, dogs: points(wasDogs), cows: points(wasCows) },
+        status: { ...status },
+        holding,
+      };
+    },
+
+    debug() {
+      return {
+        K, req, cursor, epoch, ticking, holding, dropping,
+        record: record.map((e) => ({ ...e })),
+        inFlight: flight ? { req: flight.req, count: flight.count, tries: flight.x.tries } : "none",
+        keptInputs: keptInputs.map((i) => ({ ...i })),
+        view: [...view.tiles.keys()].sort(),
+        held: [...held.keys()].sort(),
+        received: [...received].sort(),
+        unsentBytes: unsentBytes(),
       };
     },
   };
-}
-
-function pointOf(d) {
-  return { parkX: d.parkX, parkY: d.parkY };
 }
