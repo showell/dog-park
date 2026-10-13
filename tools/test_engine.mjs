@@ -9,7 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pageRig, reports } from "./lib/page_rig.mjs";
+import { pageRig, reports, held } from "./lib/page_rig.mjs";
 import { LIVE, KEPT } from "../solo/physics.js";
 
 // A position on the wire, from whole px.
@@ -20,7 +20,7 @@ function script() {
   const waiting = [];
   return {
     waiting,
-    post: (path, text) => new Promise((resolve, reject) => waiting.push({ path, text, resolve, reject })),
+    post: (path, text) => held((resolve, reject) => waiting.push({ path, text, resolve, reject })),
     // Answers the oldest request waiting (its path must be `path`).
     async answer(rig, path, text, status = 200) {
       const at = waiting.findIndex((w) => w.path === path);

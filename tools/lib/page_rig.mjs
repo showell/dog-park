@@ -14,14 +14,16 @@ export const wasmBytes = () => readFileSync(join(root, "zig-out/web/physics.wasm
 /**
  * A page: `post(path, text)` -> Promise of { status, text }. Every request
  * the engine makes is recorded in `sent` ({ path, text }); `settle()` waits
- * for the requests in flight to land and the engine to take them.
+ * for the requests in flight to land and the engine to take them. A post
+ * whose promise is marked `held` (a script's, answered when the test says)
+ * is never waited for.
  */
 export async function pageRig({ post, screen = { width: 1280, height: 800 }, at = "none", budget }) {
   const physics = await instantiatePhysics(wasmBytes());
   const sent = [];
   const said = [];
   const reloads = [];
-  const inFlight = new Set();
+  const live = new Set();
   const timers = new Map();
   let nextTimer = 0;
   const rig = {
@@ -32,16 +34,21 @@ export async function pageRig({ post, screen = { width: 1280, height: 800 }, at 
     reloads,
     physics,
     // Lets every request in flight land, and the engine take its answer.
-    // A request whose answer never comes (a test's lost answer) is waited
-    // for 50 ms at most.
+    // **NO WALL TIME**: waits only for real work (a scratch server's
+    // answer, `track`ed), never for a request a script holds (a promise
+    // marked `held`), then drains the engine's microtasks and immediates.
     async settle() {
-      for (let i = 0; i < 50 && inFlight.size; i++) {
-        const before = inFlight.size;
-        await Promise.race([Promise.allSettled([...inFlight]), new Promise((r) => setTimeout(r, 50))]);
-        await new Promise((r) => setImmediate(r));
-        if (inFlight.size === before && i > 0) break;
+      for (let i = 0; i < 100; i++) {
+        if (live.size) await Promise.allSettled([...live]);
+        for (let k = 0; k < 10; k++) await new Promise((r) => setImmediate(r));
+        if (!live.size) break;
       }
-      for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+    },
+    // Real work to wait for that the engine doesn't see (a server's answer
+    // a test holds back).
+    track(p) {
+      const t = Promise.resolve(p).finally(() => live.delete(t));
+      live.add(t);
     },
     // The clock moved to `ms`, firing each timer due on the way, in order.
     async advanceTo(ms) {
@@ -72,9 +79,8 @@ export async function pageRig({ post, screen = { width: 1280, height: 800 }, at 
     physics,
     post: (path, text) => {
       sent.push({ path, text });
-      const p = Promise.resolve().then(() => post(path, text));
-      const tracked = p.finally(() => inFlight.delete(tracked));
-      inFlight.add(tracked);
+      const p = post(path, text);
+      if (!p.held) rig.track(p);
       return p;
     },
     now: () => rig.clock,
@@ -102,6 +108,13 @@ export async function pageRig({ post, screen = { width: 1280, height: 800 }, at 
     await rig.settle();
   };
   return rig;
+}
+
+/** A promise the rig's settle never waits for: a test answers it. */
+export function held(executor) {
+  const p = new Promise(executor);
+  p.held = true;
+  return p;
 }
 
 /** The reports sent, as texts. */

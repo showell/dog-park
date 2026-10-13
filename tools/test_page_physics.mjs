@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scratchServer } from "./lib/scratch_server.mjs";
-import { pageRig, reports, wasmBytes } from "./lib/page_rig.mjs";
+import { pageRig, reports, wasmBytes, held as heldPromise } from "./lib/page_rig.mjs";
 import { LIVE, KEPT } from "../solo/physics.js";
 
 // The dog nearest the screen's middle, of those the page has.
@@ -129,12 +129,12 @@ test("sketch B, the second half, and 2: a page whose board drifted is refuted, r
       rig.engine.intent({ kind: "drag", dogId: dog.id, dx: 3, dy: 1 });
       await rig.ticks(1);
     }
-    // Drift: the leashed dog moved 2 px on the live board behind the
-    // physics' back, as a page bug might.
+    // Drift: the leashed dog moved 2 px on the page's boards (the live one
+    // and the kept one) behind the physics' back, as a page bug might: only
+    // the server's board line can put it back.
     const K = rig.engine.debug().K;
     const x = rig.physics.raw;
-    const dogs = new Int32Array(x.memory.buffer, x.dogsAt(LIVE), 2 * x.dogCount());
-    dogs[2 * dog.id] += 512;
+    for (const b of [LIVE, KEPT]) new Int32Array(x.memory.buffer, x.dogsAt(b), 2 * x.dogCount())[2 * dog.id] += 512;
     for (let i = 0; i < 10; i++) {
       rig.engine.intent({ kind: "drag", dogId: dog.id, dx: 3, dy: 1 });
       await rig.ticks(1);
@@ -170,14 +170,16 @@ test("3 and 15: a lost answer to a report carrying a leash: the resend is byte f
   try {
     const wire = recording(server);
     let swallow = "none";
-    const rig = await pageRig({
-      post: async (path, text) => {
-        const r = await wire.post(path, text);
+    let rig;
+    rig = await pageRig({
+      post: (path, text) => {
+        const answered = wire.post(path, text);
         if (swallow === "next" && path === "/report" && /\nleash \d+ \d+\n/.test(text)) {
           swallow = text;
-          return new Promise(() => {}); // the answer never comes back
+          rig.track(answered); // the server takes it...
+          return heldPromise(() => {}); // ...and its answer never comes back
         }
-        return r;
+        return answered;
       },
     });
     await rig.load();
@@ -280,11 +282,13 @@ test("6: frozen at the 32-tick window, a letgo takes from + 33, and the server k
   try {
     let holdAnswers = false;
     const held = [];
-    const rig = await pageRig({
-      post: async (path, text) => {
-        const r = await server.post(path, text);
-        if (holdAnswers && path === "/report") return new Promise((resolve) => held.push(() => resolve(r)));
-        return r;
+    let rig;
+    rig = await pageRig({
+      post: (path, text) => {
+        const answered = server.post(path, text);
+        if (!(holdAnswers && path === "/report")) return answered;
+        rig.track(answered);
+        return heldPromise((resolve) => held.push(() => answered.then(resolve)));
       },
     });
     await rig.load();
