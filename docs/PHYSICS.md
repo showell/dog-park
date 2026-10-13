@@ -413,7 +413,7 @@ rest 1043
 | `view T WxH c,r …` | from the start of tick T (before that tick's awake set is worked out), the viewport's size and the subscribed tiles: the other half of who is awake, logged with the ticks |
 | `t T +ms` | tick T begins, `+ms` after `wall` (data only). `drag` and its displacements in 256ths, when the human dragged during it, each with `@ms` from the tick's start (data only); at most 16 a tick (the page adds up any more) |
 | `dog N a > b`, `cow N a > b` | a critter that moved during tick T, from a to b, in cascade order: the leashed dog, then cows by number, then dogs by number. A cow's line is its net move over the tick's drag segments, since cows react to each segment. A critter not listed did not move |
-| `rest T` | tick T moved nothing, the human did nothing, and no let-go timer is running: a fixed point, so the page stops ticking until the next drag. Tick numbers carry on across a rest |
+| `rest T` | tick T moved nothing, the human did nothing, and no let-go timer is running: a fixed point, so the page stops ticking until the next drag or leash. Tick numbers carry on across a rest |
 
 **Why before-and-after, and not a hash.** A hash says *whether* page and
 server agree. Lines say *where they first don't*: the tick, the critter,
