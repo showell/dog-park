@@ -201,3 +201,12 @@ test "tile lists compare as sets" {
     try testing.expect(wire.same(a, b));
     try testing.expect(!wire.same(a, c));
 }
+
+test "the physics hash is built from the physics' sources: eight hex digits on the wire" {
+    var buf: [16]u8 = undefined;
+    var w: Text = .{ .buf = &buf };
+    try w.hash(wire.physics_hash);
+    try testing.expectEqual(@as(usize, 8), w.len);
+    const back = try wire.parse("dogpark 1 physics " ++ buf[0..8] ++ " page 1.1 req 1");
+    try testing.expectEqual(wire.physics_hash, back.header.physics);
+}

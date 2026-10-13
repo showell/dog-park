@@ -41,7 +41,11 @@ pub const Kept = struct {
 
 /// Every overlap the re-run left among the critters the physics sees, per
 /// kept tick: findings for the log, never a refutation.
-pub const Findings = struct { overlaps: usize = 0 };
+pub const Findings = struct {
+    overlaps: usize = 0,
+    /// A `drag` on a tick with no drag on: ignored, and noted.
+    idle_drags: usize = 0,
+};
 
 /// The judge's verdict, besides the answer's text.
 pub const Verdict = enum { kept, differ, reload, unreadable };
@@ -334,6 +338,8 @@ const Run = struct {
                     if (!physics.withinCap(tl.drag.slice())) return refuse(t, text);
                     if (!self.regionHeld()) return refuse(t, text);
                     var lines: physics.Lines = .{};
+                    const drag_on = k.board.hold == .leashed and k.board.hold.leashed.drag == .on;
+                    if (tl.drag.len > 0 and !drag_on) self.findings.idle_drags += 1;
                     physics.run(&k.board, t, begun, tl.drag.slice(), &lines);
                     if (self.compare(t, &lines)) |d| return .{ .differ = d };
                     k.tick = t;

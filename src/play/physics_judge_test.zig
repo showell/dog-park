@@ -229,6 +229,17 @@ test "a report missing a line the server's run has, and one with a line it doesn
     }
 }
 
+test "a drag with no drag on is ignored and noted as a finding" {
+    var k = exampleKept();
+    var buf: [4096]u8 = undefined;
+    const report = try std.mem.replaceOwned(u8, testing.allocator, example_report, "t 1043 +125\n", "t 1043 +125 drag +1.00,0@5\n");
+    defer testing.allocator.free(report);
+    var out: wire.Text = .{ .buf = &buf };
+    var findings: judge_mod.Findings = .{};
+    try testing.expectEqual(judge_mod.Verdict.kept, try judge_mod.judge(&k, doc_hash, report, &out, &findings));
+    try testing.expectEqual(@as(usize, 1), findings.idle_drags);
+}
+
 test "a tick over the cap is refused at its t line" {
     var k = exampleKept();
     var buf: [4096]u8 = undefined;

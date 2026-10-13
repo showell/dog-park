@@ -25,6 +25,23 @@ const Tick = physics.Tick;
 pub const language = 1;
 pub const most_tiles = tiles.most_subscribed;
 
+/// **THE PHYSICS HASH**: a CRC-32 of the sources that decide a tick's lines
+/// and their text, built into both the wasm and the server, so a forgotten
+/// version change can't cause endless disagreement.
+pub const physics_hash: u32 = blk: {
+    @setEvalBranchQuota(100_000_000);
+    var crc = std.hash.Crc32.init();
+    for (.{
+        @embedFile("physics.zig"),
+        @embedFile("physics_jump.zig"),
+        @embedFile("physics_wire.zig"),
+        @embedFile("tiles.zig"),
+        @embedFile("dogs.zig"),
+        @embedFile("cows.zig"),
+    }) |source| crc.update(source);
+    break :blk crc.final();
+};
+
 /// A caller's buffer, written into.
 pub const Text = struct {
     buf: []u8,
