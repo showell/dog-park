@@ -143,7 +143,7 @@ Structured by the same names as the Zig, in sections:
   beyond a plain page.** Each is a later step.
 - **Glue stays thin:** a handler reads the request, calls the pure
   function, writes the answer.
-- **Gates stay small:** `zig build test` and `ops/smoke`. No gopher-metal,
+- **Gates stay small:** `zig build test` and `ops/smoke`. No zig-metal-unikernel,
   no metal-vmm, no coverage catalog.
 
 ## Done when

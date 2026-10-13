@@ -12,7 +12,7 @@ serves them is the library's.
 
 **Where it runs:** on its own droplet, with its own data and accounts. It
 shares only the domain and the Caddy in front with lynrummy.com. Developed
-on Linux first; on bare metal later, through gopher-metal.
+on Linux first; on bare metal later, through zig-metal-unikernel.
 
 **Status (2026-10-11):** the data types are drafted, one module a concept
 under `src/` ([docs/TYPES-BRIEF.md](docs/TYPES-BRIEF.md)); the first

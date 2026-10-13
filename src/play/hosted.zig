@@ -1,6 +1,6 @@
 //! **DOG PARK, AS A HOST TAKES IT** (webbox's Phase B contract): the play
 //! server's `site` (its webbox Site) and `hosting` (what only it can say about
-//! itself). Linux's main (main.zig) and gopher-metal's kernel both host this.
+//! itself). Linux's main (main.zig) and zig-metal-unikernel's kernel both host this.
 
 const std = @import("std");
 const webbox = @import("webbox");

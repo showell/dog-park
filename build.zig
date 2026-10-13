@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
     // **THE COWS' RULE FOR THE PAGE**: cows.zig compiled to wasm32, so the
     // page predicts a cow with the server's own arithmetic. Installed to
     // zig-out/web/cows.wasm, where assets.zon's `.embedded` names it for a
-    // kernel's build (gopher-metal), and compiled into this build's play
+    // kernel's build (zig-metal-unikernel), and compiled into this build's play
     // server by the same name.
     const cows_wasm = b.addExecutable(.{ .name = "cows", .root_module = b.createModule(.{
         .root_source_file = b.path("src/play/cows_wasm.zig"),
