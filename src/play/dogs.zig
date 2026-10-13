@@ -15,10 +15,13 @@ pub const Dog = struct { emoji: []const u8, at: ParkPoint };
 /// dogs in a blue tile and two in a white one (a tile is blue when its
 /// column plus its row is odd, in the park's numbering or the world's: the
 /// park sits an even number of tiles in, summed over both axes), at these
-/// places in the tile. Their looks take turns.
+/// places in the tile. Their looks take turns: dog n has look n mod 4, its
+/// breed in the physics (docs/PHYSICS.md, "Breeds"; a data dir kept under
+/// the five looks this used to deal goes to four once, by
+/// tools/looks_to_four.py).
 const in_blue = [_]ParkPoint{ .{ .park_x = 125, .park_y = 125 }, .{ .park_x = 375, .park_y = 250 }, .{ .park_x = 190, .park_y = 390 } };
 const in_white = [_]ParkPoint{ .{ .park_x = 155, .park_y = 350 }, .{ .park_x = 350, .park_y = 150 } };
-const looks = [_][]const u8{ "🐕", "🐩", "🦮", "🐶", "🐕‍🦺" };
+pub const looks = [_][]const u8{ "🐕", "🐩", "🦮", "🐕‍🦺" };
 
 const blue_tiles = tiles.park_tiles * tiles.park_tiles / 2;
 const white_tiles = tiles.park_tiles * tiles.park_tiles - blue_tiles;
