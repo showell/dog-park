@@ -952,7 +952,9 @@ test "the wishes' grid sums every awake dog's wishes as the scan over every awak
             sc.put(i, .{ .x = p.x + r.intRangeAtMost(i32, -physics.px(300), physics.px(300)), .y = p.y + r.intRangeAtMost(i32, -physics.px(300), physics.px(300)) });
         }
         for (sc.awakeOnes()) |w| {
-            try testing.expectEqual(physics.wishTotalScanned(&sc, w), physics.wishTotal(&sc, w));
+            const me = sc.seen[w];
+            if (me.who.kind != .dog or me.rank == 0) continue;
+            try testing.expectEqual(physics.wishTotalScanned(&sc, w), physics.wishTotalGridded(&sc, w));
             dogs_checked += 1;
         }
     }

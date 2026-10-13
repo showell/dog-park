@@ -1131,14 +1131,27 @@ pub fn stepAtMost(total: Point, most: i32) Point {
 /// The sum of dog `i`'s wishes: room from other breeds above it, its place
 /// against its anchor, room from the cows. Only awake critters count.
 ///
-/// An awake unleashed dog reads the wishes' grid: the strangers and cows in
-/// the cells within `wary` and `cow_room`, and its anchor ring by ring
-/// outward (`anchorOf`). Anyone else is summed over every awake critter
-/// (`wishTotalScanned`). The two give the same wishes; the sum is of
-/// integers, so its order is free.
+/// Among more than `wish_scan_most` awake critters, an awake unleashed dog
+/// reads the wishes' grid (`wishTotalGridded`); anyone else, or anyone
+/// among fewer, is summed over every awake critter (`wishTotalScanned`).
+/// The two give the same wishes; the sum is of integers, so its order is
+/// free.
 pub fn wishTotal(sc: *const Scene, i: usize) Point {
     const me = sc.seen[i];
-    if (me.who.kind != .dog or me.rank == 0 or me.awake != .awake) return wishTotalScanned(sc, i);
+    if (sc.awake_len <= wish_scan_most or me.who.kind != .dog or me.rank == 0 or me.awake != .awake) return wishTotalScanned(sc, i);
+    return wishTotalGridded(sc, i);
+}
+
+/// The most awake critters whose wishes are cheaper scanned than read from
+/// the grid. A cost knob only.
+pub const wish_scan_most = 64;
+
+/// `wishTotal` from the wishes' grid, for an awake unleashed dog: the
+/// strangers and cows in the cells within `wary` and `cow_room`, and its
+/// anchor ring by ring outward (`anchorOf`).
+pub fn wishTotalGridded(sc: *const Scene, i: usize) Point {
+    const me = sc.seen[i];
+    std.debug.assert(me.who.kind == .dog and me.rank != 0 and me.awake == .awake);
     const p = sc.pos(i);
     const breed = me.who.n % breeds;
     var total: Point = .{ .x = 0, .y = 0 };

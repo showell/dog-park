@@ -1,6 +1,7 @@
 // How long the page's physics takes, in the wasm under node (V8, as a
 // browser runs it): one tick, and a 32-tick replay as a rewind runs it,
-// with the park's middle dog leashed and dragged among its neighbours.
+// with the park's middle dog leashed and dragged among its neighbours; and a
+// tick of the full drag through a packed herd.
 // The board comes from a scratch server (tools/lib/scratch_server.mjs).
 // And a small report's round trip through the host: 50 POSTs to a scratch
 // server of its own.
@@ -9,7 +10,7 @@
 
 import { scratchServer } from "./lib/scratch_server.mjs";
 import { pageRig } from "./lib/page_rig.mjs";
-import { LIVE, SCRATCH } from "../solo/physics.js";
+import { LIVE, KEPT, SCRATCH } from "../solo/physics.js";
 
 const server = await scratchServer();
 try {
@@ -46,6 +47,32 @@ try {
   if (physics.leashed(SCRATCH) === "none") throw new Error("the replay's board has nothing leashed");
   const c = physics.critters(LIVE);
   console.log(`page tick: ${(tickUs - copyUs).toFixed(1)} us (a board copy ${copyUs.toFixed(1)} us besides); a 32-tick replay: ${replayMs.toFixed(2)} ms; ${c.dogs.length} dogs and ${c.cows.length} cows on the board, the region ${awake} tiles`);
+
+  // A packed herd, as physics_bench's: dogs on a 45 px grid around dog 0,
+  // leashed, the cows in columns beside them, all far from the park; one
+  // tick of the full drag (the cap on both axes), on board KEPT's copy.
+  const hex = (px) => `${Math.round(px * 256).toString(16).replace(/(..)$/, ".$1")}`;
+  const h0 = 3000;
+  const herd = [`board 1 dog 0 ${hex(h0)},${hex(h0)}`];
+  let dogs = 1;
+  for (let gy = -7; gy <= 7; gy++)
+    for (let gx = -7; gx <= 7; gx++) if (Math.max(Math.abs(gx), Math.abs(gy)) > 1) herd.push(`dog ${dogs++} ${hex(h0 + 45 * gx)},${hex(h0 + 45 * gy)}`);
+  let cows = 0;
+  for (const x of [-440, -375, 375, 440]) for (let y = -330; y <= 330; y += 64) herd.push(`cow ${cows++} ${hex(h0 + x)},${hex(h0 + y)}`);
+  if (physics.readState("state leash 0 drag on view 0x0 held", KEPT) === "malformed") throw new Error("the herd's state line");
+  if (physics.readBoard(herd.join(" "), KEPT) === "malformed") throw new Error("the herd's board line");
+  const full = [[100 * 256, 100 * 256, 0]];
+  const h = 20;
+  t = performance.now();
+  for (let i = 0; i < h; i++) {
+    physics.copy(KEPT, SCRATCH);
+    physics.tick(SCRATCH, 1000, full);
+  }
+  const herdMs = (performance.now() - t) / h;
+  const lead = physics.critters(SCRATCH).dogs.find((d) => d.id === 0);
+  if (physics.leashed(KEPT) !== 0 || lead.x === h0 * 256) throw new Error("the herd's drag never moved dog 0");
+  const awakeHerd = physics.region(KEPT).length;
+  console.log(`a packed herd (${dogs} dogs, ${cows} cows; the region ${awakeHerd} tiles), the full drag: ${herdMs.toFixed(2)} ms a tick`);
 } finally {
   await server.stop();
 }
