@@ -559,8 +559,10 @@ in the order written. **At most 16 of the human's inputs a tick**
 tick apply in the order recorded, so `grab`, `letgo`, `grab` at one tick
 leaves a drag on, with the first drag's displacements played before the
 `letgo` (item 7). `view` and `held` never count, however long the human
-pans: at one tick, **the page coalesces them** to one `view` (the latest)
-and one `held` naming only tiles in that view, so a long pan can't grow a
+pans: at one tick, **the page coalesces them** to one `view` (the union
+of every view written for that tick, so a coalesced view never drops a
+tile one of them added, a replay's included) and one `held` naming only
+tiles in that view, so a long pan can't grow a
 report. During a replay held back at the byte
 budget (item 10), "the last recorded tick" is the last tick the page has
 recorded, never one inside the held-back ticks. While unleashed, any
@@ -665,7 +667,7 @@ they were laid out. Cow 48 (white tile 7,9, at 17250, 18250 px) is 317 px
 from dog 219, so awake, but behind a drag west and unscared, and 187 px
 from dog 223, past the 90 px it keeps from cows: no line. Dog 223, of
 219's breed (223 mod 4
-= 3, as 219), stands 150 px east of it. The drag moves 219 3 px west, so
+= 3, as 219), stands 150 px east of dog 219. The drag moves 219 3 px west, so
 223 is 153 px from its anchor: 53 px beyond the band's outer edge. Its
 one wish is (−13568, 0) in 256ths; scaled to the speed, its step is −16
 (16/256 of a pixel), every tick, until it reaches the band. So the board
@@ -720,18 +722,24 @@ at a time,** and every answer begins `req R`, echoing it. The page acts
 only on the answer to its in-flight request (the exchange it came back
 on, whose `req` must match), and any such answer ends that request; every
 other answer is dropped unread.
-- **No answer:** if none comes within 5 s of wall time, the page abandons
-  the exchange and sends request R again, **byte for byte the same**;
-  anything recorded since waits for R + 1. **After three identical
-  resends, or on any answer that isn't the protocol's** (a 413 from the
-  body limit, a 5xx, a body it can't parse), the page reloads; if that
-  happens to its first report after a load, it stops and says so, rather
-  than loop.
+- **No answer, or a 5xx: transient.** If no answer comes within 5 s of
+  wall time, or the answer is a 5xx (a deploy, a restart, Caddy's 502),
+  the page abandons the exchange and sends request R again, **byte for
+  byte the same**, waiting 5 s, then 10, 20, 40, and 60 s between every
+  later try; anything recorded since waits for R + 1. A transient failure
+  never stops the page.
+- **A 413, or a body the page can't parse: a page bug.** The page reloads
+  at once, never resending.
+- **The first report after a load** that gets a 413, an unparseable body,
+  `req ?` or any `reload` answer (`reload from K` included) stops the page
+  with a message instead of reloading again: a load just answered it, so
+  another load would loop.
 - **The server keeps its last answer.** A report whose R is the last one
   it answered gets that same answer again: nothing is re-run, logged or
   counted. It keeps a hash of that report's body too: a report reusing R
   with a different body is a page bug, refused (`differ K+1 none` its
-  header line) and logged. A report whose R is one more is a new request, and from then
+  header line), counted as a `differ`, and logged; the stored answer and
+  its hash stay the original's. A report whose R is one more is a new request, and from then
   on R is the last answered, whatever the answer (a refusal included).
   Any other R is refused (`differ K+1 none` its header line).
 - **`req ?`:** the server couldn't read the header, so it answered no R,
@@ -818,7 +826,7 @@ Zig, state that drifted, a stale or tampered page. A real disagreement
 in the shared code comes back each time; the breaker and `stuck` (below)
 are for that. Nobody should expect a rewind to fix the rule.
 
-- **`reload`:** reload and resume from the last kept tick. **A server
+- **`reload`:** reload and start again from the last kept tick. **A server
   start issues a new epoch,** so every open page reloads (`reload epoch`),
   and nothing kept per epoch needs to survive a restart. **The breaker**
   (`reload differs`) counts requests: three in a row on one epoch answered
@@ -871,7 +879,9 @@ record its going up. Nothing is wrong there.
 
 **Loading the page.** The request is one line, `dogpark 1 physics H load
 WxH`, with the viewport's size. It resolves nothing (above), clears the
-stored answer and the last answered request number. The answer, unless
+stored answer and the last answered request number. A load that gets no
+answer within 5 s, or a 5xx, is retried on the same backoff as a report
+(5, 10, 20, 40, then every 60 s), never given up. The answer, unless
 it is a `reload` or `stuck T`:
 
 ```
@@ -1174,8 +1184,10 @@ and the request numbering.
 29. **A canonical-form round trip:** every line the shared Zig writes
     parses back to the same integers, and every other spelling of them
     (padding, upper case, `+0.00`) is refused.
-30. **A 413:** a body over the limit gets the page reloading after its
-    resends, never resending for ever; after a load it stops.
+30. **A 413:** a body over the limit gets the page reloading at once,
+    never resending; on the first report after a load it stops. **And a
+    502:** the page resends R byte-identically on the backoff and never
+    stops.
 
 ## Decisions (Steve, 2026-10-13)
 
