@@ -76,6 +76,20 @@ pub fn build(b: *std.Build) void {
     }) });
     b.step("physics-bench", "Time a physics tick natively (ReleaseSafe)").dependOn(&b.addRunArtifact(physics_bench).step);
 
+    // A 32-tick report's round trip through POST /report, in process
+    // (ReleaseSafe): the route, the judge's re-run, the log's append.
+    const server_bench_mod = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_server_bench.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    });
+    const webbox_rs = b.dependency("webbox", .{ .target = target, .optimize = .ReleaseSafe });
+    server_bench_mod.addImport("webbox", webbox_rs.module("webbox"));
+    server_bench_mod.addImport("host_io", webbox_rs.module("host_io"));
+    server_bench_mod.addAnonymousImport("cows.wasm", .{ .root_source_file = cows_wasm.getEmittedBin() });
+    const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
+    b.step("physics-server-bench", "Time a 32-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
+
     // The Linux server: zig build run, then a browser at localhost:9101.
     const main = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
