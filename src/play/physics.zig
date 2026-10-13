@@ -103,31 +103,6 @@ pub const jump_reach: i32 = px(100);
 /// Breeds: dog n has look n mod 4.
 pub const breeds = 4;
 
-// Every knob as it was, to the bit (removed once the conversion is in).
-comptime {
-    std.debug.assert(dog_half == 5120);
-    std.debug.assert(cow_half == 7680);
-    std.debug.assert(speed == 120);
-    std.debug.assert(dead_zone == 256);
-    std.debug.assert(awake_reach == 204800);
-    std.debug.assert(wary == 57600);
-    std.debug.assert(follow == 153600);
-    std.debug.assert(band_inner == 15360);
-    std.debug.assert(band_outer == 25600);
-    std.debug.assert(cow_room == 23040);
-    std.debug.assert(region_reach == 384000);
-    std.debug.assert(step_most == 256);
-    std.debug.assert(cap == 25600);
-    std.debug.assert(let_go_ticks == 320);
-    std.debug.assert(scare_box == 71680);
-    std.debug.assert(lane == 17920);
-    std.debug.assert(jump_reach == 25600);
-    std.debug.assert(skin == 12288);
-    std.debug.assert(scare_box == px(cows.scare_box_px));
-    std.debug.assert(lane == px(cows.dog_px / 2 + cows.cow_px / 2 + cows.clearance_px));
-    std.debug.assert(dog_half == px(cows.dog_px / 2) and cow_half == px(cows.cow_px / 2));
-}
-
 pub const Tick = u64;
 
 pub const Point = extern struct { x: i32, y: i32 };
