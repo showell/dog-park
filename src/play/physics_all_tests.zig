@@ -3,6 +3,7 @@
 //! physics_identity_test.zig is not among them: `zig build slow` runs it.
 test {
     _ = @import("physics.zig");
+    _ = @import("layout.zig");
     _ = @import("physics_wire.zig");
     _ = @import("physics_judge.zig");
     _ = @import("physics_page.zig");

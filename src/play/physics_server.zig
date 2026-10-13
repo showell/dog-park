@@ -85,7 +85,7 @@ pub const Server = struct {
 
     pub const Started = struct {
         /// How the board came back: from the snapshot and the log after it,
-        /// or resolved afresh from dogs.json and cows.json.
+        /// or resolved afresh from the first layout.
         board: union(enum) { applied: struct { entries: usize, torn_bytes: usize }, resolved: usize },
         kept: Tick,
     };
@@ -94,8 +94,8 @@ pub const Server = struct {
 
     /// **STARTS A RUN** in `self` (its buffers are large: the caller holds
     /// it in place): the board from the last snapshot and the log after it,
-    /// applied; or, on a board never resolved, `base` (dogs.json and
-    /// cows.json) resolved once and logged as the log's first entry. A new
+    /// applied; or, on a board never resolved, `base` (the first layout)
+    /// resolved once and logged as the log's first entry. A new
     /// run's start, later than the last; a snapshot naming this run's log.
     pub fn start(self: *Server, io: Io, long: std.mem.Allocator, data_dir: []const u8, base: *const physics.Board, now_ms: u64) !Started {
         var arena: std.heap.ArenaAllocator = .init(long);
@@ -494,21 +494,6 @@ pub const Server = struct {
         return .{ .language = language, .physics = hash, .w = w, .h = hi };
     }
 };
-
-/// The server's board from today's files: dogs.json in whole pixels,
-/// cows.json in half pixels, every critter present.
-pub fn boardOf(dog_points: []const @import("dogs.zig").ParkPoint, cow_points: []const @import("cows.zig").CowPoint) physics.Board {
-    var b = physics.Board.empty();
-    for (dog_points, &b.dogs, &b.dog_known) |d, *p, *k| {
-        p.* = .{ .x = physics.px(d.park_x), .y = physics.px(d.park_y) };
-        k.* = .present;
-    }
-    for (cow_points, &b.cows, &b.cow_known) |c, *p, *k| {
-        p.* = .{ .x = c.half_x * (physics.unit / 2), .y = c.half_y * (physics.unit / 2) };
-        k.* = .present;
-    }
-    return b;
-}
 
 test {
     _ = @import("physics_server_test.zig");

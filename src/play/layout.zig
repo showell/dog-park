@@ -1,0 +1,85 @@
+//! **THE FIRST LAYOUT**, in 256ths: where every critter stands when the park
+//! starts afresh (the server's first start, and every load). In every tile
+//! of the populated park (tiles.zig), four dogs, one of each breed, each
+//! near its own corner of the tile: breed 0 north-west, 1 north-east, 2
+//! south-west, 3 south-east, so a tile's four dogs are numbered 4k to
+//! 4k + 3, tile by tile, row by row. White tiles (column plus row even)
+//! also hold a cow in the middle, row by row.
+
+const std = @import("std");
+const tiles = @import("tiles.zig");
+const physics = @import("physics.zig");
+const px = physics.px;
+
+/// How far in from its corner of the tile a dog stands, on each axis.
+pub const corner_in = 75;
+
+pub const dog_count = tiles.park_tiles * tiles.park_tiles * 4;
+pub const cow_count = tiles.park_tiles * tiles.park_tiles - tiles.park_tiles * tiles.park_tiles / 2;
+
+/// A park tile's top-left corner, in 256ths.
+fn tileCorner(col: i32, row: i32) physics.Point {
+    return .{ .x = px(tiles.park_offset_px + col * tiles.tile_px), .y = px(tiles.park_offset_px + row * tiles.tile_px) };
+}
+
+/// The first layout, every critter present, no one leashed.
+pub fn board() physics.Board {
+    const in = px(corner_in);
+    const far = px(tiles.tile_px - corner_in);
+    const corners = [4]physics.Point{ .{ .x = in, .y = in }, .{ .x = far, .y = in }, .{ .x = in, .y = far }, .{ .x = far, .y = far } };
+    var b = physics.Board.empty();
+    var d: usize = 0;
+    var c: usize = 0;
+    var row: i32 = 0;
+    while (row < tiles.park_tiles) : (row += 1) {
+        var col: i32 = 0;
+        while (col < tiles.park_tiles) : (col += 1) {
+            const at = tileCorner(col, row);
+            for (corners) |k| {
+                b.place(.dog(@intCast(d)), .{ .x = at.x + k.x, .y = at.y + k.y });
+                d += 1;
+            }
+            if (@mod(col + row, 2) == 1) continue;
+            b.place(.cow(@intCast(c)), .{ .x = at.x + px(tiles.tile_px / 2), .y = at.y + px(tiles.tile_px / 2) });
+            c += 1;
+        }
+    }
+    std.debug.assert(d == dog_count and c == cow_count);
+    return b;
+}
+
+const testing = std.testing;
+
+test "the first layout: four dogs to each tile of the park, breed b in the tile's corner b (NW, NE, SW, SE), numbered tile by tile" {
+    const b = board();
+    const half = physics.tile / 2;
+    const first = tiles.park_offset_px / tiles.tile_px;
+    for (b.dogs, b.dog_known, 0..) |at, known, n| {
+        try testing.expectEqual(physics.Known.present, known);
+        const breed = n % physics.breeds;
+        const k: i32 = @intCast(n / physics.breeds);
+        const t = physics.tileOf(at);
+        try testing.expectEqual(tiles.Tile{ .col = first + @mod(k, tiles.park_tiles), .row = first + @divFloor(k, tiles.park_tiles) }, t);
+        const in_x = at.x - t.col * physics.tile;
+        const in_y = at.y - t.row * physics.tile;
+        try testing.expectEqual(breed % 2 == 1, in_x >= half);
+        try testing.expectEqual(breed >= 2, in_y >= half);
+    }
+}
+
+test "the first layout: a cow in the middle of each white tile of the park, row by row" {
+    const b = board();
+    var n: usize = 0;
+    var row: i32 = 0;
+    while (row < tiles.park_tiles) : (row += 1) {
+        var col: i32 = 0;
+        while (col < tiles.park_tiles) : (col += 1) {
+            if (@mod(col + row, 2) == 1) continue;
+            const at = tileCorner(col, row);
+            try testing.expectEqual(physics.Point{ .x = at.x + physics.tile / 2, .y = at.y + physics.tile / 2 }, b.cows[n]);
+            try testing.expectEqual(physics.Known.present, b.cow_known[n]);
+            n += 1;
+        }
+    }
+    try testing.expectEqual(cow_count, n);
+}

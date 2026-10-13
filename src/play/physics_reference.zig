@@ -25,8 +25,8 @@
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
-/// The squares and the cows' numbers as this physics had them (cows.zig's,
-/// before the knobs moved to physics.zig).
+/// The squares and the cows' numbers as this physics had them, before the
+/// knobs moved to physics.zig.
 const cows = struct {
     const dog_px = 40;
     const cow_px = 60;

@@ -11,7 +11,7 @@
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync } from "node:fs";
+import { readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { scratchServer } from "./lib/scratch_server.mjs";
 
@@ -65,6 +65,12 @@ test("a second load takes over; a restart issues a new epoch, and the old page i
   assert.match(second.text, /^epoch \d+\.2\n/);
   assert.equal((await post("/report", header(3) + "held 1\n")).text, "req 3\ntaken over\n");
   const newest = second.text.match(/^epoch (\S+)\n/)[1];
+  // The first start seeded from the first layout and wrote no seed files;
+  // an older server's, left in the data dir, are ignored, and said so.
+  assert.deepEqual(readdirSync(join(server.dir, "data")).filter((f) => f.endsWith(".json")), []);
+  assert.doesNotMatch(server.log(), /dogs\.json/);
+  writeFileSync(join(server.dir, "data", "dogs.json"), "not the dogs");
+  writeFileSync(join(server.dir, "data", "cows.json"), "not the cows");
   await server.restart();
   const old = `dogpark 1 physics ${hash} page ${newest} req 1\nfrom 0\n`;
   assert.equal((await post("/report", old)).text, "req 1\nreload epoch\n");
@@ -74,4 +80,5 @@ test("a second load takes over; a restart issues a new epoch, and the old page i
   assert.equal(files.filter((f) => f.startsWith("log-")).length, 2, files.join(" "));
   assert.ok(files.includes("snapshot"));
   assert.match(server.log(), /the physics' board came back from its snapshot and \d+ log entries/);
+  assert.match(server.log(), /an older server's dogs\.json or cows\.json is in .*: ignored/);
 });

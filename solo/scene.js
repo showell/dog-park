@@ -10,7 +10,7 @@
 export const dog_px = 40;
 export const cow_px = dog_px * 1.5;
 export const cow_emoji = "🐄";
-// The four breeds: dog n has look n mod 4 (dogs.zig's `looks`).
+// The four breeds: dog n has look n mod 4 (the physics' breeds).
 export const dog_looks = ["🐕", "🐩", "🦮", "🐕‍🦺"];
 
 // ── frames ──────────────────────────────────────────────────────────────────

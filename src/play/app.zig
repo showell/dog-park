@@ -1,8 +1,8 @@
 //! Dog Park, played: the server for `solo/`, as webbox serves it
 //! (`webbox.site.Site(App)`). The physics protocol (physics_server.zig)
 //! keeps the board, its log and its snapshots under `data/physics/`, seeded
-//! once from dogs.json and cows.json (laid out on a first start, then never
-//! written again).
+//! on a first start from the first layout (`physics.Board.laidOut()`). A
+//! dogs.json or cows.json an older server left in the data dir is ignored.
 //!
 //!   GET  /           solo/index.html, read from disk each time
 //!   GET  /NAME.js    solo/NAME.js, read from disk each time: the page's
@@ -23,8 +23,7 @@ const std = @import("std");
 const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
-const dogs = @import("dogs.zig");
-const cows = @import("cows.zig");
+const physics = @import("physics.zig");
 const physics_server = @import("physics_server.zig");
 
 /// Where the page lives, from the directory the server runs in.
@@ -50,15 +49,18 @@ fn physicsRoute(path: []const u8) ?PhysicsRoute {
 /// handler runs at a time (webbox's hosts), so it is shared plainly.
 pub var the_physics: physics_server.Server = undefined;
 
-pub const Kept = enum { loaded, laid_out };
+/// Whether an older server's seed files, dogs.json and cows.json, sit in
+/// the data dir: they seed nothing now, and are left as they are.
+pub const OldSeed = enum { none, ignored };
 
 pub const StartReport = struct {
-    dogs_path: []const u8,
-    dogs: Kept,
-    cows_path: []const u8,
-    cows: Kept,
     physics: physics_server.Server.Started,
+    old_seed: OldSeed,
+    data_dir: []const u8,
 };
+
+/// The files an older server seeded the board from.
+const old_seed_files = [_][]const u8{ "dogs.json", "cows.json" };
 
 /// The development folder, for a run with no config (a checkout). The
 /// roots' `auth_dir` is the host's (webbox opens both roots); Dog Park
@@ -67,42 +69,18 @@ const default_data_dir = "data";
 
 pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartReport {
     const data_dir = if (roots) |r| r.data_dir else default_data_dir;
-    var scratch: std.heap.ArenaAllocator = .init(base);
-    defer scratch.deinit();
-    const alloc = scratch.allocator();
-    const dogs_path = try std.fs.path.join(base, &.{ data_dir, "dogs.json" });
-    const cows_path = try std.fs.path.join(base, &.{ data_dir, "cows.json" });
-    // **THE SEED**: dogs.json and cows.json, laid out and written on a
-    // first start, then only read, to resolve the physics' board when it
-    // has none. **A FILE THAT DOES NOT READ STOPS THE START, NAMED** (fail,
-    // never warn): the host prints a failed start's error, and this one
-    // says what. No print here: the application has no stderr of its own
-    // on every host (a kernel has none).
-    var the_dogs: dogs.Dogs = undefined;
-    const dogs_kept: Kept = if (try webbox.store.readOrNull(io, alloc, dogs_path, .limited(1024 * 1024))) |bytes| blk: {
-        the_dogs = dogs.Dogs.read(bytes) catch return error.DogsFileDoesNotRead;
-        break :blk .loaded;
-    } else blk: {
-        the_dogs = dogs.Dogs.laidOut();
-        try webbox.store.replace(io, alloc, dogs_path, try the_dogs.written(alloc), .{});
-        break :blk .laid_out;
-    };
-    var the_cows: cows.Cows = undefined;
-    const cows_kept: Kept = if (try webbox.store.readOrNull(io, alloc, cows_path, .limited(1024 * 1024))) |bytes| blk: {
-        the_cows = cows.Cows.read(bytes) catch return error.CowsFileDoesNotRead;
-        break :blk .loaded;
-    } else blk: {
-        the_cows = cows.Cows.laidOut();
-        try webbox.store.replace(io, alloc, cows_path, try the_cows.written(alloc), .{});
-        break :blk .laid_out;
-    };
-    // **THE PHYSICS' BOARD**: its snapshot and log, or the seed, resolved
-    // once. A board that won't come back stops the start.
-    var dog_points: [dogs.dog_count]dogs.ParkPoint = undefined;
-    for (the_dogs.list, &dog_points) |d, *p| p.* = d.at;
-    const seed = physics_server.boardOf(&dog_points, &the_cows.list);
-    const physics_started = try the_physics.start(io, base, data_dir, &seed, nowMs(io));
-    return .{ .dogs_path = dogs_path, .dogs = dogs_kept, .cows_path = cows_path, .cows = cows_kept, .physics = physics_started };
+    // **THE PHYSICS' BOARD**: its snapshot and log, or, on a first start,
+    // the first layout, resolved once. A board that won't come back stops
+    // the start (the host prints a failed start's error).
+    const seed = physics.Board.laidOut();
+    const started = try the_physics.start(io, base, data_dir, &seed, nowMs(io));
+    var old_seed: OldSeed = .none;
+    for (old_seed_files) |name| {
+        const path = try std.fs.path.join(base, &.{ data_dir, name });
+        defer base.free(path);
+        if (try webbox.store.statOrNull(io, base, path) != null) old_seed = .ignored;
+    }
+    return .{ .physics = started, .old_seed = old_seed, .data_dir = data_dir };
 }
 
 pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _: *webbox.bus.Bus) !void {

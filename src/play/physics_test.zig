@@ -9,8 +9,6 @@ const std = @import("std");
 const physics = @import("physics.zig");
 const jump = @import("physics_jump.zig");
 const tiles = @import("tiles.zig");
-const dogs = @import("dogs.zig");
-const cows = @import("cows.zig");
 const testing = std.testing;
 const Board = physics.Board;
 const Point = physics.Point;
@@ -73,18 +71,6 @@ fn hasRest(lines: *const Lines) bool {
 }
 
 // --------------------------------------------------- the cows' grid rule
-
-test "the first layout in 256ths: the physics' board is dogs.zig's and cows.zig's layout, every critter present" {
-    const b = Board.laidOut();
-    for (dogs.Dogs.laidOut().list, b.dogs, b.dog_known) |dog, at, k| {
-        try testing.expectEqual(px(dog.at.park_x, dog.at.park_y), at);
-        try testing.expectEqual(physics.Known.present, k);
-    }
-    for (cows.Cows.laidOut().list, b.cows, b.cow_known) |cow, at, k| {
-        try testing.expectEqual(Point{ .x = cow.half_x * @divExact(physics.unit, 2), .y = cow.half_y * @divExact(physics.unit, 2) }, at);
-        try testing.expectEqual(physics.Known.present, k);
-    }
-}
 
 test "the first layout is the golden one: every dog and cow where the old whole- and half-pixel layout put it, every critter present, no one leashed" {
     const b = Board.laidOut();

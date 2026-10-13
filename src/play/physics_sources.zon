@@ -7,7 +7,6 @@
     "physics_jump.zig",
     "physics_wire.zig",
     "tiles.zig",
-    "dogs.zig",
-    "cows.zig",
+    "layout.zig",
     "physics_page.zig",
 }

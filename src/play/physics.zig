@@ -21,12 +21,11 @@
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
-const dogs = @import("dogs.zig");
-const cows = @import("cows.zig");
+const layout = @import("layout.zig");
 const jump = @import("physics_jump.zig");
 
-pub const dog_count = dogs.dog_count;
-pub const cow_count = cows.cow_count;
+pub const dog_count = layout.dog_count;
+pub const cow_count = layout.cow_count;
 pub const critter_count = dog_count + cow_count;
 
 /// 256ths in a pixel.
@@ -211,20 +210,9 @@ pub const Board = struct {
         };
     }
 
-    /// The first layout, every critter present (the server's board).
+    /// The first layout (layout.zig), every critter present.
     pub fn laidOut() Board {
-        var b = empty();
-        const d = dogs.Dogs.laidOut();
-        for (d.list, &b.dogs, &b.dog_known) |dog, *p, *k| {
-            p.* = .{ .x = px(dog.at.park_x), .y = px(dog.at.park_y) };
-            k.* = .present;
-        }
-        const c = cows.Cows.laidOut();
-        for (c.list, &b.cows, &b.cow_known) |cow, *p, *k| {
-            p.* = .{ .x = cow.half_x * (unit / 2), .y = cow.half_y * (unit / 2) };
-            k.* = .present;
-        }
-        return b;
+        return layout.board();
     }
 
     pub fn at(self: *const Board, c: Critter) Point {

@@ -17,8 +17,6 @@ const judge = @import("physics_judge.zig");
 const plog = @import("physics_log.zig");
 const server_mod = @import("physics_server.zig");
 const tiles = @import("tiles.zig");
-const dogs = @import("dogs.zig");
-const cows = @import("cows.zig");
 const testing = std.testing;
 const Server = server_mod.Server;
 const Board = physics.Board;
@@ -690,18 +688,7 @@ test "23. a tile sent again after a differ, its held never kept: the page's boar
     try testing.expect(std.mem.indexOf(u8, a, "\ntile 40,40\n") != null);
 }
 
-test "25. the park in the world: today's laid-out files make the physics' board, same numbers; the empty world reads as empty" {
-    const d = dogs.Dogs.laidOut();
-    const bytes = try d.written(testing.allocator);
-    defer testing.allocator.free(bytes);
-    const back = try dogs.Dogs.read(bytes);
-    var points: [dogs.dog_count]dogs.ParkPoint = undefined;
-    for (back.list, &points) |dog, *p| p.* = dog.at;
-    const c = cows.Cows.laidOut();
-    const board = server_mod.boardOf(&points, &c.list);
-    const laid = Board.laidOut();
-    try testing.expect(std.meta.eql(laid.dogs, board.dogs));
-    try testing.expect(std.meta.eql(laid.cows, board.cows));
+test "25. the park in the world: the first layout's counts; the empty world reads as empty" {
     try testing.expectEqual(@as(usize, tiles.park_tiles * tiles.park_tiles * physics.breeds), physics.dog_count);
     try testing.expectEqual(@as(usize, tiles.park_tiles * tiles.park_tiles / 2), physics.cow_count);
     // Through the protocol: the world's corner tile and the one beside the
@@ -723,19 +710,6 @@ test "25. the park in the world: today's laid-out files make the physics' board,
     try testing.expect(std.mem.indexOf(u8, a, try std.fmt.allocPrint(alloc, "\ntile {d},{d}\n", .{ edge, edge })) != null);
     try testing.expect(std.mem.indexOf(u8, a, try std.fmt.allocPrint(alloc, "\ntile {d},{d}\n", .{ first - 1, first + 3 })) != null);
     try testing.expect(std.mem.indexOf(u8, a, try std.fmt.allocPrint(alloc, "\ntile {d},{d} ", .{ last, last })) != null);
-}
-
-test "breeds: dogs.zig deals four looks, n mod 4, the physics' breeds; a dogs.json with another look does not read" {
-    try testing.expectEqual(@as(usize, physics.breeds), dogs.looks.len);
-    const d = dogs.Dogs.laidOut();
-    for (d.list, 0..) |dog, n| try testing.expectEqualStrings(dogs.looks[n % 4], dog.emoji);
-    const bytes = try d.written(testing.allocator);
-    defer testing.allocator.free(bytes);
-    // Dog 3 as the five looks dealt it.
-    const five = try std.mem.replaceOwned(u8, testing.allocator, bytes, "{\"id\":3,\"emoji\":\"🐕‍🦺\"", "{\"id\":3,\"emoji\":\"🐶\"");
-    defer testing.allocator.free(five);
-    try testing.expect(!std.mem.eql(u8, five, bytes));
-    try testing.expectError(error.WrongDogs, dogs.Dogs.read(five));
 }
 
 // ── the protocol's other rules ──────────────────────────────────────────────

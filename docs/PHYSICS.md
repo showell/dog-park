@@ -484,8 +484,8 @@ would repeat faithfully.
 
 **The park on load.** If the kept positions break the invariant (today's
 park can), the server resolves it **once, when it starts on a board that
-has never been resolved**: one read from `dogs.json` with no snapshot
-behind it. A board from a snapshot or the log was resolved already and
+has never been resolved**: the first layout (`layout.zig`), with no
+snapshot behind it. A board from a snapshot or the log was resolved already and
 is never resolved again; a page load resolves nothing (an overlap a live
 page holds is handled by the graceful rule above). First the leashed dog,
 if any, has its square clamped into the world (provisional, decision 14);

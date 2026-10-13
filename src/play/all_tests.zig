@@ -4,8 +4,6 @@
 
 test {
     _ = @import("tiles.zig");
-    _ = @import("dogs.zig");
-    _ = @import("cows.zig");
     _ = @import("app.zig");
     _ = @import("physics_all_tests.zig");
     _ = @import("physics_log.zig");
