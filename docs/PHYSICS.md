@@ -23,12 +23,18 @@ Steve's rules, which everything here follows:
   width (500 px) away.
 - **Four breeds,** the dogs with legs.
 - **Positions in 256ths of a pixel; 16 ticks a second.**
-- **No two critters ever share space** (below).
+- **No two critters should share space** (below). Overlaps may still
+  slip through, so the page handles one gracefully rather than relying on
+  never seeing one.
 - **A herd may jam.** Jammed dogs stay jammed while awake; the player
   frees them by leashing an outer dog, and that's part of the game.
 - **The leashed dog never flies over anyone.** Unlike a card in Lyn Rummy,
-  it can't be carried over a herd: at the first contact during a drag it
-  stops, and it pops off the leash.
+  it can't be carried over a herd: at the first bump during a drag it
+  stops and the **drag** ends (the pointer is let go). The **leash** stays
+  on: ending a drag and unleashing are different things.
+- **The drag may be held to stricter rules** whenever that keeps the
+  physics simple: it can stop short of trouble before any critter is
+  touched.
 
 ## The short version
 
@@ -37,14 +43,10 @@ Steve's rules, which everything here follows:
   clock: drags are displacements, and critters react to them at once,
   whatever their speed. Wall time paces the page and is recorded, never
   computed with.
-- **One rule makes it settle: a dog only answers to those above it in the
-  cascade.**
-  - **Who's above it:** the leashed dog, the cows, and more alpha dogs.
-  - **Who it ignores:** dogs further down, so a beta never pushes an
-    alpha.
-  - **Why that settles:** every dog's move depends only on dogs that have
-    already moved this tick. Nothing can chase anything in a circle, so a
-    board left alone comes to rest.
+- **A dog's wishes look only up the cascade:** at the leashed dog, the
+  cows and more-alpha dogs, never at dogs further down. A beta never
+  pushes an alpha; the board has a direction, and is meant to settle.
+  How well it settles is for play to show, not for a proof.
 - **A dog wants three things, each with a comfortable band:**
   - to keep its distance from dogs of other breeds above it;
   - to keep near, but not on top of, the nearest more-alpha dog of its
@@ -57,18 +59,17 @@ Steve's rules, which everything here follows:
   slow dog really is slow. At 16 ticks a second that is exactly 16/256 of a
   pixel per tick.
 - **Awake means close and watched.** A critter takes part only if it
-  stands in a subscribed tile *and* within 500 px of the leashed dog. Any
-  unleashing puts the whole park to sleep: a release, or the leash's 5 s
-  running out. When every awake dog rests, the page stops ticking and
-  sends nothing.
+  stands in a subscribed tile *and* within 500 px of the leashed dog.
+  Unleashing puts the whole park to sleep. When every awake dog rests,
+  the page stops ticking and sends nothing.
 - **The report is text,** one line per tick with the human's input, then
   every critter that moved, before and after, in the order the cascade
   moved them: a proof the server checks line by line. The server answers
   `kept`, `differ` (naming the first line it disagrees with), or `reload`.
-- **No two critters ever share space.** The leashed dog stops at the
-  first contact and pops off the leash; a dog's own step stops at
-  contact; only a cow lands on anyone, and whatever it lands on jumps
-  clear at once, or the cow stops short.
+- **No two critters should share space.** The leashed dog stops at a
+  bump and the drag ends; a dog's own step stops where it would press
+  into someone; only a cow lands on anyone, and whatever it lands on
+  jumps clear, or the cow stops short.
 
 ## The cascade, and why it settles
 
@@ -76,52 +77,54 @@ Steve's rules, which everything here follows:
 to where the leashed dog actually is. A dog leashed at d41.35 stays there
 when picked up.
 
-**A collision ends the drag, before any physics.** The leashed dog moves
-along each displacement until its square would touch another critter's
-(any critter, awake or asleep) or the world's edge, and stops just short:
-the contact is swept along the whole displacement, so no drag, however
-fast, carries it over or through anyone. Touching another critter
-**releases the leash** at that tick: the pointer's capture is let go, the
-dog pops out, and, as with any unleashing, the park sleeps. (A shake or
-some such in the page comes later; for v1 the point is that the physics
-never has to deal with a leashed dog on top of anything.) The world's
-edge only stops it.
+**Contact means pressing in.** Squares that touch aren't a collision; a
+move is blocked only by the part of it that goes *into* a face it
+touches. Sliding along a neighbour, or moving away from one, is free. So
+a jammed dog, leashed, can be dragged out of its jam, and a dog resting
+against another can still step along it or away.
 
-Splitting a drag into short steps waits until a demonstration shows it
-helps; the cows' grid rule already plays a long move in short ticks of
-its own.
+**A drag is played the way the cows already play a move:** each
+displacement as its x part then its y part (a street, then an avenue),
+in internal steps of at most 10 px. In each step:
+1. **the cows react first,** by the grid rule, to the step the leashed dog
+   is about to take;
+2. **then the leashed dog takes it,** swept against where everyone now is,
+   stopping **just short** of pressing into anyone (each coordinate
+   rounded toward where it started, so "just short" never overlaps by a
+   256th) or into the world's edge, which stops it dead with no sliding.
+
+So a cow in the lane gets its chance to scoot before the dog arrives, and
+the dog only bumps what didn't get out of the way.
+
+**A bump ends the drag, not the leash.** When the leashed dog presses
+into a critter, the drag ends at that step:
+- **the pointer's capture is let go,** so the dog stops following it (a
+  shake or some such in the page comes later);
+- **the rest of the tick's drag is dropped;** what already happened in
+  it stands (the cows reacted to the steps taken);
+- **the leash stays on,** exactly as when the human lets go of the dog:
+  the park stays awake, and the let-go timer starts (below);
+- **the dogs still take their step** at the end of the tick, as in any
+  tick.
+
+The world's edge stops the dog without ending the drag.
 
 Within a tick, in this order:
 
-1. **For each displacement of the drag:**
-   - **The leashed dog** moves along it, as above. Physics never moves it
-     otherwise.
-   - **The cows** react, as they do today: the grid rule, the leashed
-     dog's move scaring the cows ahead of it. Cows ignore the other dogs,
-     and push them (below).
+1. **For each step of the drag,** as above: the cows react, then the
+   leashed dog moves. Physics never moves the leashed dog otherwise.
+   Cows ignore the other dogs, and push them (below).
 2. **Then, once per tick, every awake dog, by number, smallest first,**
    takes its own step (its wishes). Each sees the positions of everything
    above it *as already moved this tick*: the leashed dog's new place, the
-   cows' new places, and the more-alpha dogs' new places. Its wishes look
-   only at those.
+   cows' new places, and the more-alpha dogs' new places.
 
-So the cows react to every displacement of a drag and the dogs' own
-wishes run once a tick.
+So the cows react to every step of a drag and the dogs' own wishes run
+once a tick. A dog that a cow pushes and that then takes its own step in
+the same tick gets one line in the report, its net move, as cows do.
 
-That last rule carries the stability:
-- **The most alpha awake dog** answers only to the leashed dog and the
-  cows. Once the player stops dragging, it settles.
-- **The next dog** answers to that one too, which has settled, so it
-  settles.
-- **And so on down.** Each dog is chasing something that stops, so the
-  whole board comes to rest.
-
-Without the rule, two dogs that each step away from the other can
-oscillate for ever, and an iteration order or a rounding decides who
-wins. With it, the board has a direction: alphas set the scene and betas
-fit around them.
-
-It also gives followers for free, as Steve wanted. A beta's anchor is
+Looking only up the cascade also gives followers for free, as Steve
+wanted. A beta's anchor is
 always someone more alpha, so a herd forms as a chain or tree hanging off
 its most-alpha member. When the player pushes the alpha around, the herd trails
 after it at 1 px a second.
@@ -165,9 +168,9 @@ It's a little jump, and that's fine (Steve's call).
 2. If the total is shorter than the **dead zone** (1 px to start), D stays
    put this tick: close enough.
 3. Otherwise D moves along the total, by the total's length or its speed
-   per tick, whichever is less, and **stops at contact with any critter**
-   (above or below it, awake or asleep): a dog's own step never lands it
-   on anyone. Only the leashed dog and the cows ever push.
+   per tick, whichever is less, and **stops where it would press into any
+   critter** (above or below it, awake or asleep): a dog's own step never
+   lands it on anyone. Only the cows ever push.
 
 The dead zone is there because opposing wishes (an anchor on one side, a
 stranger on the other) can overshoot each other: without it, a dog at
@@ -205,8 +208,8 @@ park. Herds would form as the player leads an alpha among its kind.
 | room for the leashed dog | 80 px |
 | room for a cow | 90 px |
 
-Every distance is under 500 px, so the invariant holds: nothing reaches
-further than a tile's width.
+Every distance is under 500 px, so nothing reaches further than a tile's
+width.
 
 **Arithmetic.** Every critter's position is an integer count of 256ths of
 a pixel, the cows' too (they are in halves today), with an integer
@@ -242,23 +245,32 @@ p and q overlap exactly when |px − qx| < (a + b)/2 and
   from `dogs.json` may break the invariant before the first tick.
 
 **The rules, one per kind of mover:**
-- **The leashed dog** stops just short of the first contact, swept along
-  the drag, and the leash lets go (above). It never overlaps anyone.
-- **A dog's own step** (its wishes) stops at contact with any critter,
-  above or below it, awake or asleep. It never overlaps anyone either.
-- **A cow's grid step** stops at contact with the leashed dog, sleepers
-  and any cow above it. It may land on a dog or on a cow below it: those
-  are the pushes.
-- **A pushed critter jumps at once,** during the cow's step, to the
-  **nearest spot clear of everyone**: any rank, awake or asleep, and in
-  the world. Its jump lands on no one.
-- **If it has nowhere to go,** the cow's step stops at contact with it
-  instead: the push doesn't happen.
+- **The leashed dog** stops just short of pressing into anyone, swept
+  along each step of the drag, and the drag ends (above). It never
+  overlaps anyone.
+- **A dog's own step** (its wishes) stops where it would press into any
+  critter, above or below it, awake or asleep.
+- **A cow's grid step** is swept too, per internal step: it stops just
+  short of the leashed dog, any sleeper (sleeping dogs aren't pushed) and
+  any cow above it.
+- **A cow's pushes are decided as one set,** against the cow's square at
+  the end of its step: every awake dog and lower cow under it needs a
+  spot clear of everyone and outside the area the cow swept. If every
+  one of them has such a spot, they all jump there, at once. If any has
+  none, the cow stops just short of the first one it would have pressed
+  into, and **pushes no one**. So no critter moves for a push that didn't
+  happen.
 
-**Why that's enough.** Only a cow's step can make an overlap, and each one
-is undone on the spot, by the jump or by the cow stopping short. So the
-invariant holds **after every move**, not just at the end of a tick, and
-the argument needs no induction over ranks and no undoing of drags.
+**What this aims at:** only a cow can make an overlap, and each is
+undone on the spot, by the jumps or by the cow stopping short. If an
+overlap slips through anyway (a case nobody thought of), the page doesn't
+fall over:
+- **it draws the critters as they are;**
+- **the lower-ranked one gets out from under** at its next turn, by the
+  same jump;
+- **the server notes it** in the log as a finding. It does not refute the
+  report: the page and the server agreed, and the bug is in the rule,
+  which play will show us.
 
 **The nearest spot clear of everyone, deterministically.** It is the
 closest position, by straight-line distance, that overlaps no critter and
@@ -268,18 +280,20 @@ stays in the world, chosen from a finite list of candidates:
   the square it is under, so a spot just past a third square is found.
 - **The corners** where two such ways meet.
 
-Neighbours are taken in rank order, every candidate is checked against
-every critter in reach and the world's edge, and the nearest valid one
-wins. Ties go in a fixed order: east, south, west, north. The search
+**Neighbours are always taken in rank order,** whatever order they arrived
+in (the page's tiles fill in arrival order; the server's don't). Every
+candidate is checked against every critter in reach and the world's
+edge, and the nearest valid one wins. Ties are broken by rank of the
+neighbour that made the candidate, then by side (east, south, west,
+north, with corners after sides). The search
 stays within that reach, so it is local and cheap; finding none is
 "nowhere to go".
 
-**The server checks the invariant on its own.** Before it compares lines,
-it checks every tick's end board for overlaps among the awake critters
-and against their sleeping neighbours. An overlap refutes the report even
-if the page's replay agreed with the server's. That catches a bug in the
-clearing step itself, which a re-run of the same code would repeat
-faithfully.
+**The server checks the invariant on its own,** after every tick, among
+the awake critters and against their sleeping neighbours, and logs any
+overlap with the tick and the pair: a finding, not a refutation (above).
+That catches a bug in the rule itself, which a re-run of the same code
+would repeat faithfully.
 
 **The park on load.** If the kept positions break the invariant (today's
 park can), the server resolves it once, before the first tick: in rank
@@ -330,10 +344,18 @@ with the reports.**
 - **What's logged:** the server applies the set from that tick in its
   re-run, and keeps it in the game's log with the ticks, so a restart's
   replay wakes the same critters.
-- **The page's promise:** it subscribes every tile within 560 px of the
-  leashed dog (a tile's width, plus a cow's half). The server knows the
-  viewport, so it can hold the page to that. Then every critter that can
-  touch an awake one is known to the page, sleepers included.
+- **Only tiles the page already held count.** A tick's awake set and its
+  obstacles come only from tiles the page held at the report's `from`:
+  a tile subscribed during the report wakes nothing until its critters
+  have arrived with an ack. So the page never ticks with critters it
+  hasn't seen.
+- **The page's promise:** it subscribes every tile within 700 px of the
+  leashed dog: the 500 px reach, plus the farthest a push's jump can
+  land (about 100 px), plus the most a tick's drag may move it (below).
+  The server knows the viewport, so it can hold the page to that.
+- **A tick's drag moves the leashed dog at most 100 px.** A faster flick
+  is cut at 100 px for that tick (the drag is held to a stricter rule,
+  as allowed above).
 
 A report may carry no ticks at all: a resize, or panning while nothing is
 leashed, is just a `view` line.
@@ -342,11 +364,12 @@ One player and one window, so nothing disagrees. Two windows of
 different sizes on one park would each be right about their own physics.
 That only matters when there are two players.
 
-**Any unleashing puts the park to sleep:** a release, or the leash's 5 s
-after the player lets go running out. Those 5 s are **80 ticks**, counted
-in ticks, so the release lands on the same tick on both sides, and
-`release` names it. Every critter stops where it is, and the
-page stops ticking until the next leash.
+**Unleashing puts the park to sleep.** The leash comes off when the human
+grabs another dog, or **80 ticks (5 s)** after the drag last ended
+(the human let go, or a bump ended it) with no new drag. While those 80
+ticks run, the page keeps ticking (a board can't `rest` during them), so
+the release lands on the same tick on both sides. Then every critter
+stops where it is, and the page stops ticking until the next leash.
 
 ## The report
 
@@ -359,7 +382,7 @@ checks it line by line.
 ```
 dogpark 1 physics 5e0c91a2 page 3
 from 1040 wall 1791936000000
-leash 219
+leash 219 1041
 view 1041 1280x800 6,8 7,8 8,8 6,9 7,9 8,9
 t 1041 +0 drag -1.00,0@3 -2.00,+1.00@19
  dog 219 d80.00,1216.00 > d7d.00,1217.00
@@ -377,11 +400,14 @@ rest 1043
 |---|---|
 | `dogpark 1 physics H page E` | the language's version; the physics' version, a hash of the physics' sources built into both the wasm and the server, so a forgotten bump can't cause endless disagreement; and this page load's epoch, which the server issued |
 | `from T wall W` | the tick the report starts after (the last one the server kept), and the wall clock (Unix ms) at its first tick, data only |
-| `leash D`, `release D T why` | the human's leash: leashing wakes the park around D; a release at tick T puts it to sleep. Why: `hand` (the human let go and the 80 ticks ran out, or grabbed another dog), or `bump N` (the leashed dog touched critter N during the drag and popped out) |
-| `view T WxH c,r …` | from tick T, the viewport's size and the subscribed tiles: the other half of who is awake, logged with the ticks |
+| `leash D T` | the human leashed dog D at tick T: the park wakes around it |
+| `letgo T` | the drag ended at tick T because the human let go: the 80 ticks start |
+| `bump T N` | the drag ended at tick T because the leashed dog pressed into critter N: the 80 ticks start, the leash stays |
+| `release D T` | the leash came off dog D at tick T (the 80 ticks ran out, or another dog was grabbed): the park sleeps |
+| `view T WxH c,r …` | from the start of tick T (before that tick's awake set is worked out), the viewport's size and the subscribed tiles: the other half of who is awake, logged with the ticks |
 | `t T +ms` | tick T begins, `+ms` after `wall` (data only). `drag` and its displacements in 256ths, when the human dragged during it, each with `@ms` from the tick's start (data only); at most 16 a tick (the page adds up any more) |
 | `dog N a > b`, `cow N a > b` | a critter that moved during tick T, from a to b, in cascade order: the leashed dog, then cows by number, then dogs by number. A cow's line is its net move over the tick's drag segments, since cows react to each segment. A critter not listed did not move |
-| `rest T` | tick T moved nothing and the human did nothing: a fixed point, so the page stops ticking until the next drag |
+| `rest T` | tick T moved nothing, the human did nothing, and no let-go timer is running: a fixed point, so the page stops ticking until the next drag. Tick numbers carry on across a rest |
 
 **Why before-and-after, and not a hash.** A hash says *whether* page and
 server agree. Lines say *where they first don't*: the tick, the critter,
@@ -416,7 +442,9 @@ reload physics 2
   before the answer goes: safe.
 - **`differ T`:** the first line the server's re-run disagreed with, with
   the server's own version of it, then the server's `board` at that tick:
-  every awake critter. Everything before tick T is kept. The page
+  every awake critter, and everything else a rewind needs: who is
+  leashed, whether a drag is on or since which tick it ended (for the 80
+  ticks), and the current view. Everything before tick T is kept. The page
   rewinds to the board and replays its own ticks from there.
 - **`reload`:** the page's physics is not the server's, or three `differ`s
   came in a row (a circuit breaker: something is wrong that rewinding
@@ -467,8 +495,13 @@ snapshots alone are enough to resume.
    running out.
 7. **A herd may jam,** awake or not; leashing an outer dog frees it. That's
    part of the game.
-8. **A collision pops the leashed dog off the leash.** It can't be dragged
-   over or through anyone; the drag stops at the first contact, upstream
-   of the cascade, and the park sleeps. A shake in the page comes later.
-9. **Splitting drags into steps** waits for a demonstration that it helps.
+8. **A bump ends the drag, never the leash.** The leashed dog can't be
+   dragged over or through anyone: it stops just short, the pointer is
+   let go, and the leash stays on (the let-go timer starts). Ending a drag
+   and unleashing are different things. A shake in the page comes later.
+9. **Drags are played in steps of at most 10 px,** x then y, as the cows
+   play a move, so the cows react before the dog arrives. The drag may be
+   held to stricter rules whenever that keeps things simple.
 10. **A 1 px dead zone** against jitter, to start.
+11. **No settling proofs** until the feel has played out; overlaps that
+    slip through are handled gracefully and logged, not refuted.
