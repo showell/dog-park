@@ -34,19 +34,21 @@ Times are wall times after an edit to `src/play/physics.zig`, measured
 once each on the shared 8 GB box under another job's load (2026-10-13);
 treat them as orientation.
 
-    zig build test       # after every edit, ~13 s
-    zig build check      # before a commit, ~30 s
-    zig build slow       # the slow tier, ~90 s
+    zig build test       # after every edit, ~8 s
+    zig build check      # before a commit, ~28 s
+    zig build slow       # the slow tier, ~2 min
 
 - **`test`**: every Zig unit test natively, in Debug, with the seeded fuzz
   loops at a tenth (`-Dfuzz=fast`, the default), and the node tests that
   need no server (`tools/test_page_modules.mjs`, `tools/test_engine.mjs`).
-  About 4 s of compiles and 4 s of test run.
+  About 4 s of compiles and 1 to 4 s of test run.
 - **`check`**: `test`, plus the physics' tests compiled to wasm32-wasi in
   Debug and run under node (`physics-wasm`, about 8 s), and the node tests
   against a scratch server (`tools/test_page_physics.mjs`, about 7 to
   11 s, and `tools/test_physics_server.mjs`).
-- **`slow`**: the full fuzz natively (about 30 s of run), the physics'
+- **`slow`**: the full fuzz natively (about 30 s of run), the physics
+  against `physics_reference.zig` over long seeded sessions
+  (`physics_identity_test.zig`, about a minute in Debug), the physics'
   tests on wasm32 in ReleaseSafe as the page is served with the full fuzz
   (about 23 s to compile), and every node test.
 

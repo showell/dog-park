@@ -93,6 +93,14 @@ pub fn build(b: *std.Build) void {
             return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m })).step;
         }
 
+        /// The physics against physics_reference.zig over long seeded
+        /// sessions (physics_identity_test.zig): about a minute in Debug,
+        /// a proof of an exact optimisation, so the slow tier's alone.
+        fn identity(u: @This()) *std.Build.Step {
+            const m = u.module("src/play/physics_identity_test.zig", u.target, u.optimize, .full);
+            return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m })).step;
+        }
+
         /// The physics' tests compiled to wasm32-wasi and run under node,
         /// so the page's architecture gives the server's answers; and a
         /// compile probe of the physics for wasm32-freestanding.
@@ -111,6 +119,8 @@ pub fn build(b: *std.Build) void {
             const run = u.b.addSystemCommand(&.{ "node", "--no-warnings" });
             run.addFileArg(u.b.path("tools/run_wasi.mjs"));
             run.addArtifactArg(tests);
+            // "All N tests passed." or "N passed; M skipped; 0 failed.": a
+            // skip passes; a failure fails on the exit code.
             run.expectStdErrMatch(" passed");
             run.expectExitCode(0);
             run.has_side_effects = true;
@@ -157,8 +167,9 @@ pub fn build(b: *std.Build) void {
     check.dependOn(physics_wasm);
     for (node_server) |f| check.dependOn(nodeTest(b, f));
 
-    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, every node test");
+    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics against its reference, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, every node test");
     slow.dependOn(units.all(.full));
+    slow.dependOn(units.identity());
     units.onWasm(wasi, wasm32, .ReleaseSafe, .full, slow);
     for (node_fast ++ node_server) |f| slow.dependOn(nodeTest(b, f));
 
