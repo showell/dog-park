@@ -480,6 +480,9 @@ pub const Scene = struct {
     leashed: u16,
     region: Rect,
     seen: [critter_count]Seen = undefined,
+    /// Where each seen critter is now, kept here beside the board's copy so
+    /// the tick's inner loops read one array.
+    at: [critter_count]Point = undefined,
     len: usize = 0,
 
     pub fn of(b: *Board) ?Scene {
@@ -506,6 +509,7 @@ pub const Scene = struct {
 
     fn add(s: *Scene, c: Critter, awake: Seen.Awake) void {
         s.seen[s.len] = .{ .who = c, .rank = rank(s.leashed, c), .half = c.half(), .awake = awake, .start = s.board.at(c) };
+        s.at[s.len] = s.board.at(c);
         s.len += 1;
     }
 
@@ -514,10 +518,11 @@ pub const Scene = struct {
     }
 
     pub fn pos(s: *const Scene, i: usize) Point {
-        return s.board.at(s.seen[i].who);
+        return s.at[i];
     }
 
     pub fn put(s: *Scene, i: usize, p: Point) void {
+        s.at[i] = p;
         s.board.put(s.seen[i].who, p);
     }
 };

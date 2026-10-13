@@ -40,6 +40,42 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = root });
     b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
 
+    // **THE PHYSICS ON THE PAGE'S TARGET** (docs/PHYSICS.md): physics.zig,
+    // its wire and the server's re-run compiled to wasm32-freestanding (a
+    // compile probe, zig-out/probe/physics_probe.wasm), and every physics
+    // test compiled to wasm32-wasi and run under node, so the page's
+    // architecture gives the same answers as the server's.
+    const physics_wasm = b.step("physics-wasm", "Compile the physics for wasm32 and run its tests there (needs node)");
+    const physics_probe = b.addExecutable(.{ .name = "physics_probe", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_wasm_probe.zig"),
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .optimize = .ReleaseSafe,
+        .strip = true,
+    }) });
+    physics_probe.entry = .disabled;
+    physics_probe.rdynamic = true;
+    physics_wasm.dependOn(&b.addInstallArtifact(physics_probe, .{ .dest_dir = .{ .override = .{ .custom = "probe" } } }).step);
+    const physics_wasi_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_all_tests.zig"),
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi }),
+        .optimize = .ReleaseSafe,
+    }) });
+    const run_wasi = b.addSystemCommand(&.{ "node", "--no-warnings" });
+    run_wasi.addFileArg(b.path("tools/run_wasi.mjs"));
+    run_wasi.addArtifactArg(physics_wasi_tests);
+    run_wasi.expectStdErrMatch(" tests passed.");
+    run_wasi.expectExitCode(0);
+    run_wasi.has_side_effects = true;
+    physics_wasm.dependOn(&run_wasi.step);
+
+    // How long a tick takes natively (ReleaseSafe, as the server runs).
+    const physics_bench = b.addExecutable(.{ .name = "physics_bench", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_bench.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+    }) });
+    b.step("physics-bench", "Time a physics tick natively (ReleaseSafe)").dependOn(&b.addRunArtifact(physics_bench).step);
+
     // The Linux server: zig build run, then a browser at localhost:9101.
     const main = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
