@@ -137,11 +137,12 @@ anchors, strangers or room-makers; a sleeper is just an obstacle (below),
 so the page never needs critters further than a tile from the leashed
 dog.
 
-**The leashed dog counts as the most alpha dog of all** (provisional,
-2026-10-13, for Steve to confirm): it is above every dog in the
-cascade, so for these rules it is more alpha than any of them, whatever
-its number. Its own breed can anchor on it, so **herds follow the
-player**; other breeds keep their wary distance from it.
+**The leashed dog counts as the most alpha dog of all** (Steve,
+2026-10-13): it is above every dog in the cascade, so for these rules it
+is more alpha than any of them, whatever its number. **Only its own breed
+follows it:** those dogs can anchor on it, so their herd follows the
+player. Dogs of other breeds never follow it; they keep their wary
+distance and gather in herds of their own breed.
 
 **1. Room from other breeds above it.** For each dog of another breed
 above D (the leashed dog included), within the *wary* distance, D wants to be farther away. Its wish
@@ -637,6 +638,6 @@ play says otherwise:
 10. **A 1 px dead zone** against jitter, to start.
 11. **No settling proofs** until the feel has played out; overlaps that
     slip through are handled gracefully and logged, not refuted.
-12. **The leashed dog counts as the most alpha dog** (provisional, the
-    box's call on a review's question): its breed can anchor on it, so
-    herds follow the player. To be confirmed by Steve.
+12. **The leashed dog counts as the most alpha dog,** but only its own
+    breed follows it; other breeds keep their distance and herd with
+    their own kind (Steve, 2026-10-13).
