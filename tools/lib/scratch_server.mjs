@@ -6,9 +6,14 @@
 // `bound to` (webbox's listening line), with no polling. A port someone took
 // between `freePort` and the bind makes the server exit instead: it is
 // spawned again on another port, up to three times.
+//
+// **THE DATA DIR ON TMPFS** (/dev/shm where there is one): the server
+// syncs its filesystem before every answer that follows a write, and on
+// disk that sync was half of a page test's time. On tmpfs the same sync
+// runs and costs nothing; durability is webbox's to test, not these.
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,7 +92,7 @@ function request(port, method, path, body) {
 
 /** A fresh server on a fresh data dir: { base, port, post(path, text), get(path), restart(), stop() }. */
 export async function scratchServer() {
-  const dir = mkdtempSync(join(tmpdir(), "dogpark-scratch-"));
+  const dir = mkdtempSync(join(existsSync("/dev/shm") ? "/dev/shm" : tmpdir(), "dogpark-scratch-"));
   writeFileSync(join(dir, "config"), `data_dir=${join(dir, "data")}\nauth_dir=${join(dir, "auth")}\n`);
   // The host's second root: webbox opens it; Dog Park keeps nothing there.
   mkdirSync(join(dir, "auth"));

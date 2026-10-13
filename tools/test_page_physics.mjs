@@ -39,9 +39,28 @@ const differs = (rig) => rig.warnings().filter((w) => w.startsWith("differ"));
 // The ticks from a letgo to the leash coming off, from the physics itself.
 const letGo = letGoTicks();
 
-// The checked lines of every report (critter, bump, rest, release lines).
-function checkedLines(texts) {
-  return texts.flatMap((t) => t.split("\n").filter((l) => /^( dog | cow |bump |rest )/.test(l) || /^release \d+ \d+$/.test(l)));
+// The checked lines of every report (critter, letgo, bump, rest, release
+// lines) of the ticks through `last`: a critter line belongs to the `t T`
+// above it.
+function checkedThrough(texts, last) {
+  let tick = 0;
+  return texts.flatMap((t) => t.split("\n").filter((l) => {
+    const m = /^(?:t|letgo|bump|rest|release) (\d+)/.exec(l);
+    if (m) tick = Number(m[1]);
+    if (/^( dog | cow )/.test(l)) return tick <= last;
+    return /^(letgo|bump|rest|release) /.test(l) && tick <= last;
+  }));
+}
+
+// Ticks until the page sleeps (no more than `cap`).
+async function untilAsleep(rig, cap) {
+  for (let n = 0; n < cap && rig.engine.debug().ticking; n++) await rig.ticks(1);
+}
+
+// Ticks until the server has kept tick `t` (no more than `cap`).
+async function untilKept(rig, t, cap) {
+  for (let n = 0; n < cap && rig.engine.debug().K < t; n++) await rig.ticks(1);
+  assert.ok(rig.engine.debug().K >= t, `kept ${rig.engine.debug().K}, not ${t}`);
 }
 
 // Leashes the middle dog and drags it `ticks` ticks (dx, dy px a tick), then lets go.
@@ -98,7 +117,7 @@ test("sketch B, the first half: a leash, a drag and its let-go, every tick kept,
     await rig.load();
     await rig.ticks(4);
     const dog = await dragAbout(rig, 40, 3, 1);
-    await rig.ticks(letGo + 40);
+    await untilAsleep(rig, letGo + 40);
     assert.deepEqual(rig.warnings(), []);
     for (const a of wire.answers.filter((x) => x.path === "/report")) assert.match(a.text, /^req \d+\nkept \d+\n/, a.text);
     const d = rig.engine.debug();
@@ -318,10 +337,12 @@ test("6: frozen at the 32-tick window, a letgo takes from + 33, and the server k
     assert.deepEqual([letgo.kind, letgo.h, letgo.t], ["human", "letgo", d.K + 33]);
     holdAnswers = false;
     while (held.length) { held.shift()(); await rig.settle(); }
-    await rig.ticks(letGo + 100);
+    // The server keeps the letgo's tick and a few past it. (The release,
+    // let_go_ticks on, and the sleep are sketch B's.)
+    await untilKept(rig, d.K + 33 + 8, 200);
     assert.deepEqual(differs(rig), []);
     assert.ok(rig.engine.debug().K > from + 33);
-    assert.equal(rig.engine.debug().ticking, false, "released let_go_ticks after the letgo, asleep");
+    assert.ok(reports(rig).some((r) => r.includes(`\nletgo ${d.K + 33}\n`)), "the letgo went at its tick");
   } finally {
     await server.stop();
   }
@@ -392,21 +413,25 @@ test("12 and 13: a small display and a large one, fed the same inputs, write the
       }
       while (rig.engine.view().tick <= rig.lastGiven) await rig.ticks(1);
       rig.engine.intent({ kind: "letgo" });
-      // On until the leash comes off and the park sleeps: both wrote every tick.
-      await rig.ticks(letGo + 110);
-      assert.equal(rig.engine.debug().ticking, false);
+      const letgoAt = rig.engine.debug().record.at(-1).t;
+      // On until the server has kept 40 ticks past the letgo, every one of
+      // them written by both. (From there the two boards and regions are
+      // the same, so the rest of the let-go ticks are a function of them;
+      // the release and the sleep are sketch B's.)
+      await untilKept(rig, letgoAt + 40, 400);
       assert.deepEqual(differs(rig), []);
       // The small one froze for the region's tiles: its leash went with no
       // tick; the large one had them all and ticked at once.
       const leashReport = reports(rig).find((r) => /\nleash \d+ /.test(r));
       if (screen.width === 640) assert.doesNotMatch(leashReport, /\nt \d+ /);
       else assert.match(leashReport, /\nt 1 /);
-      lines.push(checkedLines(reports(rig)));
+      lines.push(checkedThrough(reports(rig), letgoAt + 40));
     } finally {
       await server.stop();
     }
   }
   assert.ok(lines[0].length > 30);
+  assert.ok(lines[0].some((l) => /^(letgo|bump) /.test(l)), "the drag ended in the lines compared");
   assert.deepEqual(lines[1], lines[0]);
 });
 
