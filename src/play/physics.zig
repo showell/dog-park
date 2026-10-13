@@ -453,6 +453,13 @@ pub const Checked = union(enum) {
 pub const Lines = struct {
     list: [critter_count + 2]Checked = undefined,
     len: usize = 0,
+    /// The critters that JUMPED this tick (out from under, or a push's
+    /// nearest spot), by `critterIndex`: the page snaps these and glides
+    /// the rest.
+    jumped: Jumped = .initEmpty(),
+    /// The tick's pair checks: every test of one critter against another.
+    /// A deterministic cost, so a test can bound it.
+    pair_checks: u64 = 0,
 
     pub fn push(self: *Lines, c: Checked) void {
         self.list[self.len] = c;
@@ -462,6 +469,43 @@ pub const Lines = struct {
         return self.list[0..self.len];
     }
 };
+
+pub const Jumped = std.StaticBitSet(critter_count);
+
+/// A critter's place in a `Jumped`: dog n is n, cow n is dogs + n.
+pub fn critterIndex(c: Critter) usize {
+    return switch (c.kind) {
+        .dog => c.n,
+        .cow => dog_count + @as(usize, c.n),
+    };
+}
+
+/// The largest half-square.
+pub const half_most: i32 = @max(dog_half, cow_half);
+/// **THE NEIGHBOUR LISTS' SKIN**: a seen critter's neighbours are the seen
+/// critters within 2 × `half_most` + `skin` (on either axis) when the lists
+/// were built. A pair left out is skipped only while 2 × `drift` + the
+/// step ≤ `skin` (`Scene.near`), so a skipped pair can't touch the sweep.
+/// A cost knob only: it changes no result.
+pub const skin: i32 = px(48);
+/// The most the neighbour lists hold, all critters together; a build that
+/// would hold more leaves every scan full.
+pub const neighbours_most = 16384;
+
+/// The neighbour lists' grid: cells folded onto a square this many a side
+/// (folding only adds candidates, each still measured).
+const grid_side = 32;
+
+/// The folded cell `(dx, dy)` cells from the one `p` stands in.
+fn gridCell(p: Point, side: i32, dx: i32, dy: i32) u16 {
+    const cx = @mod(@divFloor(p.x, side) + dx, grid_side);
+    const cy = @mod(@divFloor(p.y, side) + dy, grid_side);
+    return @intCast(cy * grid_side + cx);
+}
+
+/// Whether a seen critter may overlap another: `clear` promises it
+/// overlaps no one.
+pub const Overlap = enum(u8) { clear, maybe };
 
 /// A critter the physics sees this tick: its point stands in a tile
 /// meeting the region, and the board has it.
@@ -490,6 +534,22 @@ pub const Scene = struct {
     /// The awake ones' places in `seen`, in rank order: what the wishes read.
     awake: [critter_count]u16 = undefined,
     awake_len: usize = 0,
+    /// Each seen critter's `Overlap`: maybe for all until the first build
+    /// (`refresh`) measures them.
+    overlap: [critter_count]Overlap = undefined,
+    /// The neighbour lists (`skin`): seen critter i's are
+    /// `nb[nb_from[i]..nb_from[i + 1]]`, in rank order; built at `nb_at`.
+    lists: Lists = .none,
+    nb_from: [critter_count + 1]u16 = undefined,
+    nb: [neighbours_most]u16 = undefined,
+    nb_at: [critter_count]Point = undefined,
+    /// The most any seen critter has moved, on either axis, since the lists
+    /// were built.
+    drift: i32 = 0,
+    jumped: Jumped = .initEmpty(),
+    pair_checks: u64 = 0,
+
+    pub const Lists = enum { none, built };
 
     pub fn of(b: *Board) ?Scene {
         const l = b.leashedDog() orelse return null;
@@ -516,6 +576,7 @@ pub const Scene = struct {
     fn add(s: *Scene, c: Critter, awake: Seen.Awake) void {
         s.seen[s.len] = .{ .who = c, .rank = rank(s.leashed, c), .half = c.half(), .awake = awake, .start = s.board.at(c) };
         s.at[s.len] = s.board.at(c);
+        s.overlap[s.len] = .maybe;
         if (awake == .awake) {
             s.awake[s.awake_len] = @intCast(s.len);
             s.awake_len += 1;
@@ -538,6 +599,94 @@ pub const Scene = struct {
     pub fn put(s: *Scene, i: usize, p: Point) void {
         s.at[i] = p;
         s.board.put(s.seen[i].who, p);
+        if (s.lists == .built) {
+            const d = delta(s.nb_at[i], p);
+            s.drift = @max(s.drift, @max(mag(d.x), mag(d.y)));
+        }
+    }
+
+    /// A jump: seen critter `i` to `p`, flagged as jumped; it and everyone
+    /// it overlaps there may overlap.
+    pub fn jumpTo(s: *Scene, i: usize, p: Point) void {
+        s.put(i, p);
+        s.jumped.set(critterIndex(s.seen[i].who));
+        s.overlap[i] = .maybe;
+        for (s.list(), 0..) |o, j| {
+            if (j == i) continue;
+            s.pair_checks += 1;
+            if (squaresOverlap(p, s.seen[i].half, s.pos(j), o.half)) s.overlap[j] = .maybe;
+        }
+    }
+
+    /// Rebuilds the neighbour lists unless they still serve a step of
+    /// `most`; a build measures every critter's `Overlap` afresh.
+    pub fn refresh(s: *Scene, most: i32) void {
+        if (s.lists == .built and 2 * s.drift + most <= skin) return;
+        const reach = 2 * half_most + skin;
+        var n: usize = 0;
+        for (0..s.len) |i| s.overlap[i] = .clear;
+        // Each critter in a cell `reach` square, the cells folded onto a
+        // `grid_side` square; a critter's neighbours are in its cell's 3 × 3.
+        var cell_len: [grid_side * grid_side]u16 = @splat(0);
+        var cell_of: [critter_count]u16 = undefined;
+        for (0..s.len) |i| {
+            const c = gridCell(s.pos(i), reach, 0, 0);
+            cell_of[i] = c;
+            cell_len[c] += 1;
+        }
+        var cell_from: [grid_side * grid_side + 1]u16 = undefined;
+        cell_from[0] = 0;
+        for (cell_len, 0..) |l, c| cell_from[c + 1] = cell_from[c] + l;
+        var fill: [grid_side * grid_side]u16 = cell_from[0 .. grid_side * grid_side].*;
+        var by_cell: [critter_count]u16 = undefined;
+        for (0..s.len) |i| {
+            by_cell[fill[cell_of[i]]] = @intCast(i);
+            fill[cell_of[i]] += 1;
+        }
+        var cand: [critter_count]u16 = undefined;
+        for (0..s.len) |i| {
+            s.nb_from[i] = @intCast(n);
+            const p = s.pos(i);
+            var cand_len: usize = 0;
+            var dy: i32 = -1;
+            while (dy <= 1) : (dy += 1) {
+                var dx: i32 = -1;
+                while (dx <= 1) : (dx += 1) {
+                    const c = gridCell(p, reach, dx, dy);
+                    for (by_cell[cell_from[c]..cell_from[c + 1]]) |j| {
+                        cand[cand_len] = j;
+                        cand_len += 1;
+                    }
+                }
+            }
+            std.sort.insertion(u16, cand[0..cand_len], {}, std.sort.asc(u16));
+            for (cand[0..cand_len]) |j16| {
+                const j: usize = j16;
+                if (j == i) continue;
+                s.pair_checks += 1;
+                const d = delta(p, s.pos(j));
+                if (mag(d.x) >= reach or mag(d.y) >= reach) continue;
+                if (n == neighbours_most) {
+                    s.lists = .none;
+                    for (0..s.len) |k| s.overlap[k] = .maybe;
+                    return;
+                }
+                s.nb[n] = @intCast(j);
+                n += 1;
+                if (squaresOverlap(p, s.seen[i].half, s.pos(j), s.seen[j].half)) s.overlap[i] = .maybe;
+            }
+        }
+        s.nb_from[s.len] = @intCast(n);
+        @memcpy(s.nb_at[0..s.len], s.at[0..s.len]);
+        s.drift = 0;
+        s.lists = .built;
+    }
+
+    /// Seen critter `i`'s neighbours when they hold everyone a step of `s`
+    /// (0: an overlap test) can meet; else null, for a full scan.
+    pub fn near(s: *const Scene, i: usize, step: i32) ?[]const u16 {
+        if (s.lists != .built or 2 * s.drift + mag(step) > skin) return null;
+        return s.nb[s.nb_from[i]..s.nb_from[i + 1]];
     }
 };
 
@@ -569,22 +718,37 @@ pub fn sweepLimit(p: Point, h: i32, axis: Axis, s: i32, o: Point, oh: i32) i32 {
 /// Sweeps seen critter `i` along `axis` by `s` against the seen critters
 /// `which` selects, in rank order; the blocker is the one that stops it
 /// shortest, the higher-ranked on a tie.
-fn sweep(sc: *const Scene, i: usize, axis: Axis, s: i32, which: Blocks) Swept {
-    const p = sc.pos(i);
-    const me = sc.seen[i];
-    var best = s;
-    var blocker: ?usize = null;
-    for (sc.list(), 0..) |o, j| {
-        if (j == i) continue;
-        if (which == .cow_blockers and !blocksCow(me, o)) continue;
-        const got = sweepLimit(p, me.half, axis, s, sc.pos(j), o.half);
-        if (mag(got) < mag(best)) {
-            best = got;
-            blocker = j;
+///
+/// Against a neighbour list (`Scene.near`) it scans only the neighbours, in
+/// the same order: one left out is at least 2 × `half_most` + `skin` − 2 ×
+/// `drift` ≥ the two halves + |s| away on some axis, where `sweepLimit`
+/// gives `s` back, which never beats the best.
+fn sweep(sc: *Scene, i: usize, axis: Axis, s: i32, which: Blocks) Swept {
+    var acc: SweepAcc = .{ .best = s };
+    if (sc.near(i, s)) |list| {
+        for (list) |j| acc.against(sc, i, j, axis, s, which);
+    } else {
+        for (0..sc.len) |j| if (j != i) acc.against(sc, i, j, axis, s, which);
+    }
+    return .{ .by = acc.best, .blocker = acc.blocker };
+}
+
+const SweepAcc = struct {
+    best: i32,
+    blocker: ?usize = null,
+
+    fn against(acc: *SweepAcc, sc: *Scene, i: usize, j: usize, axis: Axis, s: i32, which: Blocks) void {
+        const me = sc.seen[i];
+        const o = sc.seen[j];
+        if (which == .cow_blockers and !blocksCow(me, o)) return;
+        sc.pair_checks += 1;
+        const got = sweepLimit(sc.pos(i), me.half, axis, s, sc.pos(j), o.half);
+        if (mag(got) < mag(acc.best)) {
+            acc.best = got;
+            acc.blocker = j;
         }
     }
-    return .{ .by = best, .blocker = blocker };
-}
+};
 
 /// A cow's step stops short of the leashed dog, any sleeper and any cow
 /// above it; it pushes the rest (awake dogs, awake cows below it).
@@ -648,8 +812,14 @@ pub fn scoot(axis: Axis, way: i32, step: i32, dog: Point, cow: Point) i32 {
 pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) void {
     out.len = 0;
     var bumped: ?Critter = null;
+    out.jumped = .initEmpty();
+    out.pair_checks = 0;
     var sc_opt = Scene.of(b);
     if (sc_opt) |*sc| {
+        defer {
+            out.jumped = sc.jumped;
+            out.pair_checks = sc.pair_checks;
+        }
         const drag_on = b.hold.leashed.drag == .on;
         if (drag_on) bumped = playDrag(sc, drag);
         if (bumped != null or begun.letting_go == .after_drag) b.hold.leashed.drag = .{ .ended = t };
@@ -716,6 +886,7 @@ fn dragStep(sc: *Scene, axis: Axis, raw: i32) ?Critter {
     const inc = inWorld(dog, dog_half, axis, raw);
     if (inc == 0) return null;
     const dog_after = moved(dog, axis, inc);
+    sc.refresh(step_most);
     for (sc.list(), 0..) |s, i| {
         if (s.who.kind != .cow or s.awake != .awake) continue;
         outFromUnder(sc, i);
@@ -742,6 +913,7 @@ fn cowStep(sc: *Scene, i: usize, axis: Axis, way: i32, step: i32, dog_after: Poi
     var count: usize = 0;
     for (sc.list(), 0..) |o, j| {
         if (j == i or blocksCow(sc.seen[i], o)) continue;
+        sc.pair_checks += 1;
         if (squaresOverlap(end, cow_half, sc.pos(j), o.half)) {
             pushed[count] = j;
             count += 1;
@@ -771,36 +943,57 @@ fn cowStep(sc: *Scene, i: usize, axis: Axis, way: i32, step: i32, dog_after: Poi
             return;
         };
     }
-    for (pushed[0..count], spots[0..count]) |j, spot| sc.put(j, spot);
+    for (pushed[0..count], spots[0..count]) |j, spot| sc.jumpTo(j, spot);
 }
 
 /// **AN OVERLAP THAT SLIPPED THROUGH**: an awake critter overlapping one
 /// above it jumps to the nearest spot clear of everyone; with nowhere to go
 /// it stays.
+///
+/// Only an overlap can make it jump, and a critter whose `Overlap` is clear
+/// overlaps no one: a sweep never presses into anyone, so a new overlap
+/// comes only from a jump, and `jumpTo` marks it. A critter found clear is
+/// marked so.
 fn outFromUnder(sc: *Scene, i: usize) void {
     const me = sc.seen[i];
     if (me.awake != .awake or me.rank == 0) return;
+    if (sc.overlap[i] == .clear) return;
     const p = sc.pos(i);
     var under = false;
-    for (sc.list()[0..i], 0..) |o, j| {
-        if (squaresOverlap(p, me.half, sc.pos(j), o.half)) {
-            under = true;
-            break;
+    var any = false;
+    if (sc.near(i, 0)) |list| {
+        for (list) |j| {
+            sc.pair_checks += 1;
+            if (squaresOverlap(p, me.half, sc.pos(j), sc.seen[j].half)) {
+                any = true;
+                if (j < i) under = true;
+            }
+        }
+    } else {
+        for (sc.list(), 0..) |o, j| {
+            if (j == i) continue;
+            sc.pair_checks += 1;
+            if (squaresOverlap(p, me.half, sc.pos(j), o.half)) {
+                any = true;
+                if (j < i) under = true;
+            }
         }
     }
+    if (!any) sc.overlap[i] = .clear;
     if (!under) return;
     var obs: jump.Obstacles = .{};
     for (sc.list(), 0..) |o, j| {
         if (j == i) continue;
         obs.add(Rect.square(sc.pos(j), o.half), 2 * o.rank);
     }
-    if (jump.nearestSpot(p, me.half, obs.slice(), sc.region)) |spot| sc.put(i, spot);
+    if (jump.nearestSpot(p, me.half, obs.slice(), sc.region)) |spot| sc.jumpTo(i, spot);
 }
 
 /// **THE DOGS' WISHES**, every awake dog by number, each step at most
 /// `most`: once a tick at the speed, and once per pixel-tick of the drag at
 /// the leashed dog's own step.
 fn wishes(sc: *Scene, most: i32) void {
+    sc.refresh(most);
     for (sc.awakeOnes()) |w16| {
         const i: usize = w16;
         const s = sc.seen[i];
@@ -850,10 +1043,14 @@ pub fn wishTotal(sc: *const Scene, i: usize) Point {
     var total: Point = .{ .x = 0, .y = 0 };
     var anchor: ?usize = null;
     var anchor_d2: i64 = 0;
+    // In rank order: past an unleashed dog, every awake one is a dog below
+    // it, and none of those count.
+    const past_me_none_count = me.who.kind == .dog and me.rank != 0;
     for (sc.awakeOnes()) |j16| {
         const j: usize = j16;
         const o = sc.seen[j];
         if (j == i) continue;
+        if (past_me_none_count and j > i) break;
         const q = sc.pos(j);
         const d2 = len2(delta(q, p));
         switch (o.who.kind) {
