@@ -185,7 +185,8 @@ test("the tries of one request: 5 s apart, then 10, 20, 40 and 60 for ever, the 
   const triedAt = [rig.clock];
   for (let n = 0; n < 6; n++) {
     await s.answer(rig, "/report", "bad gateway", 502);
-    while (s.waiting.length === 0) await rig.ticks(1);
+    // The resend is a timer's: straight to the next one due, not a frame at a time.
+    while (s.waiting.length === 0) await rig.advanceTo(Math.min(...rig.timersPending()));
     triedAt.push(rig.clock);
   }
   const gaps = triedAt.slice(1).map((t, i) => Math.round((t - triedAt[i]) / 1000));

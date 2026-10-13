@@ -2,6 +2,8 @@
 // browser runs it): one tick, and a 32-tick replay as a rewind runs it,
 // with the park's middle dog leashed and dragged among its neighbours.
 // The board comes from a scratch server (tools/lib/scratch_server.mjs).
+// And a small report's round trip through the host: 50 POSTs to a scratch
+// server of its own.
 //
 //     zig build && node tools/bench_page.mjs
 
@@ -46,4 +48,23 @@ try {
   console.log(`page tick: ${(tickUs - copyUs).toFixed(1)} us (a board copy ${copyUs.toFixed(1)} us besides); a 32-tick replay: ${replayMs.toFixed(2)} ms; ${c.dogs.length} dogs and ${c.cows.length} cows on the board, the region ${awake} tiles`);
 } finally {
   await server.stop();
+}
+
+// A small report's round trip through the host: a load, a view, then 50
+// reports holding one tile, each answered `kept 0`.
+const host = await scratchServer();
+try {
+  const hash = /^reload physics ([0-9a-f]{8})\n$/.exec((await host.post("/load", "dogpark 1 physics 00000000 load 1280x800\n")).text)[1];
+  const epoch = /^epoch (\S+)\n/.exec((await host.post("/load", `dogpark 1 physics ${hash} load 1280x800\n`)).text)[1];
+  const header = (req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\nfrom 0\n`;
+  await host.post("/report", header(1) + "view 1 1280x800 27,27\n");
+  const n = 50;
+  const t = performance.now();
+  for (let i = 0; i < n; i++) {
+    const r = await host.post("/report", header(2 + i) + "held 1 27,27\n");
+    if (r.text !== `req ${2 + i}\nkept 0\n`) throw new Error(`report ${2 + i}: ${r.text}`);
+  }
+  console.log(`a small report's round trip, through the host: ${((performance.now() - t) / n).toFixed(2)} ms`);
+} finally {
+  await host.stop();
 }

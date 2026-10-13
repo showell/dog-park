@@ -1,15 +1,14 @@
 const std = @import("std");
 
+/// How many samples the seeded fuzz loops take: `fast`, a tenth, for every
+/// edit; `full` for the slow tier (`zig build slow`, or -Dfuzz=full).
+const Fuzz = enum { fast, full };
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const fuzz = b.option(Fuzz, "fuzz", "the seeded fuzz loops' size: fast (a tenth, the default) or full") orelse .fast;
 
-    // Every file's tests run from one root, src/play/all_tests.zig.
-    const root = b.createModule(.{
-        .root_source_file = b.path("src/play/all_tests.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
     // webbox is two modules: `webbox`, portable, what the application's code
     // imports; and `webbox_linux`, the Linux host, for a Linux `main` only.
     const webbox_dep = b.dependency("webbox", .{ .target = target, .optimize = optimize });
@@ -18,8 +17,16 @@ pub fn build(b: *std.Build) void {
     // `host_io`: the one file the application's sources take their `Io`
     // from, std's here; a metal kernel hands the same files its own.
     const host_io = webbox_dep.module("host_io");
-    root.addImport("webbox", webbox);
-    root.addImport("host_io", host_io);
+
+    // **THE PHYSICS HASH, ONCE** (physics_wire.zig): a CRC-32 over the
+    // files src/play/physics_sources.zon lists, read here at configure
+    // time and handed to every module that compiles the physics.
+    const physics_options = b.addOptions();
+    physics_options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play")));
+    const physics_mod = physics_options.createModule();
+
+    const wasm32 = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
+    const wasi = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
 
     // **THE PHYSICS FOR THE PAGE** (docs/PHYSICS.md): physics_page.zig's
     // exports over the board, the tick and the wire, compiled to wasm32
@@ -30,80 +37,186 @@ pub fn build(b: *std.Build) void {
     // /physics-<hash>.wasm.
     const physics_page_wasm = b.addExecutable(.{ .name = "physics", .root_module = b.createModule(.{
         .root_source_file = b.path("src/play/physics_page.zig"),
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+        .target = wasm32,
         .optimize = .ReleaseSafe,
         .strip = true,
+        .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
     }) });
     physics_page_wasm.entry = .disabled;
     physics_page_wasm.rdynamic = true;
     b.getInstallStep().dependOn(&b.addInstallArtifact(physics_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
-    root.addAnonymousImport("physics.wasm", .{ .root_source_file = physics_page_wasm.getEmittedBin() });
-    const tests = b.addTest(.{ .root_module = root });
-    b.step("test", "Run the unit tests").dependOn(&b.addRunArtifact(tests).step);
-
-    // **THE PHYSICS ON THE PAGE'S TARGET** (docs/PHYSICS.md): physics.zig,
-    // its wire and the server's re-run compiled to wasm32-freestanding (a
-    // compile probe, zig-out/probe/physics_probe.wasm), and every physics
-    // test compiled to wasm32-wasi and run under node, so the page's
-    // architecture gives the same answers as the server's.
-    const physics_wasm = b.step("physics-wasm", "Compile the physics for wasm32 and run its tests there (needs node)");
-    const physics_probe = b.addExecutable(.{ .name = "physics_probe", .root_module = b.createModule(.{
-        .root_source_file = b.path("src/play/physics_wasm_probe.zig"),
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-        .optimize = .ReleaseSafe,
-        .strip = true,
-    }) });
-    physics_probe.entry = .disabled;
-    physics_probe.rdynamic = true;
-    physics_wasm.dependOn(&b.addInstallArtifact(physics_probe, .{ .dest_dir = .{ .override = .{ .custom = "probe" } } }).step);
-    const physics_wasi_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("src/play/physics_all_tests.zig"),
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi }),
-        .optimize = .ReleaseSafe,
-    }) });
-    const run_wasi = b.addSystemCommand(&.{ "node", "--no-warnings" });
-    run_wasi.addFileArg(b.path("tools/run_wasi.mjs"));
-    run_wasi.addArtifactArg(physics_wasi_tests);
-    run_wasi.expectStdErrMatch(" tests passed.");
-    run_wasi.expectExitCode(0);
-    run_wasi.has_side_effects = true;
-    physics_wasm.dependOn(&run_wasi.step);
-
-    // How long a tick takes natively (ReleaseSafe, as the server runs).
-    const physics_bench = b.addExecutable(.{ .name = "physics_bench", .root_module = b.createModule(.{
-        .root_source_file = b.path("src/play/physics_bench.zig"),
-        .target = target,
-        .optimize = .ReleaseSafe,
-    }) });
-    b.step("physics-bench", "Time a physics tick natively (ReleaseSafe)").dependOn(&b.addRunArtifact(physics_bench).step);
-
-    // A 32-tick report's round trip through POST /report, in process
-    // (ReleaseSafe): the route, the judge's re-run, the log's append.
-    const server_bench_mod = b.createModule(.{
-        .root_source_file = b.path("src/play/physics_server_bench.zig"),
-        .target = target,
-        .optimize = .ReleaseSafe,
-    });
-    const webbox_rs = b.dependency("webbox", .{ .target = target, .optimize = .ReleaseSafe });
-    server_bench_mod.addImport("webbox", webbox_rs.module("webbox"));
-    server_bench_mod.addImport("host_io", webbox_rs.module("host_io"));
-    server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = physics_page_wasm.getEmittedBin() });
-    const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
-    b.step("physics-server-bench", "Time a 32-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
+    const page_wasm = physics_page_wasm.getEmittedBin();
 
     // The play server, for solo/: zig build play, from the checkout.
     const play_main = b.createModule(.{
         .root_source_file = b.path("src/play/main.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "webbox", .module = webbox },
+            .{ .name = "host_io", .module = host_io },
+            .{ .name = "webbox_linux", .module = webbox_linux },
+            .{ .name = "physics_options", .module = physics_mod },
+        },
     });
-    play_main.addImport("webbox", webbox);
-    play_main.addImport("host_io", host_io);
-    play_main.addImport("webbox_linux", webbox_linux);
-    play_main.addAnonymousImport("physics.wasm", .{ .root_source_file = physics_page_wasm.getEmittedBin() });
+    play_main.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);
     if (b.args) |args| play_run.addArgs(args);
     b.step("play", "Serve the played Dog Park (solo/) on localhost:9103").dependOn(&play_run.step);
+
+    // ── the tests ───────────────────────────────────────────────────────────
+
+    const units = struct {
+        b: *std.Build,
+        target: std.Build.ResolvedTarget,
+        optimize: std.builtin.OptimizeMode,
+        webbox: *std.Build.Module,
+        host_io: *std.Build.Module,
+        physics_mod: *std.Build.Module,
+        page_wasm: std.Build.LazyPath,
+
+        /// Every file's tests, from src/play/all_tests.zig, natively.
+        fn all(u: @This(), size: Fuzz) *std.Build.Step {
+            const m = u.module("src/play/all_tests.zig", u.target, u.optimize, size);
+            m.addImport("webbox", u.webbox);
+            m.addImport("host_io", u.host_io);
+            m.addAnonymousImport("physics.wasm", .{ .root_source_file = u.page_wasm });
+            return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m })).step;
+        }
+
+        /// The physics' tests alone (physics_all_tests.zig): no webbox, no
+        /// page wasm to build first.
+        fn physics(u: @This(), size: Fuzz) *std.Build.Step {
+            const m = u.module("src/play/physics_all_tests.zig", u.target, u.optimize, size);
+            return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m })).step;
+        }
+
+        /// The physics' tests compiled to wasm32-wasi and run under node,
+        /// so the page's architecture gives the server's answers; and a
+        /// compile probe of the physics for wasm32-freestanding.
+        fn onWasm(u: @This(), wasi_target: std.Build.ResolvedTarget, freestanding: std.Build.ResolvedTarget, opt: std.builtin.OptimizeMode, size: Fuzz, step: *std.Build.Step) void {
+            const probe = u.b.addExecutable(.{ .name = "physics_probe", .root_module = u.b.createModule(.{
+                .root_source_file = u.b.path("src/play/physics_wasm_probe.zig"),
+                .target = freestanding,
+                .optimize = opt,
+                .strip = true,
+                .imports = &.{.{ .name = "physics_options", .module = u.physics_mod }},
+            }) });
+            probe.entry = .disabled;
+            probe.rdynamic = true;
+            step.dependOn(&probe.step);
+            const tests = u.b.addTest(.{ .root_module = u.module("src/play/physics_all_tests.zig", wasi_target, opt, size) });
+            const run = u.b.addSystemCommand(&.{ "node", "--no-warnings" });
+            run.addFileArg(u.b.path("tools/run_wasi.mjs"));
+            run.addArtifactArg(tests);
+            run.expectStdErrMatch(" passed");
+            run.expectExitCode(0);
+            run.has_side_effects = true;
+            step.dependOn(&run.step);
+        }
+
+        fn module(u: @This(), root: []const u8, t: std.Build.ResolvedTarget, opt: std.builtin.OptimizeMode, size: Fuzz) *std.Build.Module {
+            const test_options = u.b.addOptions();
+            test_options.addOption(Fuzz, "fuzz", size);
+            return u.b.createModule(.{
+                .root_source_file = u.b.path(root),
+                .target = t,
+                .optimize = opt,
+                .imports = &.{
+                    .{ .name = "physics_options", .module = u.physics_mod },
+                    .{ .name = "test_options", .module = test_options.createModule() },
+                },
+            });
+        }
+    }{ .b = b, .target = target, .optimize = optimize, .webbox = webbox, .host_io = host_io, .physics_mod = physics_mod, .page_wasm = page_wasm };
+
+    // **NODE AGAINST A FRESH BUILD**: each node test file after the install
+    // (zig-out/web/physics.wasm, zig-out/bin/dog-park-play), each its own
+    // process, its exit code the verdict.
+    const node_fast = [_][]const u8{ "tools/test_page_modules.mjs", "tools/test_engine.mjs" };
+    const node_server = [_][]const u8{ "tools/test_page_physics.mjs", "tools/test_physics_server.mjs" };
+    const check_node = b.step("check-node", "The node tests that need no server (page modules, engine), after zig build's install");
+    for (node_fast) |f| check_node.dependOn(nodeTest(b, f));
+
+    // **THE TIERS** (README): `test` after every edit; `check` before a
+    // commit; `slow` for the full fuzz and the wasm as it is served.
+    const test_step = b.step("test", "Fast tier: every Zig unit test natively (the fuzz a tenth) and the node tests that need no server");
+    test_step.dependOn(units.all(fuzz));
+    test_step.dependOn(check_node);
+
+    const physics_test = b.step("physics-test", "The physics' tests alone, natively (no webbox, no page wasm)");
+    physics_test.dependOn(units.physics(fuzz));
+
+    const physics_wasm = b.step("physics-wasm", "The physics' tests on wasm32 in Debug, under node, and its freestanding compile probe");
+    units.onWasm(wasi, wasm32, .Debug, fuzz, physics_wasm);
+
+    const check = b.step("check", "Before a commit: test, physics-wasm (Debug), and the node tests against a scratch server");
+    check.dependOn(test_step);
+    check.dependOn(physics_wasm);
+    for (node_server) |f| check.dependOn(nodeTest(b, f));
+
+    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, every node test");
+    slow.dependOn(units.all(.full));
+    units.onWasm(wasi, wasm32, .ReleaseSafe, .full, slow);
+    for (node_fast ++ node_server) |f| slow.dependOn(nodeTest(b, f));
+
+    // ── the benches (no tier runs them) ─────────────────────────────────────
+
+    // How long a tick takes natively (ReleaseSafe, as the server runs).
+    const physics_bench = b.addExecutable(.{ .name = "physics_bench", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_bench.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
+    }) });
+    b.step("physics-bench", "Time a physics tick natively (ReleaseSafe)").dependOn(&b.addRunArtifact(physics_bench).step);
+
+    // A 32-tick report's round trip through POST /report, in process
+    // (ReleaseSafe): the route, the judge's re-run, the log's append.
+    const webbox_rs = b.dependency("webbox", .{ .target = target, .optimize = .ReleaseSafe });
+    const server_bench_mod = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_server_bench.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .imports = &.{
+            .{ .name = "webbox", .module = webbox_rs.module("webbox") },
+            .{ .name = "host_io", .module = webbox_rs.module("host_io") },
+            .{ .name = "physics_options", .module = physics_mod },
+        },
+    });
+    server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
+    const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
+    b.step("physics-server-bench", "Time a 32-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
+}
+
+/// One node test file, run after the install, its exit code the verdict.
+fn nodeTest(b: *std.Build, file: []const u8) *std.Build.Step {
+    const run = b.addSystemCommand(&.{ "node", "--no-warnings" });
+    run.addFileArg(b.path(file));
+    run.setCwd(b.path("."));
+    run.expectExitCode(0);
+    run.has_side_effects = true;
+    run.step.dependOn(b.getInstallStep());
+    return &run.step;
+}
+
+/// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
+/// lists, in its order. zig-metal-unikernel's build.zig computes the same
+/// for its Dog Park kernel, from the same list.
+fn physicsHash(b: *std.Build, dir: []const u8) u32 {
+    const io = b.graph.io;
+    const list_path = b.fmt("{s}/physics_sources.zon", .{dir});
+    const list = std.Io.Dir.cwd().readFileAlloc(io, list_path, b.allocator, .limited(1 << 16)) catch |e|
+        std.process.fatal("the physics hash's sources: {s} does not read ({t})", .{ list_path, e });
+    const names = std.zon.parse.fromSliceAlloc([]const []const u8, b.allocator, b.allocator.dupeZ(u8, list) catch @panic("out of memory"), null, .{}) catch
+        std.process.fatal("{s} is not a list of file names", .{list_path});
+    var crc = std.hash.Crc32.init();
+    for (names) |name| {
+        const path = b.fmt("{s}/{s}", .{ dir, name });
+        crc.update(std.Io.Dir.cwd().readFileAlloc(io, path, b.allocator, .limited(1 << 22)) catch |e|
+            std.process.fatal("the physics hash's source {s} does not read ({t})", .{ path, e }));
+    }
+    return crc.final();
 }

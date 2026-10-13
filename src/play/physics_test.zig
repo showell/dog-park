@@ -17,6 +17,16 @@ const Point = physics.Point;
 const Critter = physics.Critter;
 const Lines = physics.Lines;
 
+/// The seeded fuzz loops' size: a tenth on every edit, all of it in the
+/// slow tier (`zig build slow`, or -Dfuzz=full).
+const fuzz = @import("test_options").fuzz;
+fn fuzzed(full: usize) usize {
+    return switch (fuzz) {
+        .fast => full / 10,
+        .full => full,
+    };
+}
+
 fn px(x: i32, y: i32) Point {
     return .{ .x = physics.px(x), .y = physics.px(y) };
 }
@@ -222,7 +232,7 @@ test "random drags near a cow (seeded): each axis's part moves the cow across it
     var prng: std.Random.DefaultPrng = .init(0xc0ffee);
     const rand = prng.random();
     var trials: usize = 0;
-    while (trials < 3000) {
+    while (trials < fuzzed(3000)) {
         const dog = px(rand.intRangeAtMost(i32, 1000, 4000), rand.intRangeAtMost(i32, 1000, 4000));
         var cow: Point = .{ .x = dog.x + physics.px(rand.intRangeAtMost(i32, -200, 200)) + 128 * rand.intRangeAtMost(i32, 0, 1), .y = dog.y + physics.px(rand.intRangeAtMost(i32, -200, 200)) };
         if (@max(physics.mag(cow.x - dog.x), physics.mag(cow.y - dog.y)) < physics.lane) continue;
@@ -891,7 +901,7 @@ test "the wish arithmetic at the i64 extremes gives the same bits on every targe
     var prng: std.Random.DefaultPrng = .init(11);
     const rand = prng.random();
     var crc = std.hash.Crc32.init();
-    for (0..200_000) |k| {
+    for (0..fuzzed(200_000)) |k| {
         const reach: i32 = if (k % 2 == 0) span else physics.px(500);
         const v: Point = .{ .x = rand.intRangeAtMost(i32, -reach, reach), .y = rand.intRangeAtMost(i32, -reach, reach) };
         if (v.x == 0 and v.y == 0) continue;
@@ -901,5 +911,9 @@ test "the wish arithmetic at the i64 extremes gives the same bits on every targe
         const r = physics.isqrt(physics.len2(v));
         crc.update(std.mem.asBytes(&[_]i64{ w.x, w.y, s.x, s.y, r }));
     }
-    try testing.expectEqual(@as(u32, 2544406423), crc.final());
+    // Golden: the first 20,000 samples' checksum, and all 200,000's.
+    try testing.expectEqual(@as(u32, switch (fuzz) {
+        .fast => 549483793,
+        .full => 2544406423,
+    }), crc.final());
 }

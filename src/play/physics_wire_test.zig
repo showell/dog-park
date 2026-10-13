@@ -8,6 +8,7 @@ const wire = @import("physics_wire.zig");
 const tiles = @import("tiles.zig");
 const testing = std.testing;
 const Text = wire.Text;
+const fuzz = @import("test_options").fuzz;
 
 fn written(line: wire.Line, buf: []u8) []const u8 {
     var w: Text = .{ .buf = buf };
@@ -88,7 +89,11 @@ test "every kind of line round-trips: written, parsed, the same integers, writte
 test "random critter lines and drags round-trip (seeded)" {
     var prng: std.Random.DefaultPrng = .init(29);
     const rand = prng.random();
-    for (0..5000) |_| {
+    // A tenth on every edit; all of it in the slow tier.
+    for (0..@as(usize, switch (fuzz) {
+        .fast => 500,
+        .full => 5000,
+    })) |_| {
         const who: physics.Critter = if (rand.boolean()) .dog(rand.uintLessThan(u16, physics.dog_count)) else .cow(rand.uintLessThan(u16, physics.cow_count));
         const p = struct {
             fn any(r: std.Random) physics.Point {

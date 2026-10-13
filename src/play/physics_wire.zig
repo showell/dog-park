@@ -26,24 +26,14 @@ pub const language = 1;
 pub const most_tiles = tiles.most_subscribed;
 
 /// **THE PHYSICS HASH**: a CRC-32 of the sources that decide a tick's lines
-/// and their text, built into both the wasm and the server, so a forgotten
-/// version change can't cause endless disagreement. The page's exports
-/// (physics_page.zig) are among them: the wasm is served under this hash
-/// and cached for good, so any change to it must change the name.
-pub const physics_hash: u32 = blk: {
-    @setEvalBranchQuota(100_000_000);
-    var crc = std.hash.Crc32.init();
-    for (.{
-        @embedFile("physics.zig"),
-        @embedFile("physics_jump.zig"),
-        @embedFile("physics_wire.zig"),
-        @embedFile("tiles.zig"),
-        @embedFile("dogs.zig"),
-        @embedFile("cows.zig"),
-        @embedFile("physics_page.zig"),
-    }) |source| crc.update(source);
-    break :blk crc.final();
-};
+/// and their text (`physics_sources.zon` names them), built into both the
+/// wasm and the server, so a forgotten version change can't cause endless
+/// disagreement. The page's exports (physics_page.zig) are among them: the
+/// wasm is served under this hash and cached for good, so any change to it
+/// must change the name. Computed once at configure time, by build.zig
+/// (and zig-metal-unikernel's), never here at comptime: each artifact paid
+/// about 4 s for that.
+pub const physics_hash: u32 = @import("physics_options").physics_hash;
 
 /// A caller's buffer, written into.
 pub const Text = struct {
