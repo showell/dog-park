@@ -1,11 +1,20 @@
 # Dog Park's physics, and the report that carries it
 
-**Status: the core is built** (2026-10-13): the board, the tick, the
-wire and the server's re-run of a report are `src/play/physics*.zig`, 59
-tests, passing natively and compiled to wasm32. Of the tests to write
-first (below), 8-12, 14, 20, 26, 27 and 29 pass, and 28 as far as the
-board alone can express it; 1-7, 13, 15-19, 21-25 and 30 wait for the
-server's protocol or the page. The page still plays today's `cows.zig`.
+**Status: the page plays on it** (2026-10-13). The board, the tick, the
+wire and the server's re-run are `src/play/physics*.zig` (59 tests, native
+and wasm32), and the server's protocol (`POST /load`, `POST /report`, its
+own board under `data/physics/`). The page runs the same Zig as
+`physics.wasm` (`physics_page.zig`'s exports, in the physics hash, served
+as `/physics-<hash>.wasm` and named by `index.html`); `solo/engine.js`
+keeps the record and the protocol (one report in flight, the spacing,
+byte-identical tries on the backoff, every answer form, the rewind and
+replay, the subscription and its `held`, the freezes). The page no longer
+calls the old routes; the server still serves them. Of the tests to write
+first, all but 5, 14, 17, 19, 25 and 28 have a page-side or end-to-end
+test (`tools/test_engine.mjs`, `tools/test_page_physics.mjs` against a
+scratch server); those six are the server's and the board's (above them
+in `physics_server_test.zig` and the core's tests). Played by Steve: not
+yet.
 
 **Designed** (2026-10-13). The physics of the other
 dogs, the cows' place in it, and the text report the page sends the
