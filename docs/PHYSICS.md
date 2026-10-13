@@ -150,10 +150,13 @@ add up, so a dog squeezed between two strangers is pushed out sideways.
 
 **2. Its place in the herd.** D's *anchor* is the nearest dog of its own
 breed that is more alpha (the leashed dog included, if it is of D's
-breed), within the *follow* distance. If D has no
+breed), within the *follow* distance; between two equally near, the
+lower number. If D has no
 anchor, it is the herd's head and only keeps its room. Against the anchor:
-- **Too far** (beyond the band's outer edge): D wants to step toward it.
-- **Too close** (inside the inner edge): D wants to step away. This is
+- **Too far** (beyond the band's outer edge): D wants to step toward it,
+  as long as the excess over the edge.
+- **Too close** (inside the inner edge): D wants to step away, as long as
+  the shortfall. This is
   "near but not on top".
 - **In the band:** content.
 
@@ -295,8 +298,9 @@ fall over:
 **The nearest spot clear of everyone, deterministically.** It is the
 closest position, by straight-line distance, that overlaps no critter and
 stays in the world, chosen from a finite list of candidates:
-- **The ways out** of every critter within reach (one square's width past
-  the pushed critter's own), pressed against each side of each: not only
+- **The ways out** of every critter within reach (any critter whose square
+  comes within 100 px of the pushed critter's: two cows' widths), pressed
+  against each side of each: not only
   the square it is under, so a spot just past a third square is found.
 - **The corners** where two such ways meet.
 
@@ -364,11 +368,15 @@ with the reports.**
 - **What's logged:** the server applies the set from that tick in its
   re-run, and keeps it in the game's log with the ticks, so a restart's
   replay wakes the same critters.
-- **Only tiles the page already held count.** A tick's awake set and its
-  obstacles come only from tiles the page held at the report's `from`:
-  a tile subscribed during the report wakes nothing until its critters
-  have arrived with an ack. So the page never ticks with critters it
-  hasn't seen.
+- **Only tiles the page holds count, and the report says when it starts
+  holding one.** A tile subscribed by a `view` wakes nothing until its
+  critters have arrived with an ack. The ack can come back while the page
+  is already ticks ahead, so the page records the moment it starts using
+  them as an input: a **`held T c,r …`** line, the tiles it holds from the
+  start of tick T. The server's re-run uses exactly those lines (a tile
+  dropped from a `view` stops counting at that view's tick). So page and
+  server agree on what was an obstacle at every tick, whenever the acks
+  arrived. The page never ticks with critters it hasn't seen.
 - **The page's promise:** it subscribes every tile within 700 px of the
   leashed dog: the 500 px reach, plus the farthest a push's jump can
   land (about 100 px), plus the most a tick's drag may move it (below).
@@ -424,6 +432,7 @@ rest 1043
 | `letgo T` | the drag ended at tick T because the human let go: the 80 ticks start |
 | `bump T dog N`, `bump T cow N` | the drag ended at tick T because the leashed dog pressed into that critter: the 80 ticks start, the leash stays |
 | `release T D` | the leash came off dog D at tick T (the 80 ticks ran out, or another dog was grabbed): the park sleeps |
+| `held T c,r …` | from the start of tick T, the page holds these tiles' critters (they arrived with an ack): an input, so the server counts exactly the tiles the page did |
 | `view T WxH c,r …` | from the start of tick T (before that tick's awake set is worked out), the viewport's size and the subscribed tiles: the other half of who is awake, logged with the ticks |
 | `t T +ms` | tick T begins, `+ms` after `wall` (data only). `drag` and its displacements in 256ths, when the human dragged during it, each with `@ms` from the tick's start (data only); at most 16 a tick (the page adds up any more) |
 | `dog N a > b`, `cow N a > b` | a critter that moved during tick T, from a to b, in cascade order: the leashed dog, then cows by number, then dogs by number. A cow's line is its net move over the tick's drag segments, since cows react to each segment. A critter not listed did not move |
@@ -453,6 +462,7 @@ kept 1060
 kept 1041
 differ 1042 dog 220 d41.35,1203.f5 > d41.2a,1203.eb
 board 1042 dog 219 d7d.00,1217.00 cow 23 d1c.33,1210.1a dog 8 e73.f0,1194.80 dog 220 d41.35,1203.f5 …
+leashed 219 drag on since 1041 view 1280x800 5,7 … held 5,7 …
 ```
 ```
 reload physics 7c2d04b9
@@ -466,7 +476,7 @@ reload physics 7c2d04b9
   had awake, **and every critter the report named** (so one the page woke
   wrongly is put back too), and everything else a rewind needs: who is
   leashed, whether a drag is on or since which tick it ended (for the 80
-  ticks), and the current view. Everything before tick T is kept. The page
+  ticks), the current view, and the tiles held at T. Everything before tick T is kept. The page
   rewinds to the board and replays its own ticks from T. If the server's
   run has a bump the page's didn't, the page lets go of the pointer.
 - **`reload`:** the page's physics is not the server's, or three `differ`s
@@ -511,17 +521,20 @@ play says otherwise:
 
 1. **Cows go to 256ths first,** before any dog physics: port `cows.zig`
    from half pixels, carrying its tests over. "Half as far" becomes the
-   step halved and truncated; the lane is 60 px (15360). One change of
+   step halved and truncated; the lane is 70 px centre to centre (17920: a dog's half, a cow's half and
+   the 20 px clearance, as `lane_halves` is today). One change of
    behaviour to expect: a cow in today's 400 px scare box but more than
    500 px from the leashed dog (the box's corners reach 566 px) is now
    asleep.
 2. **The 100 px cap and merging past 16 displacements a tick happen in
    the shared Zig,** not in JavaScript, so the server reproduces them. The
-   report carries the displacements after merging and capping; the server
-   refuses any over the cap.
+   report carries the displacements after merging and capping. A report
+   with one over the cap gets `differ` at that tick, with the board.
 3. **The cap is per axis, on the tick's path:** the displacements are
-   played in order and stop once their summed |x| or |y| reaches 100 px,
-   which suits x-then-y and needs no square root. (Past 16, displacements
+   played in order, each axis with its own 100 px budget for the tick; a
+   displacement that crosses a budget has that axis cut to what is left
+   (the other axis untouched), and that axis plays no more this tick. It
+   suits x-then-y and needs no square root. (Past 16, displacements
    are first added into the 16th.)
 4. **A dog's own wish step is swept like the drag:** x then y, stopping
    where it would press in. Sliding along a face comes free.
@@ -533,28 +546,47 @@ play says otherwise:
    another dog. Checked lines are recomputed and compared: critter lines,
    `bump`, `rest`, and a `release` the timer caused. If a replay after
    `differ` loses a bump, the pointer was already let go: it stands as a
-   `letgo` at that tick.
+   `letgo` at that tick. **If a replay after `differ` gains a bump** (the
+   server's run bumped where the page's didn't), that drag is over: the
+   page drops its recorded `drag` and `letgo` inputs after the bump until
+   its next `grab`, and lets go of the pointer. The server, for its part,
+   ignores a `drag` with no drag on, and logs it as a finding.
 7. **Order within a tick:** inputs before its `t` line, checked lines after
-   the critter lines.
+   the critter lines. A `letgo` takes effect after that tick's drag (the
+   displacements recorded before the pointer went up still play). A
+   `release` caused by grabbing another dog and the new `leash` share a
+   tick: `release T D1`, then `leash T D2`. A `bump` that presses two
+   critters at once names the higher-ranked. **Displacements on the wire**
+   are hex like positions, with a sign: `+1.00`, `-2.80`, and `0` for none.
 8. **Tick numbers after a sleep:** a `leash` takes the last tick + 1.
 9. **The timer:** a drag ending at tick T releases at tick T + 80, and the
    dogs still take their step in that tick.
-10. **At the 32-tick window** the page freezes the physics (it keeps
-    drawing) until the ack. One report in flight, never more.
+10. **When a report goes:** whenever none is in flight and there is
+    something unsent (ticks, or a `view`), but no sooner than 4 ticks
+    (250 ms) after the last one went. One in flight, never more. **At the
+    32-tick window** the page freezes the physics (it keeps drawing) until
+    the ack; the pointer's movement meanwhile adds up and is played,
+    capped, at the next tick. A `release` ends the ticking: no `rest` after
+    it.
 11. **Which tiles are subscribed:** the viewport's, plus every tile
     meeting the 1400 px square centred on the leashed dog. That can pass
     tiles.zig's cap of 25 (a 1920 × 1080 screen with the dog at its edge
     needs about 28), so the cap goes to **49** (7 × 7). A view that breaks
     the page's promise is logged by the server as a finding, not refused,
-    while the server's side is provisional. A view's new
-    tiles count only once held (the view's tiles that were held at
-    `from`); tiles dropped from a view stop counting at once.
-12. **A push's jump may not land in a tile the page doesn't hold:** such a
-    candidate is invalid.
+    while the server's side is provisional. A view's new tiles count from
+    the tick of the page's `held` line for them; tiles dropped from a view
+    stop counting at once.
+12. **A push's jump may not land in a tile the page doesn't hold** at that
+    tick (by the `held` lines): such a candidate is invalid.
 13. **"The area the cow swept"** is its sweep in that internal step, and
-    "the first one it would have pressed into" is broken by rank.
+    "the first one it would have pressed into" is broken by rank. **Order
+    within a drag step:** the edge clamp, the 100 px cap and the tile stall
+    shape the step first; the cows react to the step as shaped; then the
+    dog takes it.
 14. **The drag stalls (without ending) wherever the leashed dog would come
-    within 600 px of a tile the page doesn't hold yet.** Otherwise a
+    within 600 px of a tile the page doesn't hold yet**; a step that brings
+    it no nearer such a tile (away, or along) is allowed, even from
+    inside the 600 px. Otherwise a
     32-tick report can carry the dog into tiles whose critters haven't
     arrived, and it would walk through a sleeper it can't see.
 15. **Determinism in the shared Zig:**
