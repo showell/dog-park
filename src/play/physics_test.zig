@@ -930,3 +930,31 @@ test "the wish arithmetic at the i64 extremes gives the same bits on every targe
         .full => 2544406423,
     }), crc.final());
 }
+
+test "the wishes' grid sums every awake dog's wishes as the scan over every awake critter does: crowds on a lattice (ties for the anchor), dogs moved after the scene is built" {
+    var prng: std.Random.DefaultPrng = .init(31);
+    const r = prng.random();
+    var dogs_checked: usize = 0;
+    for (0..fuzzed(400)) |_| {
+        const c0 = 16000;
+        // A lattice step: many dogs equally far from one another.
+        const step = r.intRangeAtMost(i32, 10, 160);
+        const spread = r.intRangeAtMost(i32, 1, 8);
+        var b = leashedAt(px(c0, c0));
+        const n = r.intRangeAtMost(u16, 2, physics.dog_count - 1);
+        for (1..n) |i| b.place(.dog(@intCast(i)), px(c0 + step * r.intRangeAtMost(i32, -spread, spread), c0 + step * r.intRangeAtMost(i32, -spread, spread)));
+        for (0..r.uintLessThan(usize, physics.cow_count)) |i| b.place(.cow(@intCast(i)), px(c0 + r.intRangeAtMost(i32, -500, 500), c0 + r.intRangeAtMost(i32, -500, 500)));
+        var sc = physics.Scene.of(&b).?;
+        // Some move, across cells, as the wishes' steps and jumps move them.
+        for (0..r.uintLessThan(usize, 20)) |_| {
+            const i = r.uintLessThan(usize, sc.len);
+            const p = sc.pos(i);
+            sc.put(i, .{ .x = p.x + r.intRangeAtMost(i32, -physics.px(300), physics.px(300)), .y = p.y + r.intRangeAtMost(i32, -physics.px(300), physics.px(300)) });
+        }
+        for (sc.awakeOnes()) |w| {
+            try testing.expectEqual(physics.wishTotalScanned(&sc, w), physics.wishTotal(&sc, w));
+            dogs_checked += 1;
+        }
+    }
+    try testing.expect(dogs_checked > fuzzed(400));
+}

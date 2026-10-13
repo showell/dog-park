@@ -63,9 +63,17 @@ fn linesEqual(a: *const physics.Lines, b: *const physics.Lines) bool {
 
 const Session = struct { jumps: usize = 0, ticks: usize = 0 };
 
+/// A session's drags: a few random displacements a tick, or one long drive,
+/// the cap on both axes, turning every eight ticks (`long`).
+const Drags = enum { random, long };
+
 /// `ticks` ticks of seeded drags (now and then a let-go, then a grab), the
 /// physics and the reference side by side from `start`.
 fn session(start: Board, seed: u64, ticks: usize) !Session {
+    return sessionOf(start, seed, ticks, .random);
+}
+
+fn sessionOf(start: Board, seed: u64, ticks: usize, drags: Drags) !Session {
     var prng = std.Random.DefaultPrng.init(seed);
     const r = prng.random();
     var fast = start;
@@ -85,8 +93,13 @@ fn session(start: Board, seed: u64, ticks: usize) !Session {
             hn = 1;
         }
         var raw: [4]physics.Disp = undefined;
-        const k = r.uintLessThan(usize, 5);
+        var k = r.uintLessThan(usize, 5);
         for (raw[0..k]) |*d| d.* = .{ .dx = r.intRangeAtMost(i32, -physics.cap, physics.cap), .dy = r.intRangeAtMost(i32, -physics.cap, physics.cap) };
+        if (drags == .long) {
+            const leg = (t / 8 + seed) % 4;
+            raw[0] = .{ .dx = if (leg < 2) physics.cap else -physics.cap, .dy = if (leg % 2 == 0) physics.cap else -physics.cap };
+            k = 1;
+        }
         const drag = physics.mergeAndCap(raw[0..k]);
         const rf = physics.tick(&fast, t, humans[0..hn], drag.slice(), &lf);
         const rs = reference.tick(&slow, t, humans[0..hn], drag.slice(), &ls);
@@ -107,6 +120,9 @@ test "the physics plays long seeded dragged sessions board for board as the refe
     var jumps: usize = 0;
     for (0..3) |seed| jumps += (try session(park, seed, 160)).jumps;
     for (0..3) |seed| jumps += (try session(packedHerd(), 100 + seed, 30)).jumps;
+    // Long drives through the packed herd: the wishes' grid kept current
+    // through hundreds of pixel-ticks a tick.
+    for (0..2) |seed| jumps += (try sessionOf(packedHerd(), 300 + seed, 24, .long)).jumps;
     for (0..6) |seed| {
         var prng = std.Random.DefaultPrng.init(1000 + seed);
         jumps += (try session(thrownCrowd(prng.random()), 2000 + seed, 60)).jumps;

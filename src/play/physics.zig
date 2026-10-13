@@ -150,10 +150,15 @@ pub fn len2(v: Point) i64 {
     return x * x + y * y;
 }
 
-/// The integer square root, rounded down.
+/// The integer square root, rounded down: a float's guess, then corrected
+/// in integers until r² ≤ v < (r + 1)², so the float only makes it fast.
 pub fn isqrt(v: i64) i64 {
     std.debug.assert(v >= 0);
-    return std.math.sqrt(@as(u64, @intCast(v)));
+    const u: u64 = @intCast(v);
+    var r: u64 = @intFromFloat(@sqrt(@as(f64, @floatFromInt(u))));
+    while (r * r > u) r -= 1;
+    while ((r + 1) * (r + 1) <= u) r += 1;
+    return @intCast(r);
 }
 
 pub const Kind = enum(u8) { dog, cow };
@@ -518,6 +523,46 @@ fn gridCell(p: Point, side: i32, dx: i32, dy: i32) u16 {
     return @intCast(cy * grid_side + cx);
 }
 
+/// **THE WISHES' GRID**: every awake critter in a `wish_cell` square, by
+/// class (a dog's breed, or a cow), the cells folded onto a square
+/// `wish_grid` a side; kept current by `Scene.put`. A wish's sum reads only
+/// the cells its reach meets (`wishTotal`). A cost knob only: it changes no
+/// result.
+pub const wish_cell: i32 = wary;
+const wish_grid = 16;
+const wish_classes = breeds + 1;
+const wish_none: u16 = std.math.maxInt(u16);
+/// The anchor's search goes ring by ring to `wish_rings` cells out, where a
+/// ring's nearest point is past `follow`.
+const wish_rings: i32 = @divFloor(follow, wish_cell) + 1;
+comptime {
+    // A window of cells, the widest the wishes read, never folds onto
+    // itself: no bucket is read twice. A reach r spans at most
+    // 2 * ceil(r / wish_cell) + 1 cells a side; the anchor's rings, at most
+    // 2 * wish_rings + 1.
+    std.debug.assert(2 * wish_rings + 1 <= wish_grid);
+    std.debug.assert(wary <= follow and cow_room <= follow);
+}
+
+fn wishClass(c: Critter) u16 {
+    return switch (c.kind) {
+        .dog => c.n % breeds,
+        .cow => breeds,
+    };
+}
+
+/// The grid's cell for a point, by axis, unfolded.
+fn wishCellOf(v: i32) i32 {
+    return @divFloor(v, wish_cell);
+}
+
+/// The bucket for class `class` and unfolded cell (`cx`, `cy`).
+fn wishBucket(class: u16, cx: i32, cy: i32) usize {
+    const fx: usize = @intCast(@mod(cx, wish_grid));
+    const fy: usize = @intCast(@mod(cy, wish_grid));
+    return (@as(usize, class) * wish_grid + fy) * wish_grid + fx;
+}
+
 /// Whether a seen critter may overlap another: `clear` promises it
 /// overlaps no one.
 pub const Overlap = enum(u8) { clear, maybe };
@@ -563,6 +608,12 @@ pub const Scene = struct {
     drift: i32 = 0,
     jumped: Jumped = .initEmpty(),
     pair_checks: u64 = 0,
+    /// The wishes' grid (`wish_cell`): each bucket's first awake critter,
+    /// each one's next and previous in its bucket, and its bucket.
+    wg_head: [wish_classes * wish_grid * wish_grid]u16 = @splat(wish_none),
+    wg_next: [critter_count]u16 = undefined,
+    wg_prev: [critter_count]u16 = undefined,
+    wg_bucket: [critter_count]u16 = undefined,
 
     pub const Lists = enum { none, built };
 
@@ -578,6 +629,7 @@ pub const Scene = struct {
             if (i == l) continue;
             s.consider(.dog(@intCast(i)), span, center, sphere);
         }
+        for (s.awakeOnes()) |i| s.wgLink(i, s.wgBucketAt(i, s.at[i]));
         return s;
     }
 
@@ -599,6 +651,26 @@ pub const Scene = struct {
         s.len += 1;
     }
 
+    fn wgBucketAt(s: *const Scene, i: usize, p: Point) u16 {
+        return @intCast(wishBucket(wishClass(s.seen[i].who), wishCellOf(p.x), wishCellOf(p.y)));
+    }
+
+    fn wgLink(s: *Scene, i: usize, k: u16) void {
+        const h = s.wg_head[k];
+        s.wg_next[i] = h;
+        s.wg_prev[i] = wish_none;
+        if (h != wish_none) s.wg_prev[h] = @intCast(i);
+        s.wg_head[k] = @intCast(i);
+        s.wg_bucket[i] = k;
+    }
+
+    fn wgUnlink(s: *Scene, i: usize) void {
+        const n = s.wg_next[i];
+        const pv = s.wg_prev[i];
+        if (pv == wish_none) s.wg_head[s.wg_bucket[i]] = n else s.wg_next[pv] = n;
+        if (n != wish_none) s.wg_prev[n] = pv;
+    }
+
     pub fn awakeOnes(s: *const Scene) []const u16 {
         return s.awake[0..s.awake_len];
     }
@@ -614,6 +686,13 @@ pub const Scene = struct {
     pub fn put(s: *Scene, i: usize, p: Point) void {
         s.at[i] = p;
         s.board.put(s.seen[i].who, p);
+        if (s.seen[i].awake == .awake) {
+            const k = s.wgBucketAt(i, p);
+            if (k != s.wg_bucket[i]) {
+                s.wgUnlink(i);
+                s.wgLink(i, k);
+            }
+        }
         if (s.lists == .built) {
             const d = delta(s.nb_at[i], p);
             s.drift = @max(s.drift, @max(mag(d.x), mag(d.y)));
@@ -1051,7 +1130,102 @@ pub fn stepAtMost(total: Point, most: i32) Point {
 
 /// The sum of dog `i`'s wishes: room from other breeds above it, its place
 /// against its anchor, room from the cows. Only awake critters count.
+///
+/// An awake unleashed dog reads the wishes' grid: the strangers and cows in
+/// the cells within `wary` and `cow_room`, and its anchor ring by ring
+/// outward (`anchorOf`). Anyone else is summed over every awake critter
+/// (`wishTotalScanned`). The two give the same wishes; the sum is of
+/// integers, so its order is free.
 pub fn wishTotal(sc: *const Scene, i: usize) Point {
+    const me = sc.seen[i];
+    if (me.who.kind != .dog or me.rank == 0 or me.awake != .awake) return wishTotalScanned(sc, i);
+    const p = sc.pos(i);
+    const breed = me.who.n % breeds;
+    var total: Point = .{ .x = 0, .y = 0 };
+    // Strangers: other breeds above it, within `wary`.
+    for (0..breeds) |b| {
+        if (b == breed) continue;
+        addRoom(sc, &total, i, p, @intCast(b), wary);
+    }
+    // Every awake cow is above it, within `cow_room`.
+    addRoom(sc, &total, i, p, breeds, cow_room);
+    if (anchorOf(sc, i, p, breed)) |a| addAnchor(&total, p, sc.pos(a.j), a.d2);
+    return total;
+}
+
+/// Adds, for each awake critter of class `class` above dog `i` (at `p`)
+/// within `reach`, a push away as long as the shortfall.
+fn addRoom(sc: *const Scene, total: *Point, i: usize, p: Point, class: u16, reach: i32) void {
+    const reach2 = @as(i64, reach) * reach;
+    var cy = wishCellOf(p.y - reach);
+    while (cy <= wishCellOf(p.y + reach)) : (cy += 1) {
+        var cx = wishCellOf(p.x - reach);
+        while (cx <= wishCellOf(p.x + reach)) : (cx += 1) {
+            var j = sc.wg_head[wishBucket(class, cx, cy)];
+            while (j != wish_none) : (j = sc.wg_next[j]) {
+                if (j >= i) continue;
+                const v = delta(sc.pos(j), p);
+                const d2 = len2(v);
+                if (d2 > reach2) continue;
+                const l = isqrt(d2);
+                add(total, awayRooted(v, l, reach - @as(i32, @intCast(l))));
+            }
+        }
+    }
+}
+
+const Anchor = struct { j: usize, d2: i64 };
+
+/// **THE ANCHOR, BY RINGS**: the nearest awake dog of `breed` above dog `i`
+/// (at `p`) within `follow`; on a tie, the higher-ranked (`seen` is in rank
+/// order, so the lower index). Ring k is the cells k cells out from `p`'s
+/// on either axis; a point there is more than (k - 1) cells' width from
+/// `p` on some axis. The search stops before a ring whose least distance
+/// is past the best found (it can hold nothing nearer, nor a tie) or past
+/// `follow`.
+fn anchorOf(sc: *const Scene, i: usize, p: Point, breed: u16) ?Anchor {
+    const follow2 = @as(i64, follow) * follow;
+    const pcx = wishCellOf(p.x);
+    const pcy = wishCellOf(p.y);
+    var best: ?Anchor = null;
+    var k: i32 = 0;
+    while (k <= wish_rings) : (k += 1) {
+        if (k > 0) {
+            const least = @as(i64, k - 1) * wish_cell;
+            if (least * least > follow2) break;
+            if (best) |b| if (least * least > b.d2) break;
+        }
+        var cy = pcy - k;
+        while (cy <= pcy + k) : (cy += 1) {
+            const edge_row = cy == pcy - k or cy == pcy + k;
+            var cx = pcx - k;
+            while (cx <= pcx + k) : (cx += if (edge_row or cx == pcx + k) 1 else 2 * k) {
+                var j = sc.wg_head[wishBucket(breed, cx, cy)];
+                while (j != wish_none) : (j = sc.wg_next[j]) {
+                    if (j >= i) continue;
+                    const d2 = len2(delta(sc.pos(j), p));
+                    if (d2 > follow2) continue;
+                    if (best) |b| if (d2 > b.d2 or (d2 == b.d2 and j > b.j)) continue;
+                    best = .{ .j = j, .d2 = d2 };
+                }
+            }
+        }
+    }
+    return best;
+}
+
+/// The anchor's wish: toward it from past `band_outer`, away from it
+/// inside `band_inner`.
+fn addAnchor(total: *Point, p: Point, q: Point, anchor_d2: i64) void {
+    if (anchor_d2 > @as(i64, band_outer) * band_outer) {
+        add(total, wishAlong(delta(p, q), @as(i32, @intCast(isqrt(anchor_d2))) - band_outer));
+    } else if (anchor_d2 < @as(i64, band_inner) * band_inner) {
+        add(total, away(q, p, band_inner - @as(i32, @intCast(isqrt(anchor_d2)))));
+    }
+}
+
+/// `wishTotal` over every awake critter, in rank order.
+pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
     const me = sc.seen[i];
     const p = sc.pos(i);
     const breed = me.who.n % breeds;
@@ -1083,14 +1257,7 @@ pub fn wishTotal(sc: *const Scene, i: usize) Point {
             },
         }
     }
-    if (anchor) |j| {
-        const q = sc.pos(j);
-        if (anchor_d2 > @as(i64, band_outer) * band_outer) {
-            add(&total, wishAlong(delta(p, q), @as(i32, @intCast(isqrt(anchor_d2))) - band_outer));
-        } else if (anchor_d2 < @as(i64, band_inner) * band_inner) {
-            add(&total, away(q, p, band_inner - @as(i32, @intCast(isqrt(anchor_d2)))));
-        }
-    }
+    if (anchor) |j| addAnchor(&total, p, sc.pos(j), anchor_d2);
     return total;
 }
 
@@ -1103,14 +1270,24 @@ fn add(total: *Point, w: Point) void {
 /// `p`; when the centres coincide, east.
 fn away(from: Point, p: Point, length: i32) Point {
     const v = delta(from, p);
+    return awayRooted(v, isqrt(len2(v)), length);
+}
+
+/// `away`, `v` from the other's centre to the critter's and `l` its
+/// `isqrt` length, already taken.
+fn awayRooted(v: Point, l: i64, length: i32) Point {
     if (v.x == 0 and v.y == 0) return .{ .x = length, .y = 0 };
-    return wishAlong(v, length);
+    return wishAlongRooted(v, l, length);
 }
 
 /// A wish `length` long along `v`: each axis of `v` times the length,
 /// divided by `v`'s length (`isqrt`), truncated toward zero.
 pub fn wishAlong(v: Point, length: i32) Point {
-    const l = isqrt(len2(v));
+    return wishAlongRooted(v, isqrt(len2(v)), length);
+}
+
+/// `wishAlong`, `l` being `v`'s `isqrt` length.
+fn wishAlongRooted(v: Point, l: i64, length: i32) Point {
     return .{
         .x = @intCast(@divTrunc(@as(i64, v.x) * length, l)),
         .y = @intCast(@divTrunc(@as(i64, v.y) * length, l)),
