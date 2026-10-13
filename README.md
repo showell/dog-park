@@ -4,7 +4,8 @@ Everybody owns a dog and drags it around a park. There is no object of the
 game yet: you move your dog, and you see the other dogs move.
 
 It is a small web application built on `webbox`, the web-server-in-a-box
-library that lives in angry-gopher's server (`../angry-gopher/zig-server`).
+library ([zig-webbox](https://github.com/showell/zig-webbox), a sibling
+checkout at `../zig-webbox`).
 It is meant to be the thing a person reads to make their own game: the
 park, its routes, its page and its JavaScript are here, and everything that
 serves them is the library's.
