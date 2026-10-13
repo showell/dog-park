@@ -1,0 +1,411 @@
+//! **THE SERVER'S RE-RUN** of one report (docs/PHYSICS.md, "The server's
+//! answers"): from its board at the last kept tick, it plays the report's
+//! inputs and ticks with the same compiled physics the page ran, compares
+//! every checked line by its parsed integers, and writes the answer:
+//! `kept T`, or `kept T-1` and `differ T ...` with the `state`, `input`
+//! and `board` lines.
+//!
+//! **What this is not (yet):** the request numbers, epochs, stored
+//! answers, the breaker, `stuck` and `tile` lines are the server's
+//! protocol, around this. The header's `req` is echoed; its language and
+//! physics hash are checked; its epoch is the caller's business.
+
+const std = @import("std");
+const physics = @import("physics.zig");
+const wire = @import("physics_wire.zig");
+const tiles = @import("tiles.zig");
+const Text = wire.Text;
+const Tick = physics.Tick;
+
+/// What the server keeps between reports.
+pub const Kept = struct {
+    /// The last kept tick, K.
+    tick: Tick,
+    /// The board at the end of K.
+    board: physics.Board,
+    /// The view in effect, and the held tiles (any kept for K + 1
+    /// included: they are never the physics' business, and the `state`
+    /// line carries them).
+    view: View = .{},
+    held: wire.TileSet = .{},
+    /// The human's inputs an earlier request kept for K + 1, in order.
+    pending: [physics.most_humans]physics.Human = undefined,
+    pending_len: usize = 0,
+
+    pub const View = struct { w: u64 = 0, h: u64 = 0, tiles: wire.TileSet = .{} };
+
+    pub fn pendingSlice(self: *const Kept) []const physics.Human {
+        return self.pending[0..self.pending_len];
+    }
+};
+
+/// Every overlap the re-run left among the critters the physics sees, per
+/// kept tick: findings for the log, never a refutation.
+pub const Findings = struct { overlaps: usize = 0 };
+
+/// The judge's verdict, besides the answer's text.
+pub const Verdict = enum { kept, differ, reload, unreadable };
+
+/// **JUDGES A REPORT** against `kept`, which moves to the last kept tick;
+/// the answer goes to `out`.
+pub fn judge(kept: *Kept, physics_hash: u32, report: []const u8, out: *Text, findings: *Findings) Text.Error!Verdict {
+    var lines: wire.Lines = .{ .rest = report };
+    const header = blk: {
+        const first = lines.next() orelse break :blk null;
+        const parsed = wire.parse(first) catch break :blk null;
+        break :blk switch (parsed) {
+            .header => |h| h,
+            else => null,
+        };
+    } orelse {
+        try out.str("req ?\n");
+        return .unreadable;
+    };
+    try out.str("req ");
+    try out.dec(header.req);
+    try out.char('\n');
+    if (header.language != wire.language) {
+        try out.str("reload language ");
+        try out.dec(wire.language);
+        try out.char('\n');
+        return .reload;
+    }
+    if (header.physics != physics_hash) {
+        try out.str("reload physics ");
+        try out.hash(physics_hash);
+        try out.char('\n');
+        return .reload;
+    }
+    const from: ?wire.From = blk: {
+        const second = lines.next() orelse break :blk null;
+        const parsed = wire.parse(second) catch break :blk null;
+        break :blk switch (parsed) {
+            .from => |f| f,
+            else => null,
+        };
+    };
+    if (from == null or from.?.tick != kept.tick) {
+        try out.str("reload from ");
+        try out.dec(kept.tick);
+        try out.char('\n');
+        return .reload;
+    }
+    var named = namedIn(lines);
+    var run: Run = .{ .kept = kept, .from = kept.tick, .lines = lines, .findings = findings };
+    const differ = run.all();
+    if (differ) |d| {
+        try out.str("kept ");
+        try out.dec(d.tick - 1);
+        try out.char('\n');
+        try out.str("differ ");
+        try out.dec(d.tick);
+        try out.char(' ');
+        switch (d.says) {
+            .server => |line| try quote(out, line),
+            .none => |text| {
+                try out.str("none ");
+                try out.str(if (text.len > 0 and text[0] == ' ') text[1..] else text);
+            },
+        }
+        try out.char('\n');
+        try writeState(out, kept, d.tick, &named);
+        return .differ;
+    }
+    try out.str("kept ");
+    try out.dec(kept.tick);
+    try out.char('\n');
+    return .kept;
+}
+
+/// A line as `differ` quotes it: a critter line unindented.
+fn quote(out: *Text, line: wire.Line) Text.Error!void {
+    switch (line) {
+        .critter => |c| try wire.critterMove(out, c),
+        else => {
+            var buf: [1024]u8 = undefined;
+            var w: Text = .{ .buf = &buf };
+            try wire.write(&w, line);
+            try out.str(w.bytes()[0 .. w.len - 1]);
+        },
+    }
+}
+
+/// The critters a report names in its critter lines.
+const Named = struct {
+    dogs: [physics.dog_count]Mark = @splat(.unnamed),
+    cows: [physics.cow_count]Mark = @splat(.unnamed),
+
+    const Mark = enum { unnamed, named };
+
+    fn has(self: *const Named, c: physics.Critter) bool {
+        return switch (c.kind) {
+            .dog => self.dogs[c.n] == .named,
+            .cow => self.cows[c.n] == .named,
+        };
+    }
+};
+
+fn namedIn(lines: wire.Lines) Named {
+    var n: Named = .{};
+    var it = lines;
+    while (it.next()) |text| {
+        const line = wire.parse(text) catch continue;
+        switch (line) {
+            .critter => |c| switch (c.who.kind) {
+                .dog => n.dogs[c.who.n] = .named,
+                .cow => n.cows[c.who.n] = .named,
+            },
+            else => {},
+        }
+    }
+    return n;
+}
+
+/// After `differ T`: the `state` at the start of T before its inputs, the
+/// `input` lines kept earlier for T, and the `board`.
+fn writeState(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.Error!void {
+    const b = &kept.board;
+    try out.str("state leash ");
+    switch (b.hold) {
+        .none => try out.str("none drag none"),
+        .leashed => |l| {
+            try out.dec(l.dog);
+            switch (l.drag) {
+                .on => try out.str(" drag on"),
+                .ended => |e| {
+                    try out.str(" drag ended ");
+                    try out.dec(e);
+                },
+            }
+        },
+    }
+    try out.str(" view ");
+    try out.dec(kept.view.w);
+    try out.char('x');
+    try out.dec(kept.view.h);
+    try out.tileList(kept.view.tiles.sorted().slice());
+    try out.str(" held");
+    try out.tileList(kept.held.sorted().slice());
+    try out.char('\n');
+    for (kept.pendingSlice()) |h| {
+        try out.str("input ");
+        try wire.write(out, switch (h) {
+            .leash => |d| .{ .leash = .{ .tick = t, .dog = d } },
+            .release => |d| .{ .release = .{ .tick = t, .dog = d } },
+            .grab => .{ .grab = t },
+            .letgo => .{ .letgo = t },
+        });
+    }
+    // The board: every critter awake at the start of T, and every one the
+    // report named, in rank order.
+    var board = kept.board;
+    var awake: Named = .{};
+    if (physics.Scene.of(&board)) |sc| {
+        for (sc.list()) |s| if (s.awake == .awake) switch (s.who.kind) {
+            .dog => awake.dogs[s.who.n] = .named,
+            .cow => awake.cows[s.who.n] = .named,
+        };
+    }
+    try out.str("board ");
+    try out.dec(t);
+    const leashed = b.leashedDog();
+    if (leashed) |l| try boardEntry(out, b, .dog(l));
+    for (0..physics.cow_count) |i| {
+        const c: physics.Critter = .cow(@intCast(i));
+        if (awake.has(c) or named.has(c)) try boardEntry(out, b, c);
+    }
+    for (0..physics.dog_count) |i| {
+        const c: physics.Critter = .dog(@intCast(i));
+        if (leashed != null and leashed.? == i) continue;
+        if (awake.has(c) or named.has(c)) try boardEntry(out, b, c);
+    }
+    try out.char('\n');
+}
+
+fn boardEntry(out: *Text, b: *const physics.Board, c: physics.Critter) Text.Error!void {
+    try out.char(' ');
+    try out.critter(c);
+    try out.char(' ');
+    try out.pos(b.at(c));
+}
+
+/// Where the re-run first disagrees: the server's own line, or `none` and
+/// the report's.
+const Differ = struct {
+    tick: Tick,
+    says: union(enum) { server: wire.Line, none: []const u8 },
+};
+
+const Run = struct {
+    kept: *Kept,
+    /// The report's `from`: ticks run to `from` + 32, inputs to `from` + 33.
+    from: Tick,
+    lines: wire.Lines,
+    findings: *Findings,
+    /// A line read and not yet used.
+    peeked: ?[]const u8 = null,
+
+    fn next(self: *Run) ?[]const u8 {
+        if (self.peeked) |p| {
+            self.peeked = null;
+            return p;
+        }
+        return self.lines.next();
+    }
+
+    /// Every tick of the report, in order; null when all of it is kept.
+    fn all(self: *Run) ?Differ {
+        while (true) {
+            const t = self.kept.tick + 1;
+            const start = self.kept.*;
+            const got = self.one(t);
+            switch (got) {
+                .ran => {},
+                .end => |e| {
+                    // Inputs for `t` with no `t` line wait for it: the board
+                    // stays at the end of K; the view and held tiles stand.
+                    const view = self.kept.view;
+                    const held = self.kept.held;
+                    self.kept.* = start;
+                    self.kept.view = view;
+                    self.kept.held = held;
+                    for (e.slice()) |h| {
+                        self.kept.pending[self.kept.pending_len] = h;
+                        self.kept.pending_len += 1;
+                    }
+                    return null;
+                },
+                .differ => |d| {
+                    self.kept.* = start;
+                    return d;
+                },
+            }
+        }
+    }
+
+    const Waiting = struct {
+        list: [physics.most_humans]physics.Human = undefined,
+        len: usize = 0,
+
+        fn slice(self: *const Waiting) []const physics.Human {
+            return self.list[0..self.len];
+        }
+    };
+
+    const One = union(enum) { ran, end: Waiting, differ: Differ };
+
+    /// Tick `t`: its inputs, then its `t` line and checked lines; or the
+    /// end, keeping inputs that wait for `t`.
+    fn one(self: *Run, t: Tick) One {
+        const k = self.kept;
+        const from = self.from;
+        var begun: physics.Begun = .{};
+        for (k.pendingSlice()) |h| {
+            // Kept already: never refused now.
+            _ = physics.input(&k.board, &begun, h);
+        }
+        var waiting: Waiting = .{};
+        while (self.next()) |text| {
+            const line = wire.parse(text) catch return refuse(t, text);
+            switch (line) {
+                .leash, .release, .grab, .letgo => {
+                    const in = wire.human(line).?;
+                    if (in.tick != t or t > from + physics.most_ticks + 1) return refuse(t, text);
+                    if (physics.input(&k.board, &begun, in.h) != null) return refuse(t, text);
+                    waiting.list[waiting.len] = in.h;
+                    waiting.len += 1;
+                },
+                .view => |v| {
+                    if (v.tick != t or t > from + physics.most_ticks + 1) return refuse(t, text);
+                    k.view = .{ .w = v.w, .h = v.h, .tiles = v.tiles };
+                    var still: wire.TileSet = .{};
+                    for (k.held.slice()) |h| if (v.tiles.holds(h)) still.add(h) catch unreachable;
+                    k.held = still;
+                },
+                .held => |h| {
+                    if (h.tick != t or t > from + physics.most_ticks + 1) return refuse(t, text);
+                    for (h.tiles.slice()) |tile| {
+                        if (!k.view.tiles.holds(tile)) return refuse(t, text);
+                        k.held.add(tile) catch return refuse(t, text);
+                    }
+                },
+                .t => |tl| {
+                    if (tl.tick != t or t > from + physics.most_ticks) return refuse(t, text);
+                    if (!physics.withinCap(tl.drag.slice())) return refuse(t, text);
+                    if (!self.regionHeld()) return refuse(t, text);
+                    var lines: physics.Lines = .{};
+                    physics.run(&k.board, t, begun, tl.drag.slice(), &lines);
+                    if (self.compare(t, &lines)) |d| return .{ .differ = d };
+                    k.tick = t;
+                    k.pending_len = 0;
+                    var pairs: [1][2]physics.Critter = undefined;
+                    self.findings.overlaps += physics.overlaps(&k.board, &pairs);
+                    return .ran;
+                },
+                else => return refuse(t, text),
+            }
+        }
+        return .{ .end = waiting };
+    }
+
+    /// Whether every tile meeting the tick's region is held.
+    fn regionHeld(self: *Run) bool {
+        const k = self.kept;
+        const l = k.board.leashedDog() orelse return true;
+        const span = physics.TileSpan.of(physics.region(k.board.dogs[l]));
+        var row = span.row_lo;
+        while (row <= span.row_hi) : (row += 1) {
+            var col = span.col_lo;
+            while (col <= span.col_hi) : (col += 1) {
+                if (!k.held.holds(.{ .col = col, .row = row })) return false;
+            }
+        }
+        return true;
+    }
+
+    /// The report's checked lines for `t` against the server's.
+    fn compare(self: *Run, t: Tick, server: *const physics.Lines) ?Differ {
+        for (server.slice()) |c| {
+            const mine = wire.checkedLine(t, c);
+            const text = self.next() orelse return .{ .tick = t, .says = .{ .server = mine } };
+            const theirs = wire.parse(text) catch {
+                self.peeked = text;
+                return .{ .tick = t, .says = .{ .server = mine } };
+            };
+            if (!isChecked(theirs, t) or !wire.same(mine, theirs)) {
+                self.peeked = text;
+                return .{ .tick = t, .says = .{ .server = mine } };
+            }
+        }
+        if (self.next()) |text| {
+            const theirs = wire.parse(text) catch {
+                // A malformed line that can only be one of this tick's is
+                // refused here; any other is the next tick's to refuse.
+                if (std.mem.startsWith(u8, text, " ") or std.mem.startsWith(u8, text, "bump ") or std.mem.startsWith(u8, text, "rest ")) return refuse(t, text).differ;
+                self.peeked = text;
+                return null;
+            };
+            if (isChecked(theirs, t)) return .{ .tick = t, .says = .{ .none = text } };
+            self.peeked = text;
+        }
+        return null;
+    }
+};
+
+/// Whether a line is one of tick `t`'s checked lines (a `release` at the
+/// next tick is an input).
+fn isChecked(line: wire.Line, t: Tick) bool {
+    return switch (line) {
+        .critter, .bump, .rest => true,
+        .release => |r| r.tick == t,
+        else => false,
+    };
+}
+
+fn refuse(t: Tick, text: []const u8) Run.One {
+    return .{ .differ = .{ .tick = t, .says = .{ .none = text } } };
+}
+
+test {
+    _ = @import("physics_judge_test.zig");
+}

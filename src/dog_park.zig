@@ -21,6 +21,11 @@ pub const play_humans = @import("play/humans.zig");
 pub const play_tiles = @import("play/tiles.zig");
 pub const play_cows = @import("play/cows.zig");
 pub const play_app = @import("play/app.zig");
+/// The critters' physics (docs/PHYSICS.md): the shared Zig the page and the
+/// server will both run.
+pub const play_physics = @import("play/physics.zig");
+pub const play_physics_wire = @import("play/physics_wire.zig");
+pub const play_physics_judge = @import("play/physics_judge.zig");
 
 test {
     @import("std").testing.refAllDecls(@This());
