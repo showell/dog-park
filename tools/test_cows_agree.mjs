@@ -2,7 +2,7 @@
 // dog-park-play) is started in a scratch folder, a dog is dragged about at
 // random near the cows, and before each batch of moves the page's
 // prediction (zig-out/web/cows.wasm, replaying each move's path segment by
-// segment from where the server last said the cows are, as park.js's
+// segment from where the server last said the cows are, as engine.js's
 // predictCows does) must equal where the server's acks then put them,
 // exactly. A batch is one to three moves, as a page sends them when one is
 // in flight and more wait; a move is a path of 1 to 12 points.

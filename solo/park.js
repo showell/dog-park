@@ -41,29 +41,54 @@
 // The page's modules: scene.js (the frames, tiles and the overview's
 // frame, and what a frame draws), pointer.js (what a pointer event means,
 // and the edge bands), blit.js (the drawing, and what a press is on),
-// engine.js (what the page knows, the leash, the sends). This file wires
-// them to the DOM, and starts only where there is one, so node can import
-// every module.
+// engine.js (what the page knows, the leash, the viewport, the sends; no
+// DOM). This file gives the engine the real wire, clock, timers and
+// console, wires the DOM to it, and runs the frame loop and the drawing. It
+// starts only where there is a DOM, so node can import every module.
 
-import {
-  world_px, viewportKeptOnWorld, nearScene, overviewScene, dogOfTarget,
-} from "./scene.js";
+import { nearScene, overviewScene, dogOfTarget } from "./scene.js";
 import { meaning, edgeScroll, inHand, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
-import {
-  known, knownCows, subscribed, leashed, lastLeashed,
-  fetchMe, leashTo, keepOnLeash, keptFromBefore, sendMove, sendViewport, syncTiles,
-  loadCowRule, predictKnownCows,
-} from "./engine.js";
+import { createEngine } from "./engine.js";
+
+// ── the wire ────────────────────────────────────────────────────────────────
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
+  return response.json();
+}
+
+async function getJSON(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`${path}: ${response.status}`);
+  return response.json();
+}
+
+// The cows' rule, the server's own.
+async function loadCowRule() {
+  const { instance } = await WebAssembly.instantiateStreaming(fetch("/cows.wasm"));
+  return instance.exports;
+}
 
 // ── the page ────────────────────────────────────────────────────────────────
 
 async function start() {
   const canvas = document.getElementById("park");
   const ctx = canvas.getContext("2d");
-  const cowRule = await loadCowRule();
-  const me = await fetchMe();
-  const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
+  const engine = createEngine({
+    rule: await loadCowRule(),
+    post,
+    getJSON,
+    now: () => performance.now(),
+    setTimer: (f, ms) => setTimeout(f, ms),
+    clearTimer: (timer) => clearTimeout(timer),
+    log: console,
+  });
   // Near (the park at its size) or the overview (the whole world).
   let mode = "near";
   // What the human's hand is doing (pointer.js says the shapes).
@@ -72,68 +97,39 @@ async function start() {
   // human saw.
   let drawn = { mode, objects: [] };
 
+  // The canvas sized to the screen, in device pixels; the screen's size.
   function fit() {
     const ratio = window.devicePixelRatio || 1;
-    viewport.width = canvas.clientWidth;
-    viewport.height = canvas.clientHeight;
-    canvas.width = Math.floor(viewport.width * ratio);
-    canvas.height = Math.floor(viewport.height * ratio);
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    canvas.width = Math.floor(width * ratio);
+    canvas.height = Math.floor(height * ratio);
+    return { width, height };
   }
-  fit();
-  if (me.viewport.at) {
-    Object.assign(viewport, viewportKeptOnWorld(viewport, me.viewport.at.park_x, me.viewport.at.park_y));
-  } else {
-    // A first visit starts at the world's centre.
-    viewport.parkX = Math.round(world_px / 2 - viewport.width / 2);
-    viewport.parkY = Math.round(world_px / 2 - viewport.height / 2);
-    sendViewport(viewport);
-  }
-  // A dog still on your leash from before the reload: kept on it the usual
-  // time from now, then let go.
-  if (me.leash.dog !== undefined) keptFromBefore(me.leash.dog);
+  await engine.load(fit);
 
-  // The page does what an event means, in order.
+  // The page does what an event means, in order: the mode is the page's,
+  // the rest the engine's.
   function apply(intents) {
     for (const i of intents) {
-      switch (i.kind) {
-        case "grab": leashTo(i.dogId); break;
-        case "drag": {
-          const dog = heldDog(i.dogId);
-          dog.parkX = i.parkX;
-          dog.parkY = i.parkY;
-          sendMove(dog);
-          break;
-        }
-        case "letgo": keepOnLeash(); break;
-        case "pan":
-          viewport.parkX = i.parkX;
-          viewport.parkY = i.parkY;
-          sendViewport(viewport);
-          break;
-        case "mode": mode = i.mode; break;
-        default: throw new Error(`no intent ${i.kind}`);
-      }
+      if (i.kind === "mode") mode = i.mode;
+      else engine.intent(i);
     }
   }
-  function heldDog(dogId) {
-    const dog = known.get(dogId);
-    if (dog === undefined) throw new Error(`dog ${dogId} is in hand but not known`);
-    return dog;
-  }
   function handle(event, hitId = null) {
-    const out = meaning(hand, event, hitId, mode, viewport);
+    const out = meaning(hand, event, hitId, mode, engine.view().viewport);
     hand = out.hand;
     apply(out.intents);
   }
 
-  window.addEventListener("resize", fit);
+  window.addEventListener("resize", () => engine.resize(fit()));
   window.addEventListener("keydown", (e) => {
     if (e.key === "z") handle({ type: "z" });
   });
   canvas.addEventListener("pointerdown", (e) => {
     canvas.setPointerCapture(e.pointerId);
     const hitId = pressedOn(drawn, mode, e.offsetX, e.offsetY);
-    const dog = known.get(dogOfTarget(hitId));
+    const dog = engine.view().dogs.get(dogOfTarget(hitId));
     handle({ type: "down", x: e.offsetX, y: e.offsetY, dogAt: dog === undefined ? "none" : { parkX: dog.parkX, parkY: dog.parkY } }, hitId);
   });
   canvas.addEventListener("pointermove", (e) => handle({ type: "move", x: e.offsetX, y: e.offsetY }));
@@ -141,19 +137,27 @@ async function start() {
   canvas.addEventListener("pointercancel", () => handle({ type: "cancel" }));
 
   const frame = () => {
-    syncTiles(viewport, () => inHand(hand));
-    predictKnownCows(cowRule);
+    engine.frame();
     if (mode === "overview") {
-      drawn = { mode, objects: overviewScene(viewport, [...known.values()], [...knownCows.values()], subscribed, lastLeashed) };
+      const v = engine.view();
+      drawn = { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed) };
     } else {
       const dogId = inHand(hand);
-      apply(edgeScroll(hand, viewport, dogId === "none" ? "none" : heldDog(dogId)));
-      drawn = { mode, objects: nearScene(viewport, [...known.values()], [...knownCows.values()], leashed) };
+      const before = engine.view();
+      apply(edgeScroll(hand, before.viewport, dogId === "none" ? "none" : heldDog(before, dogId)));
+      const v = engine.view();
+      drawn = { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed) };
     }
     draw(ctx, drawn.objects);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+}
+
+function heldDog(view, dogId) {
+  const dog = view.dogs.get(dogId);
+  if (dog === undefined) throw new Error(`dog ${dogId} is in hand but not known`);
+  return dog;
 }
 
 if (typeof document !== "undefined") start().catch((e) => console.error("Dog Park did not start:", e.message));

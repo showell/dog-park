@@ -15,18 +15,14 @@ test("every module imports without a DOM", () => {
   assert.equal(typeof document, "undefined");
   assert.equal(typeof blit.draw, "function");
   assert.equal(typeof blit.hit, "function");
-  assert.equal(typeof engine.syncTiles, "function");
+  assert.equal(typeof engine.createEngine, "function");
   // park.js wires the DOM and exports nothing; its import starting nothing
   // is this file finishing at all (a start would throw on `document`).
   assert.deepEqual(Object.keys(park), []);
 });
 
-test("nothing is known at import", () => {
-  assert.equal(engine.known.size, 0);
-  assert.equal(engine.knownCows.size, 0);
-  assert.equal(engine.subscribed.size, 0);
-  assert.deepEqual(engine.leashed, { kind: "none" });
-  assert.deepEqual(engine.lastLeashed, { kind: "none" });
+test("the engine keeps no state of its own: its exports are a maker and a pure helper", () => {
+  assert.deepEqual(Object.keys(engine).sort(), ["createEngine", "wholePoint"]);
 });
 
 test("the two frames are each other's inverse", () => {
