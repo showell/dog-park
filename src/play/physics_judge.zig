@@ -5,10 +5,13 @@
 //! `kept T`, or `kept T-1` and `differ T ...` with the `state`, `input`
 //! and `board` lines.
 //!
-//! **What this is not (yet):** the request numbers, epochs, stored
-//! answers, the breaker, `stuck` and `tile` lines are the server's
-//! protocol, around this. The header's `req` is echoed; its language and
-//! physics hash are checked; its epoch is the caller's business.
+//! **What this is not:** the request numbers, epochs, stored answers, the
+//! breaker, `stuck` and `tile` lines are the server's protocol, around this
+//! (physics_server.zig). The header's `req` is echoed; its language and
+//! physics hash are checked; its epoch is the caller's business. The tiles
+//! sent this epoch and those named in a kept `held` ride in `Kept`, so a
+//! `held` naming a tile never sent is refused here, and a `differ` forgets
+//! a `held` it didn't keep.
 
 const std = @import("std");
 const physics = @import("physics.zig");
@@ -31,11 +34,31 @@ pub const Kept = struct {
     /// The human's inputs an earlier request kept for K + 1, in order.
     pending: [physics.most_humans]physics.Human = undefined,
     pending_len: usize = 0,
+    /// The tiles whose critters went out this epoch (`tile` lines): a
+    /// `held` may name only these.
+    sent: Tiles = .{},
+    /// The tiles named in a kept `held` this epoch: never sent again.
+    named: Tiles = .{},
 
     pub const View = struct { w: u64 = 0, h: u64 = 0, tiles: wire.TileSet = .{} };
 
     pub fn pendingSlice(self: *const Kept) []const physics.Human {
         return self.pending[0..self.pending_len];
+    }
+};
+
+/// A set of the world's tiles, one bit each.
+pub const Tiles = struct {
+    bits: std.StaticBitSet(tiles.world_tiles * tiles.world_tiles) = .initEmpty(),
+
+    fn index(t: tiles.Tile) usize {
+        return @as(usize, @intCast(t.row)) * tiles.world_tiles + @as(usize, @intCast(t.col));
+    }
+    pub fn holds(self: *const Tiles, t: tiles.Tile) bool {
+        return self.bits.isSet(index(t));
+    }
+    pub fn add(self: *Tiles, t: tiles.Tile) void {
+        self.bits.set(index(t));
     }
 };
 
@@ -165,9 +188,33 @@ fn namedIn(lines: wire.Lines) Named {
     return n;
 }
 
+/// A refused report as a whole (its header: a reused request number with
+/// another body, or one out of order): `kept K`, `differ K+1 none` the
+/// header line, the state, inputs and board at K + 1.
+pub fn refuseWhole(kept: *const Kept, report: []const u8, out: *Text) Text.Error!void {
+    var lines: wire.Lines = .{ .rest = report };
+    const header = lines.next() orelse "";
+    const named = namedIn(lines);
+    try out.str("kept ");
+    try out.dec(kept.tick);
+    try out.str("\ndiffer ");
+    try out.dec(kept.tick + 1);
+    try out.str(" none ");
+    try out.str(header);
+    try out.char('\n');
+    try writeState(out, kept, kept.tick + 1, &named);
+}
+
 /// After `differ T`: the `state` at the start of T before its inputs, the
 /// `input` lines kept earlier for T, and the `board`.
 fn writeState(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.Error!void {
+    try stateAndInputs(out, kept, t);
+    try writeBoard(out, kept, t, named);
+}
+
+/// The `state` line and the `input` lines kept for `t`: a `differ`'s, and a
+/// load's (with no board).
+pub fn stateAndInputs(out: *Text, kept: *const Kept, t: Tick) Text.Error!void {
     const b = &kept.board;
     try out.str("state leash ");
     switch (b.hold) {
@@ -200,6 +247,10 @@ fn writeState(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.
             .letgo => .{ .letgo = t },
         });
     }
+}
+
+fn writeBoard(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.Error!void {
+    const b = &kept.board;
     // The board: every critter awake at the start of T, and every one the
     // report named, in rank order.
     var board = kept.board;
@@ -270,9 +321,11 @@ const Run = struct {
                     // stays at the end of K; the view and held tiles stand.
                     const view = self.kept.view;
                     const held = self.kept.held;
+                    const named = self.kept.named;
                     self.kept.* = start;
                     self.kept.view = view;
                     self.kept.held = held;
+                    self.kept.named = named;
                     for (e.slice()) |h| {
                         self.kept.pending[self.kept.pending_len] = h;
                         self.kept.pending_len += 1;
@@ -329,8 +382,11 @@ const Run = struct {
                 .held => |h| {
                     if (h.tick != t or t > from + physics.most_ticks + 1) return refuse(t, text);
                     for (h.tiles.slice()) |tile| {
-                        if (!k.view.tiles.holds(tile)) return refuse(t, text);
+                        if (!k.view.tiles.holds(tile) or !k.sent.holds(tile)) return refuse(t, text);
+                    }
+                    for (h.tiles.slice()) |tile| {
                         k.held.add(tile) catch return refuse(t, text);
+                        k.named.add(tile);
                     }
                 },
                 .t => |tl| {

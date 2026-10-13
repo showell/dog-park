@@ -21,6 +21,14 @@
 //!                    stepped to (half pixels), the cows' rule replayed
 //!                    along the path
 //!   POST /viewport   {"park_x", "park_y"}          → kept
+//!   POST /load       the physics protocol's load line → its answer, text
+//!   POST /report     a physics report (docs/PHYSICS.md) → its answer, text
+//!
+//! **TWO BOARDS, FOR NOW:** `/load` and `/report` (physics_server.zig) keep
+//! their own board under `data/physics/`, seeded once from dogs.json and
+//! cows.json and never written back to them; `/move` and the rest keep
+//! dogs.json and cows.json as before. So each file has one writer, and the
+//! page plays the old routes until it switches to the new ones.
 //!
 //! Every answer is JSON. **THE PAGE IS READ FROM DISK** (`solo/`, from where
 //! the server runs: the checkout on Linux, the site disk on metal, where
@@ -36,19 +44,30 @@ const dogs = @import("dogs.zig");
 const humans = @import("humans.zig");
 const tiles = @import("tiles.zig");
 const cows = @import("cows.zig");
+const physics_server = @import("physics_server.zig");
 const HumanId = humans.HumanId;
 
 /// Where the page lives, from the directory the server runs in.
 const page_dir = "solo";
 
-/// The longest request body: 64 tiles at about 33 bytes each, or a move's
-/// 100 points at about 14.
+/// The longest request body on the old routes: 64 tiles at about 33 bytes
+/// each, or a move's 100 points at about 14.
 pub const longest_body = 4096;
 
-/// The most any route reads of a body (webbox's body rule): every route's is
-/// the same, small.
-pub fn bodyLimit(_: []const u8) u64 {
+/// The most any route reads of a body (webbox's body rule): a physics
+/// report's 64 KiB (and a load's, the same route family), the old routes'
+/// 4 KiB.
+pub fn bodyLimit(path: []const u8) u64 {
+    if (physicsRoute(path) != null) return physics_server.most_body;
     return longest_body;
+}
+
+const PhysicsRoute = enum { report, load };
+
+fn physicsRoute(path: []const u8) ?PhysicsRoute {
+    if (std.mem.eql(u8, path, "/report")) return .report;
+    if (std.mem.eql(u8, path, "/load")) return .load;
+    return null;
 }
 
 /// **A HUMAN IS A DEVICE**: a signed cookie naming its random id, for a year.
@@ -64,6 +83,8 @@ pub const human_cookie: signed_cookie.Cookie = .{ .name = "dogpark_human", .kind
 var the_dogs: dogs.Dogs = undefined;
 var the_cows: cows.Cows = undefined;
 var the_humans: humans.Humans = .{};
+/// The physics protocol's server: its own board, log and snapshots.
+pub var the_physics: physics_server.Server = undefined;
 /// Lives as long as the process: the humans' table.
 var long_lived: std.mem.Allocator = undefined;
 var dogs_path: []const u8 = undefined;
@@ -79,6 +100,7 @@ pub const StartReport = struct {
     cows_path: []const u8,
     cows: Kept,
     secret: enum { found, created },
+    physics: physics_server.Server.Started,
 };
 
 /// The development folders, for a run with no config (a checkout).
@@ -117,7 +139,13 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
         try keepCows(io, scratch.allocator());
         break :blk .laid_out;
     };
-    return .{ .dogs_path = dogs_path, .dogs = dogs_kept, .cows_path = cows_path, .cows = cows_kept, .secret = secret };
+    // **THE PHYSICS' BOARD**: its snapshot and log, or today's dogs and
+    // cows, resolved once. A board that won't come back stops the start.
+    var dog_points: [dogs.dog_count]dogs.ParkPoint = undefined;
+    for (the_dogs.list, &dog_points) |d, *p| p.* = d.at;
+    const seed = physics_server.boardOf(&dog_points, &the_cows.list);
+    const physics_started = try the_physics.start(io, base, r.data_dir, &seed, nowMs(io));
+    return .{ .dogs_path = dogs_path, .dogs = dogs_kept, .cows_path = cows_path, .cows = cows_kept, .secret = secret, .physics = physics_started };
 }
 
 fn keepDogs(io: Io, alloc: std.mem.Allocator) !void {
@@ -139,6 +167,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
             .{ .name = "cache-control", .value = "no-store" },
         } });
     }
+    if (physicsRoute(path)) |which| return physicsAnswer(req, io, alloc, which);
     if (std.mem.eql(u8, path, "/me")) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return me(req, io, alloc);
@@ -152,6 +181,10 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
 }
 
 // ── who is asking ───────────────────────────────────────────────────────────
+
+fn nowMs(io: Io) u64 {
+    return @intCast(@divFloor(Io.Clock.now(.real, io).nanoseconds, std.time.ns_per_ms));
+}
 
 fn nowSecs(io: Io) i64 {
     return @intCast(@divFloor(Io.Clock.now(.real, io).nanoseconds, std.time.ns_per_s));
@@ -330,6 +363,24 @@ fn dogNamed(req: *std.http.Server.Request, asked: u32) !?dogs.DogId {
             return null;
         },
     };
+}
+
+// ── the physics protocol ────────────────────────────────────────────────────
+
+/// `POST /load` and `POST /report`: the text in, the server's answer out, as
+/// text. No cookie: one player, one park (the epoch says which page holds
+/// it).
+fn physicsAnswer(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, which: PhysicsRoute) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    const body = (try http.readLimitedBody(req, alloc, physics_server.most_body)) orelse return;
+    const answer = switch (which) {
+        .report => try the_physics.report(io, alloc, body),
+        .load => try the_physics.load(io, alloc, body),
+    };
+    return req.respond(answer, .{ .extra_headers = &.{
+        .{ .name = "content-type", .value = "text/plain; charset=utf-8" },
+        .{ .name = "cache-control", .value = "no-store" },
+    } });
 }
 
 // ── answering ───────────────────────────────────────────────────────────────

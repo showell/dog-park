@@ -26,6 +26,10 @@ pub const hosting = struct {
             .loaded => try w.print("the cows loaded from {s}\n", .{r.cows_path}),
             .laid_out => try w.print("no cows were kept, so they were laid out afresh in {s}\n", .{r.cows_path}),
         }
+        switch (r.physics.board) {
+            .applied => |a| try w.print("the physics' board came back from its snapshot and {d} log entries ({d} torn bytes dropped), kept through tick {d}\n", .{ a.entries, a.torn_bytes, r.physics.kept }),
+            .resolved => |n| try w.print("the physics' board was resolved afresh from the dogs and cows ({d} moved to clear overlaps)\n", .{n}),
+        }
         switch (r.secret) {
             .found => {},
             .created => try w.writeAll("no signing secret was found, so one was created\n"),

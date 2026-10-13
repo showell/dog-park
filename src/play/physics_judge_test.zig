@@ -74,6 +74,10 @@ fn exampleKept() judge_mod.Kept {
     k.held = tileSet(.{ 32, 35 }, .{ 35, 36 });
     k.pending[0] = .{ .leash = 219 };
     k.pending_len = 1;
+    // Request 3's answer sent the 17 new tiles; the viewport's 8 went out
+    // before it.
+    for (k.view.tiles.slice()) |t| k.sent.add(t);
+    for (k.held.slice()) |t| k.named.add(t);
     return k;
 }
 
@@ -199,6 +203,15 @@ test "the header: another language or physics reloads; an unreadable one gets re
     try testing.expectEqualStrings("req 4\nreload language 1\n", try judged("dogpark 2 physics 5e0c91a2 page 1.3 req 4\nfrom 1040\n", &buf, &k));
     try testing.expectEqualStrings("req 4\nreload physics 5e0c91a2\n", try judged("dogpark 1 physics 5e0c91a3 page 1.3 req 4\nfrom 1040\n", &buf, &k));
     try testing.expectEqualStrings("req 4\nreload from 1040\n", try judged("dogpark 1 physics 5e0c91a2 page 1.3 req 4\nfrom 1039\n", &buf, &k));
+}
+
+test "a held naming a tile never sent is refused at that line" {
+    var k = exampleKept();
+    k.sent = .{};
+    for (k.held.slice()) |t| k.sent.add(t);
+    var buf: [4096]u8 = undefined;
+    const answer = try judged(example_report, &buf, &k);
+    try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1040\ndiffer 1041 none held 1041 31,34 "));
 }
 
 test "a refused input: a leash while one is leashed is differ none at that line" {
