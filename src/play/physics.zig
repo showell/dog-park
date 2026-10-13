@@ -10,7 +10,8 @@
 //!
 //! **Units:** every position is an `i32` count of 256ths of a pixel; every
 //! product is `i64`. Every centre-to-centre difference goes through
-//! `delta` (decision 14: the wrap will change that one function).
+//! `delta`; a torus (decision 14) changes more than that: the rectangles,
+//! the tile spans, the jump's gaps, `inWorld` and the wishes' grid.
 //!
 //! **The cascade:** the leashed dog, then the cows by number, then the
 //! other dogs by number (`rank`). Within a tick: for each internal step of
@@ -294,8 +295,8 @@ pub fn squaresOverlap(p: Point, ph: i32, q: Point, qh: i32) bool {
     return mag(d.x) < ph + qh and mag(d.y) < ph + qh;
 }
 
-/// The region: the 2000 px square around the leashed dog at the tick's
-/// start.
+/// The region: the square `region_reach` each way around the leashed dog
+/// at the tick's start (docs/PHYSICS.md derives its size).
 pub fn region(center: Point) Rect {
     return Rect.square(center, region_reach);
 }

@@ -83,3 +83,14 @@ test "the first layout: a cow in the middle of each white tile of the park, row 
     }
     try testing.expectEqual(cow_count, n);
 }
+
+test "the first layout: no two critters overlap (a load puts it back without resolving; a first start resolves it, so the two agree only while this holds)" {
+    const b = board();
+    var all: [physics.critter_count]struct { p: physics.Point, half: i32 } = undefined;
+    for (b.dogs, 0..) |p, i| all[i] = .{ .p = p, .half = physics.dog_half };
+    for (b.cows, 0..) |p, i| all[physics.dog_count + i] = .{ .p = p, .half = physics.cow_half };
+    for (all, 0..) |a, i| for (all[i + 1 ..]) |c| {
+        try testing.expect(!physics.squaresOverlap(a.p, a.half, c.p, c.half));
+    };
+}
+
