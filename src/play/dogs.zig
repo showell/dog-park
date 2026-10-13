@@ -11,21 +11,22 @@ pub const ParkPoint = struct { park_x: i32, park_y: i32 };
 
 pub const Dog = struct { emoji: []const u8, at: ParkPoint };
 
-/// The first layout: in every tile of the populated park (tiles.zig), three
-/// dogs in a blue tile and two in a white one (a tile is blue when its
-/// column plus its row is odd, in the park's numbering or the world's: the
-/// park sits an even number of tiles in, summed over both axes), at these
-/// places in the tile. Their looks take turns: dog n has look n mod 4, its
-/// breed in the physics (docs/PHYSICS.md, "Breeds"; a data dir kept under
-/// the five looks this used to deal goes to four once, by
-/// tools/looks_to_four.py).
-const in_blue = [_]ParkPoint{ .{ .park_x = 125, .park_y = 125 }, .{ .park_x = 375, .park_y = 250 }, .{ .park_x = 190, .park_y = 390 } };
-const in_white = [_]ParkPoint{ .{ .park_x = 155, .park_y = 350 }, .{ .park_x = 350, .park_y = 150 } };
+/// The first layout: in every tile of the populated park (tiles.zig), four
+/// dogs, one of each breed, each near its own corner of the tile: breed 0
+/// north-west, 1 north-east, 2 south-west, 3 south-east. Dog n has look n
+/// mod 4, its breed in the physics (docs/PHYSICS.md, "Breeds"), so a
+/// tile's four dogs are numbered 4k to 4k + 3. White tiles also hold a cow
+/// in the middle (cows.zig).
+const corner_in = 75;
+const corners = [_]ParkPoint{
+    .{ .park_x = corner_in, .park_y = corner_in },
+    .{ .park_x = tiles.tile_px - corner_in, .park_y = corner_in },
+    .{ .park_x = corner_in, .park_y = tiles.tile_px - corner_in },
+    .{ .park_x = tiles.tile_px - corner_in, .park_y = tiles.tile_px - corner_in },
+};
 pub const looks = [_][]const u8{ "🐕", "🐩", "🦮", "🐕‍🦺" };
 
-const blue_tiles = tiles.park_tiles * tiles.park_tiles / 2;
-const white_tiles = tiles.park_tiles * tiles.park_tiles - blue_tiles;
-pub const dog_count = blue_tiles * in_blue.len + white_tiles * in_white.len;
+pub const dog_count = tiles.park_tiles * tiles.park_tiles * corners.len;
 
 /// What a request names: one of the dogs, or none of them.
 pub const Lookup = union(enum) { dog: DogId, no_such_dog };
@@ -55,8 +56,7 @@ pub const Dogs = struct {
         while (row < tiles.park_tiles) : (row += 1) {
             var col: i32 = 0;
             while (col < tiles.park_tiles) : (col += 1) {
-                const places: []const ParkPoint = if (@mod(col + row, 2) == 1) &in_blue else &in_white;
-                for (places) |p| {
+                for (corners) |p| {
                     d.list[n] = .{ .emoji = looks[n % looks.len], .at = .{
                         .park_x = tiles.park_offset_px + col * tiles.tile_px + p.park_x,
                         .park_y = tiles.park_offset_px + row * tiles.tile_px + p.park_y,
@@ -115,12 +115,15 @@ pub const Dogs = struct {
 
 const testing = std.testing;
 
-test "the first layout: 250 dogs in the park, 13,500 px in; its white tile (0, 0) holds two, the blue (1, 0) three; the last in its (9, 9), the world's (36, 36)" {
+test "the first layout: 400 dogs in the park, 13,500 px in, four to a tile, each breed at its own corner; the last in its (9, 9), the world's (36, 36)" {
     const d = Dogs.laidOut();
-    try testing.expectEqual(@as(usize, 250), dog_count);
-    try testing.expectEqual(ParkPoint{ .park_x = 13_655, .park_y = 13_850 }, d.at(@enumFromInt(0)));
-    try testing.expectEqual(ParkPoint{ .park_x = 13_850, .park_y = 13_650 }, d.at(@enumFromInt(1)));
-    try testing.expectEqual(ParkPoint{ .park_x = 14_125, .park_y = 13_625 }, d.at(@enumFromInt(2)));
+    try testing.expectEqual(@as(usize, 400), dog_count);
+    try testing.expectEqual(ParkPoint{ .park_x = 13_575, .park_y = 13_575 }, d.at(@enumFromInt(0)));
+    try testing.expectEqual(ParkPoint{ .park_x = 13_925, .park_y = 13_575 }, d.at(@enumFromInt(1)));
+    try testing.expectEqual(ParkPoint{ .park_x = 13_575, .park_y = 13_925 }, d.at(@enumFromInt(2)));
+    try testing.expectEqual(ParkPoint{ .park_x = 13_925, .park_y = 13_925 }, d.at(@enumFromInt(3)));
+    try testing.expectEqual(ParkPoint{ .park_x = 14_075, .park_y = 13_575 }, d.at(@enumFromInt(4)));
+    try testing.expectEqualStrings(looks[3], d.list[7].emoji);
     try testing.expectEqual(tiles.Tile{ .col = 27, .row = 27 }, tiles.Tile.of(d.at(@enumFromInt(0))));
     try testing.expectEqual(tiles.Tile{ .col = 36, .row = 36 }, tiles.Tile.of(d.at(@enumFromInt(dog_count - 1))));
 }

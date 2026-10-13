@@ -12,7 +12,7 @@
 // moved, tick by tick, the cows ahead of it scooting aside and the other
 // dogs keeping their distance or following (its own breed). A bump ends the
 // drag (the pointer is let go; the leash stays). The leash comes off when
-// you press another dog, or 80 ticks (5 s) after the drag ended, and the
+// you press another dog, or 320 ticks (20 s) after the drag ended, and the
 // park sleeps. Holding a dog near an edge of the screen carries it on, the
 // viewport following. Dragging anywhere else pans the park; the tiles the
 // screen shows are subscribed as it moves.

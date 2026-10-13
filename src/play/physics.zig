@@ -44,25 +44,28 @@ pub const tile: i32 = px(tiles.tile_px);
 // The starting numbers (docs/PHYSICS.md), all to be tuned by playing.
 pub const dog_half: i32 = px(cows.dog_px / 2);
 pub const cow_half: i32 = px(cows.cow_px / 2);
-/// A dog's own step: 1 px a second, 16 ticks a second.
-pub const speed: i32 = 16;
+/// A dog's own step: 7.5 px a second, 16 ticks a second.
+pub const speed: i32 = 120;
 pub const dead_zone: i32 = px(1);
-pub const awake_reach: i32 = px(500);
-pub const wary: i32 = px(150);
-pub const follow: i32 = px(400);
+pub const awake_reach: i32 = px(800);
+pub const wary: i32 = px(225);
+pub const follow: i32 = px(600);
 pub const band_inner: i32 = px(60);
 pub const band_outer: i32 = px(100);
 pub const cow_room: i32 = px(90);
-/// The region: the 2000 px square around the leashed dog.
-pub const region_reach: i32 = px(1000);
-/// A drag's internal steps: at most 10 px.
-pub const step_most: i32 = px(cows.tick_px);
+/// The region: the 3000 px square around the leashed dog.
+pub const region_reach: i32 = px(1500);
+/// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, every
+/// awake dog takes a step as long as the leashed dog's, at most (Steve,
+/// 2026-10-13: the leashed dog's motion speeds up time for the others).
+pub const step_most: i32 = px(1);
 /// A tick's drag moves the leashed dog at most 100 px on each axis.
 pub const cap: i32 = px(100);
 pub const most_displacements = 16;
 /// The most of the human's inputs at one tick.
 pub const most_humans = 16;
-pub const let_go_ticks = 80;
+/// The leash comes off 20 s after the drag ends.
+pub const let_go_ticks = 320;
 /// The most ticks a report runs past the last kept one.
 pub const most_ticks = 32;
 /// A cow's scare box and lane, as in cows.zig.
@@ -484,6 +487,9 @@ pub const Scene = struct {
     /// the tick's inner loops read one array.
     at: [critter_count]Point = undefined,
     len: usize = 0,
+    /// The awake ones' places in `seen`, in rank order: what the wishes read.
+    awake: [critter_count]u16 = undefined,
+    awake_len: usize = 0,
 
     pub fn of(b: *Board) ?Scene {
         const l = b.leashedDog() orelse return null;
@@ -510,7 +516,15 @@ pub const Scene = struct {
     fn add(s: *Scene, c: Critter, awake: Seen.Awake) void {
         s.seen[s.len] = .{ .who = c, .rank = rank(s.leashed, c), .half = c.half(), .awake = awake, .start = s.board.at(c) };
         s.at[s.len] = s.board.at(c);
+        if (awake == .awake) {
+            s.awake[s.awake_len] = @intCast(s.len);
+            s.awake_len += 1;
+        }
         s.len += 1;
+    }
+
+    pub fn awakeOnes(s: *const Scene) []const u16 {
+        return s.awake[0..s.awake_len];
     }
 
     pub fn list(s: *const Scene) []const Seen {
@@ -639,7 +653,7 @@ pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) vo
         const drag_on = b.hold.leashed.drag == .on;
         if (drag_on) bumped = playDrag(sc, drag);
         if (bumped != null or begun.letting_go == .after_drag) b.hold.leashed.drag = .{ .ended = t };
-        wishes(sc);
+        wishes(sc, speed);
         for (sc.list()) |s| {
             const now = b.at(s.who);
             if (now.x != s.start.x or now.y != s.start.y) out.push(.{ .critter = .{ .who = s.who, .before = s.start, .after = now } });
@@ -709,6 +723,7 @@ fn dragStep(sc: *Scene, axis: Axis, raw: i32) ?Critter {
     }
     const r = sweep(sc, 0, axis, inc, .everyone);
     sc.put(0, moved(dog, axis, r.by));
+    if (r.by != 0) wishes(sc, mag(r.by));
     if (r.blocker) |j| return sc.seen[j].who;
     return null;
 }
@@ -782,12 +797,16 @@ fn outFromUnder(sc: *Scene, i: usize) void {
     if (jump.nearestSpot(p, me.half, obs.slice(), sc.region)) |spot| sc.put(i, spot);
 }
 
-/// **THE DOGS' WISHES**, once a tick, every awake dog by number.
-fn wishes(sc: *Scene) void {
-    for (sc.list(), 0..) |s, i| {
-        if (s.who.kind != .dog or s.rank == 0 or s.awake != .awake) continue;
+/// **THE DOGS' WISHES**, every awake dog by number, each step at most
+/// `most`: once a tick at the speed, and once per pixel-tick of the drag at
+/// the leashed dog's own step.
+fn wishes(sc: *Scene, most: i32) void {
+    for (sc.awakeOnes()) |w16| {
+        const i: usize = w16;
+        const s = sc.seen[i];
+        if (s.who.kind != .dog or s.rank == 0) continue;
         outFromUnder(sc, i);
-        const step = wishStep(sc, i);
+        const step = stepAtMost(wishTotal(sc, i), most);
         var at = sc.pos(i);
         for ([_]Axis{ .x, .y }) |axis| {
             const want = inWorld(at, dog_half, axis, on(step, axis));
@@ -807,13 +826,18 @@ pub fn wishStep(sc: *const Scene, i: usize) Point {
 /// The step a total of wishes comes to: none inside the dead zone; the
 /// total itself within the speed; else scaled to the speed.
 pub fn stepOf(total: Point) Point {
+    return stepAtMost(total, speed);
+}
+
+/// The step a total of wishes comes to, at most `most` long.
+pub fn stepAtMost(total: Point, most: i32) Point {
     const t2 = len2(total);
     if (t2 < @as(i64, dead_zone) * dead_zone) return .{ .x = 0, .y = 0 };
-    if (t2 <= @as(i64, speed) * speed) return total;
+    if (t2 <= @as(i64, most) * most) return total;
     const l = isqrt(t2);
     return .{
-        .x = @intCast(@divTrunc(@as(i64, total.x) * speed, l)),
-        .y = @intCast(@divTrunc(@as(i64, total.y) * speed, l)),
+        .x = @intCast(@divTrunc(@as(i64, total.x) * most, l)),
+        .y = @intCast(@divTrunc(@as(i64, total.y) * most, l)),
     };
 }
 
@@ -826,8 +850,10 @@ pub fn wishTotal(sc: *const Scene, i: usize) Point {
     var total: Point = .{ .x = 0, .y = 0 };
     var anchor: ?usize = null;
     var anchor_d2: i64 = 0;
-    for (sc.list(), 0..) |o, j| {
-        if (o.awake != .awake or j == i) continue;
+    for (sc.awakeOnes()) |j16| {
+        const j: usize = j16;
+        const o = sc.seen[j];
+        if (j == i) continue;
         const q = sc.pos(j);
         const d2 = len2(delta(q, p));
         switch (o.who.kind) {

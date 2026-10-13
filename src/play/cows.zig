@@ -40,7 +40,7 @@ pub const cow_px = 60;
 
 /// How far a dog's move along an axis reaches: a cow at most this far ahead
 /// on that axis, and at most this far off it, is scared.
-pub const scare_box_px = 400;
+pub const scare_box_px = 280;
 
 /// The least gap a cow keeps between the dog's square and its own: half a
 /// dog.

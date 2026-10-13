@@ -264,7 +264,8 @@ export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), co
 
 // The park near: the tiles on screen (each a square of its shade, its name
 // in its middle), then each cow, then each dog, each with its place under
-// it (where it is, not where it is drawn), the leashed dog ringed. `dogs`
+// it (where it is, not where it is drawn), the leashed dog ringed (green while the drag is on, red once it has
+// ended: a bump turns it red). `dogs`
 // and `cows` in the order they are drawn; `motion` = { alpha, was } (the
 // engine's view: was.viewport a park point, was.dogs and was.cows Maps of
 // them by id), each drawn `between` there and here, the leashed dog too.
@@ -293,7 +294,7 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still) {
     if (leashed.kind !== "none" && leashed.dogId === d.id) {
       const at = viewportFromPark(viewport, drawn.parkX, drawn.parkY);
       out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: at.viewportX, y: at.viewportY, w: 2 * (dog_px * 0.7), h: 2 * (dog_px * 0.7),
-        stroke: "#d33", lineWidth: 3, role: "scenery" });
+        stroke: leashed.kind === "in_hand" ? "#2a2" : "#d33", lineWidth: 3, role: "scenery" });
     }
     sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target");
   }
