@@ -39,18 +39,19 @@
 // moves.
 //
 // The page's modules: scene.js (the frames, tiles and the overview's
-// frame), pointer.js (the grab and the edge bands), blit.js (the drawing),
+// frame, and what a frame draws), pointer.js (the edge bands), blit.js (the
+// drawing, and what a press is on),
 // engine.js (what the page knows, the leash, the sends). This file wires
 // them to the DOM, and starts only where there is one, so node can import
 // every module.
 
 import {
-  dog_px, cow_px, cow_emoji, tile_px, world_tiles, world_px,
+  dog_px, world_px,
   viewportFromPark, parkFromViewport, keptOnScreen, keptInWorld, viewportKeptOnWorld,
-  tileOf, tileKey, tilesMeeting, overviewFrame, overviewFromPark,
+  overviewFrame, nearScene, overviewScene, view_target, dogOfTarget,
 } from "./scene.js";
-import { grabbed, axisScroll } from "./pointer.js";
-import { blit, blitOverview } from "./blit.js";
+import { axisScroll } from "./pointer.js";
+import { draw, hit } from "./blit.js";
 import {
   known, knownCows, subscribed, leashed, lastLeashed,
   fetchMe, leashTo, keepOnLeash, keptFromBefore, sendMove, sendViewport, syncTiles,
@@ -61,6 +62,7 @@ import {
 
 async function start() {
   const canvas = document.getElementById("park");
+  const ctx = canvas.getContext("2d");
   const cowRule = await loadCowRule();
   const me = await fetchMe();
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
@@ -73,6 +75,8 @@ async function start() {
   // The pointer's last viewport point while holding: a still pointer in
   // the band keeps scrolling.
   const pointer = { viewportX: 0, viewportY: 0 };
+  // What the last frame drew: a press is on what the human saw.
+  let drawn = [];
 
   function fit() {
     const ratio = window.devicePixelRatio || 1;
@@ -113,17 +117,17 @@ async function start() {
     canvas.setPointerCapture(e.pointerId);
     if (mode === "overview") {
       // The view's rectangle moves only when it is pressed.
-      const o = overviewFrame(viewport.width, viewport.height);
-      const corner = overviewFromPark(o, viewport.parkX, viewport.parkY);
-      const inside = e.offsetX >= corner.viewportX && e.offsetX <= corner.viewportX + viewport.width * o.scale &&
-        e.offsetY >= corner.viewportY && e.offsetY <= corner.viewportY + viewport.height * o.scale;
+      const inside = hit(drawn, e.offsetX, e.offsetY) === view_target;
       hold = inside ? { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY } : { kind: "resting" };
       return;
     }
-    const g = grabbed(viewport, [...known.values()], e.offsetX, e.offsetY);
-    if (g.kind === "holding") {
-      hold = g;
-      leashTo(g.dog.id);
+    const dogId = dogOfTarget(hit(drawn, e.offsetX, e.offsetY));
+    const dog = dogId === "none" ? undefined : known.get(dogId);
+    if (dog !== undefined) {
+      // Held where it was grabbed, relative to its centre, so it doesn't jump.
+      const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
+      hold = { kind: "holding", dog, grabDx: e.offsetX - at.viewportX, grabDy: e.offsetY - at.viewportY };
+      leashTo(dog.id);
     } else {
       hold = { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY };
     }
@@ -200,56 +204,15 @@ async function start() {
         sendViewport(viewport);
       }
     }
-    const ground = tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height).map((t) => ({
-      shade: (t.col + t.row) % 2 === 0 ? "#ffffff" : "#eaf3fc",
-      size: tile_px,
-      label: `(${t.col}, ${t.row})`,
-      ...viewportFromPark(viewport, t.col * tile_px, t.row * tile_px),
-    }));
-    const cowSprites = [...knownCows.values()].map((c) => ({
-      kind: "cow",
-      emoji: cow_emoji,
-      size: cow_px,
-      label: `(${Math.round(c.parkX)}, ${Math.round(c.parkY)})`,
-      ...viewportFromPark(viewport, c.parkX, c.parkY),
-    }));
-    const sprites = [...cowSprites, ...[...known.values()].map((d) => ({
-      kind: leashed.kind !== "none" && leashed.dogId === d.id ? "leashed" : "free",
-      emoji: d.emoji,
-      size: dog_px,
-      label: `(${Math.round(d.parkX)}, ${Math.round(d.parkY)})`,
-      ...viewportFromPark(viewport, d.parkX, d.parkY),
-    }))];
-    blit(canvas, viewport.width, viewport.height, ground, sprites);
+    drawn = nearScene(viewport, [...known.values()], [...knownCows.values()], leashed);
+    draw(ctx, drawn);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
 
   function drawOverview() {
-    const o = overviewFrame(viewport.width, viewport.height);
-    const squares = [];
-    for (let row = 0; row < world_tiles; row++) {
-      for (let col = 0; col < world_tiles; col++) {
-        const odd = (col + row) % 2 === 1;
-        const shade = subscribed.has(tileKey({ col, row }))
-          ? (odd ? "#eaf3fc" : "#ffffff")
-          : (odd ? "#f2c4c4" : "#f8d8d8");
-        squares.push({ shade, size: tile_px * o.scale, ...overviewFromPark(o, col * tile_px, row * tile_px) });
-      }
-    }
-    const cowDots = [...knownCows.values()].map((c) => ({
-      kind: "cow",
-      freshness: subscribed.has(tileKey(tileOf(c.parkX, c.parkY))) ? "live" : "remembered",
-      ...overviewFromPark(o, c.parkX, c.parkY),
-    }));
-    const dots = [...cowDots, ...[...known.values()].map((d) => ({
-      kind: lastLeashed.kind === "dog" && lastLeashed.dogId === d.id ? "ringed" : "plain",
-      freshness: subscribed.has(tileKey(tileOf(d.parkX, d.parkY))) ? "live" : "remembered",
-      ...overviewFromPark(o, d.parkX, d.parkY),
-    }))];
-    const corner = overviewFromPark(o, viewport.parkX, viewport.parkY);
-    const view = { ...corner, width: viewport.width * o.scale, height: viewport.height * o.scale };
-    blitOverview(canvas, viewport.width, viewport.height, squares, dots, view);
+    drawn = overviewScene(viewport, [...known.values()], [...knownCows.values()], subscribed, lastLeashed);
+    draw(ctx, drawn);
   }
 }
 

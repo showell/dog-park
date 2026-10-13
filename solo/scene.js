@@ -1,5 +1,6 @@
-// The park's geometry: its sizes, the two frames (park and viewport points),
-// the tiles and the world, and the overview's frame. All pure.
+// The park's geometry and what a frame draws: its sizes, the two frames
+// (park and viewport points), the tiles and the world, the overview's
+// frame, and the scene builders, the lists blit.js draws. All pure.
 //
 // TWO FRAMES, both in CSS pixels: a PARK point (parkX, parkY) is where a
 // dog stands in the world; a VIEWPORT point (viewportX, viewportY) is where
@@ -110,4 +111,92 @@ export function overviewFrame(width, height) {
 
 export function overviewFromPark(o, parkX, parkY) {
   return { viewportX: o.originX + parkX * o.scale, viewportY: o.originY + parkY * o.scale };
+}
+
+// ── what a frame draws ──────────────────────────────────────────────────────
+
+// The lists blit.js draws, built from what the page knows: each a plain
+// list of objects (blit.js says their shape), in drawing order, the last on
+// top. The dogs are the near scene's targets, the view's rectangle the
+// overview's; nothing else can be hit.
+
+export const view_target = "view";
+
+export function dogTarget(dogId) { return `dog:${dogId}`; }
+
+// The dog's id a target names, or "none" for any other.
+export function dogOfTarget(id) {
+  const m = /^dog:(\d+)$/.exec(id ?? "");
+  return m ? Number(m[1]) : "none";
+}
+
+// The park near: the tiles on screen (each a square of its shade, its name
+// in its middle), then each cow, then each dog, each with its place under
+// it, the leashed dog ringed. `dogs` and `cows` in the order they are drawn.
+export function nearScene(viewport, dogs, cows, leashed) {
+  const out = [];
+  for (const t of tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height)) {
+    const at = viewportFromPark(viewport, t.col * tile_px, t.row * tile_px);
+    const id = `tile:${tileKey(t)}`;
+    out.push({ id, shape: "rect", x: at.viewportX, y: at.viewportY, w: tile_px, h: tile_px,
+      fill: (t.col + t.row) % 2 === 0 ? "#ffffff" : "#eaf3fc", role: "scenery" });
+    out.push({ id: `${id}:label`, shape: "text", x: at.viewportX + tile_px / 2, y: at.viewportY + tile_px / 2, w: 0, h: 0,
+      text: `(${t.col}, ${t.row})`, font: "20px monospace", fill: "#9ab", role: "scenery" });
+  }
+  const sprite = (id, critter, emoji, size, role) => {
+    const at = viewportFromPark(viewport, critter.parkX, critter.parkY);
+    out.push({ id, shape: "glyph", x: at.viewportX, y: at.viewportY, w: size, h: size,
+      text: emoji, fill: "#000", role });
+    out.push({ id: `${id}:label`, shape: "text", x: at.viewportX, y: at.viewportY + size * 0.85, w: 0, h: 0,
+      text: `(${Math.round(critter.parkX)}, ${Math.round(critter.parkY)})`, font: "11px monospace", fill: "#555", role: "scenery" });
+  };
+  for (const c of cows) sprite(`cow:${c.id}`, c, cow_emoji, cow_px, "scenery");
+  for (const d of dogs) {
+    if (leashed.kind !== "none" && leashed.dogId === d.id) {
+      const at = viewportFromPark(viewport, d.parkX, d.parkY);
+      out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: at.viewportX, y: at.viewportY, w: 2 * (dog_px * 0.7), h: 2 * (dog_px * 0.7),
+        stroke: "#d33", lineWidth: 3, role: "scenery" });
+    }
+    sprite(dogTarget(d.id), d, d.emoji, dog_px, "target");
+  }
+  return out;
+}
+
+// The overview: the whole world on the screen, each tile a square (white
+// and blue where subscribed, pink where not), each cow a brown dot and each
+// dog a smaller dark one (pale where its tile is not subscribed: only
+// remembered), the dog leashed last ringed, and the view a rectangle.
+export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed) {
+  const o = overviewFrame(viewport.width, viewport.height);
+  const out = [{ id: "ground", shape: "rect", x: 0, y: 0, w: viewport.width, h: viewport.height, fill: "#556", role: "scenery" }];
+  for (let row = 0; row < world_tiles; row++) {
+    for (let col = 0; col < world_tiles; col++) {
+      const odd = (col + row) % 2 === 1;
+      const fill = subscribed.has(tileKey({ col, row }))
+        ? (odd ? "#eaf3fc" : "#ffffff")
+        : (odd ? "#f2c4c4" : "#f8d8d8");
+      const at = overviewFromPark(o, col * tile_px, row * tile_px);
+      out.push({ id: `tile:${col},${row}`, shape: "rect", x: at.viewportX, y: at.viewportY,
+        w: tile_px * o.scale, h: tile_px * o.scale, fill, role: "scenery" });
+    }
+  }
+  const live = (c) => subscribed.has(tileKey(tileOf(c.parkX, c.parkY)));
+  for (const c of cows) {
+    const at = overviewFromPark(o, c.parkX, c.parkY);
+    out.push({ id: `cow:${c.id}`, shape: "dot", x: at.viewportX, y: at.viewportY, w: 8, h: 8,
+      fill: live(c) ? "#7a4a1a" : "#c9a37a", role: "scenery" });
+  }
+  for (const d of dogs) {
+    const at = overviewFromPark(o, d.parkX, d.parkY);
+    out.push({ id: dogTarget(d.id), shape: "dot", x: at.viewportX, y: at.viewportY, w: 5, h: 5,
+      fill: live(d) ? "#333" : "#a88", role: "scenery" });
+    if (lastLeashed.kind === "dog" && lastLeashed.dogId === d.id) {
+      out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: at.viewportX, y: at.viewportY, w: 22, h: 22,
+        stroke: "#d33", lineWidth: 3, role: "scenery" });
+    }
+  }
+  const corner = overviewFromPark(o, viewport.parkX, viewport.parkY);
+  out.push({ id: view_target, shape: "frame", x: corner.viewportX, y: corner.viewportY,
+    w: viewport.width * o.scale, h: viewport.height * o.scale, stroke: "#222", lineWidth: 2, role: "target" });
+  return out;
 }

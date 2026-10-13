@@ -13,8 +13,8 @@ const park = await import("../solo/park.js");
 
 test("every module imports without a DOM", () => {
   assert.equal(typeof document, "undefined");
-  assert.equal(typeof blit.blit, "function");
-  assert.equal(typeof blit.blitOverview, "function");
+  assert.equal(typeof blit.draw, "function");
+  assert.equal(typeof blit.hit, "function");
   assert.equal(typeof engine.syncTiles, "function");
   // park.js wires the DOM and exports nothing; its import starting nothing
   // is this file finishing at all (a start would throw on `document`).
@@ -73,17 +73,6 @@ test("the overview frame fits the world with its margin, centred", () => {
   assert.deepEqual(scene.overviewFromPark(o, scene.world_px, scene.world_px), { viewportX: 850, viewportY: 680 });
 });
 
-test("a press grabs the topmost dog under it, or misses", () => {
-  const viewport = { parkX: 0, parkY: 0, width: 800, height: 600 };
-  const dogs = [{ id: 1, parkX: 100, parkY: 100 }, { id: 2, parkX: 110, parkY: 100 }];
-  const g = pointer.grabbed(viewport, dogs, 105, 95);
-  assert.equal(g.kind, "holding");
-  assert.equal(g.dog.id, 2); // drawn last, so on top
-  assert.equal(g.grabDx, -5);
-  assert.equal(g.grabDy, -5);
-  assert.deepEqual(pointer.grabbed(viewport, dogs, 300, 300), { kind: "missed" });
-});
-
 test("the edge bands: nothing in the middle, faster deeper in", () => {
   assert.equal(pointer.bandSpeed(0), 0);
   assert.equal(pointer.bandSpeed(pointer.band_px), pointer.fastest_px_per_frame);
@@ -99,4 +88,106 @@ test("the edge bands: nothing in the middle, faster deeper in", () => {
 
 test("a dog's place is told as whole pixels", () => {
   assert.deepEqual(engine.wholePoint({ parkX: 10.5, parkY: -3.4 }), { parkX: 11, parkY: -3 });
+});
+
+// ── what a frame draws, and what a press is on ──────────────────────────────
+
+const ids = (objects) => objects.map((o) => o.id);
+
+test("the near scene: tiles, then cows, then dogs, the leashed dog ringed", () => {
+  // 600 x 400 at (450, 0): tiles (0,0) to (2,0), the tile columns from x -450.
+  const viewport = { parkX: 450, parkY: 0, width: 600, height: 400 };
+  const dogs = [{ id: 7, emoji: "🐕", parkX: 500, parkY: 100 }, { id: 3, emoji: "🐩", parkX: 4000.4, parkY: 4000 }];
+  const cows = [{ id: 23, parkX: 600.5, parkY: 250 }];
+  const near = scene.nearScene(viewport, dogs, cows, { kind: "kept", dogId: 7 });
+  assert.deepEqual(ids(near), [
+    "tile:0,0", "tile:0,0:label", "tile:1,0", "tile:1,0:label", "tile:2,0", "tile:2,0:label",
+    "cow:23", "cow:23:label", "dog:7:ring", "dog:7", "dog:7:label", "dog:3", "dog:3:label",
+  ]);
+  const byId = new Map(near.map((o) => [o.id, o]));
+  assert.deepEqual(byId.get("tile:1,0"), { id: "tile:1,0", shape: "rect", x: 50, y: 0, w: 500, h: 500, fill: "#eaf3fc", role: "scenery" });
+  assert.deepEqual(byId.get("tile:0,0:label"), { id: "tile:0,0:label", shape: "text", x: -200, y: 250, w: 0, h: 0, text: "(0, 0)", font: "20px monospace", fill: "#9ab", role: "scenery" });
+  assert.equal(byId.get("tile:0,0").fill, "#ffffff");
+  // A cow: a 60 px glyph, never a target, its place to the pixel under it.
+  assert.deepEqual(byId.get("cow:23"), { id: "cow:23", shape: "glyph", x: 150.5, y: 250, w: 60, h: 60, text: "🐄", fill: "#000", role: "scenery" });
+  assert.deepEqual(byId.get("cow:23:label"), { id: "cow:23:label", shape: "text", x: 150.5, y: 301, w: 0, h: 0, text: "(601, 250)", font: "11px monospace", fill: "#555", role: "scenery" });
+  // The leashed dog: a red ring under its 40 px glyph, which is a target.
+  assert.deepEqual(byId.get("dog:7:ring"), { id: "dog:7:ring", shape: "ring", x: 50, y: 100, w: 2 * (40 * 0.7), h: 2 * (40 * 0.7), stroke: "#d33", lineWidth: 3, role: "scenery" });
+  assert.deepEqual(byId.get("dog:7"), { id: "dog:7", shape: "glyph", x: 50, y: 100, w: 40, h: 40, text: "🐕", fill: "#000", role: "target" });
+  // A far dog is still drawn (off the screen), unringed.
+  assert.deepEqual(byId.get("dog:3"), { id: "dog:3", shape: "glyph", x: 3550.4, y: 4000, w: 40, h: 40, text: "🐩", fill: "#000", role: "target" });
+  assert.equal(byId.get("dog:3:label").text, "(4000, 4000)");
+  // No leash, no ring.
+  assert.ok(!ids(scene.nearScene(viewport, dogs, cows, { kind: "none" })).includes("dog:7:ring"));
+});
+
+test("the overview scene: shades by subscription, dots by freshness, the last leashed ringed, the view on top", () => {
+  // 1040 x 700: scale 660 / 5000, origin (190, 20); a tile is 66 px.
+  const viewport = { parkX: 500, parkY: 1000, width: 1040, height: 700 };
+  const subscribed = new Map([["1,2", true], ["0,0", true]]);
+  const dogs = [{ id: 7, parkX: 600, parkY: 1100 }, { id: 3, parkX: 4000, parkY: 4000 }];
+  const cows = [{ id: 23, parkX: 50, parkY: 50 }, { id: 24, parkX: 2600, parkY: 50 }];
+  const over = scene.overviewScene(viewport, dogs, cows, subscribed, { kind: "dog", dogId: 3 });
+  assert.equal(over.length, 1 + 100 + 2 + 2 + 1 + 1);
+  assert.deepEqual(over[0], { id: "ground", shape: "rect", x: 0, y: 0, w: 1040, h: 700, fill: "#556", role: "scenery" });
+  const byId = new Map(over.map((o) => [o.id, o]));
+  // Subscribed: white and blue; not: two pinks.
+  assert.equal(byId.get("tile:0,0").fill, "#ffffff");
+  assert.equal(byId.get("tile:1,2").fill, "#eaf3fc");
+  assert.equal(byId.get("tile:2,2").fill, "#f8d8d8");
+  assert.equal(byId.get("tile:2,1").fill, "#f2c4c4");
+  assert.equal(byId.get("tile:1,2").x, 190 + 66);
+  assert.equal(byId.get("tile:1,2").w, 500 * 660 / 5000);
+  // A cow in a subscribed tile is dark brown, one elsewhere pale; 8 px across.
+  assert.deepEqual(byId.get("cow:23"), { id: "cow:23", shape: "dot", x: 190 + 50 * 0.132, y: 20 + 50 * 0.132, w: 8, h: 8, fill: "#7a4a1a", role: "scenery" });
+  assert.equal(byId.get("cow:24").fill, "#c9a37a");
+  // A dog: dark when live, pale when remembered; 5 px across; the last leashed ringed, after its dot.
+  assert.equal(byId.get("dog:7").fill, "#333");
+  assert.equal(byId.get("dog:3").fill, "#a88");
+  assert.equal(byId.get("dog:3").w, 5);
+  assert.equal(byId.get("dog:3").role, "scenery");
+  assert.deepEqual(ids(over).slice(-4), ["dog:7", "dog:3", "dog:3:ring", "view"]);
+  assert.deepEqual(byId.get("dog:3:ring"), { id: "dog:3:ring", shape: "ring", x: byId.get("dog:3").x, y: byId.get("dog:3").y, w: 22, h: 22, stroke: "#d33", lineWidth: 3, role: "scenery" });
+  assert.deepEqual(over.at(-1), { id: "view", shape: "frame", x: 190 + 500 * 0.132, y: 20 + 1000 * 0.132, w: 1040 * 0.132, h: 700 * 0.132, stroke: "#222", lineWidth: 2, role: "target" });
+});
+
+test("hit: the topmost target whose box holds the point, edges included", () => {
+  const objects = [
+    { id: "ground", shape: "rect", x: 0, y: 0, w: 100, h: 100, role: "target" },
+    { id: "a", shape: "glyph", x: 50, y: 50, w: 40, h: 40, role: "target" },
+    { id: "b", shape: "glyph", x: 60, y: 50, w: 40, h: 40, role: "target" },
+    { id: "cover", shape: "dot", x: 55, y: 50, w: 10, h: 10, role: "scenery" },
+  ];
+  // b is after a, so on top; the scenery over both catches nothing.
+  assert.equal(blit.hit(objects, 55, 50), "b");
+  assert.equal(blit.hit(objects, 31, 50), "a");
+  assert.equal(blit.hit(objects, 80, 70), "b"); // b's corner
+  assert.equal(blit.hit(objects, 81, 70), "ground");
+  assert.equal(blit.hit(objects, 100, 100), "ground"); // the rect's corner
+  assert.equal(blit.hit(objects, 100.5, 50), null);
+  assert.equal(blit.hit([], 0, 0), null);
+  assert.throws(() => blit.hit([{ id: "x", shape: "dot", x: 0, y: 0, w: 1, h: 1, role: true }], 0, 0), /no role/);
+});
+
+test("a press in the near scene names the topmost dog, and a cow or a tile is a miss", () => {
+  const viewport = { parkX: 0, parkY: 0, width: 800, height: 600 };
+  const dogs = [{ id: 1, emoji: "🐕", parkX: 100, parkY: 100 }, { id: 2, emoji: "🐕", parkX: 110, parkY: 100 }];
+  const near = scene.nearScene(viewport, dogs, [{ id: 9, parkX: 300, parkY: 300 }], { kind: "none" });
+  assert.equal(scene.dogOfTarget(blit.hit(near, 105, 95)), 2); // drawn last, so on top
+  assert.equal(scene.dogOfTarget(blit.hit(near, 85, 95)), 1);
+  assert.equal(scene.dogOfTarget(blit.hit(near, 300, 300)), "none"); // a cow
+  assert.equal(blit.hit(near, 500, 500), null); // ground
+  assert.equal(scene.dogOfTarget(null), "none");
+  assert.equal(scene.dogOfTarget("view"), "none");
+  assert.equal(scene.dogOfTarget(scene.dogTarget(219)), 219);
+});
+
+test("a press in the overview is on the view's rectangle or nothing", () => {
+  const viewport = { parkX: 500, parkY: 1000, width: 1040, height: 700 };
+  const over = scene.overviewScene(viewport, [{ id: 7, parkX: 600, parkY: 1100 }], [], new Map(), { kind: "dog", dogId: 7 });
+  const view = over.at(-1);
+  assert.equal(blit.hit(over, view.x, view.y), scene.view_target);
+  assert.equal(blit.hit(over, view.x + view.w, view.y + view.h), scene.view_target);
+  assert.equal(blit.hit(over, view.x - 1, view.y), null);
+  assert.equal(blit.hit(over, 5, 5), null);
 });

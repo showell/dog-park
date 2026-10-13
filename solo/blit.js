@@ -1,69 +1,90 @@
-// The blitters: each draws a list it is handed onto the canvas, and owns no
-// logic.
+// The blitter: draws a list of objects onto a canvas, and says which object
+// is under a point. It knows shapes, colours and the screen, and nothing of
+// what the objects stand for; the scene builders (scene.js) make the lists.
+//
+// AN OBJECT, in viewport points (CSS px from the screen's top-left):
+//
+//   { id:    string, opaque here: what `hit` answers
+//     shape: "rect"  a filled rectangle,  (x, y) its top-left, w by h
+//          | "frame" a stroked rectangle, (x, y) its top-left, w by h
+//          | "dot"   a filled circle,     (x, y) its centre, w across
+//          | "ring"  a stroked circle,    (x, y) its centre, w across
+//          | "glyph" text drawn h px high in serif (an emoji), centred on (x, y)
+//          | "text"  text in `font`, centred on (x, y)
+//     x, y, w, h: numbers; for a dot, a ring or a glyph the w by h box
+//                 centred on (x, y) is what `hit` tests
+//     fill:      colour (rect, dot, glyph, text)
+//     stroke, lineWidth: colour and px (frame, ring)
+//     text:      string (glyph, text);  font: CSS font (text)
+//     role:      "target" (`hit` can answer it) | "scenery" (it never does) }
+//
+// **THE LIST'S ORDER IS THE DRAWING ORDER**: each object is drawn over those
+// before it, so the LAST object is on top, and `hit` looks from the last
+// back. Hit order is draw order by construction.
 
-import { dog_px } from "./scene.js";
-
-// Draws the ground (each tile a square of its shade, its label in its
-// middle), then each sprite (cows first, so dogs are on top) at its
-// viewport point and size, with its label under it; a leashed dog ringed.
-export function blit(canvas, width, height, ground, sprites) {
-  const ratio = window.devicePixelRatio || 1;
-  const ctx = canvas.getContext("2d");
+// Clears the canvas and draws `objects` in order.
+export function draw(ctx, objects) {
+  const ratio = globalThis.devicePixelRatio || 1;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  ctx.clearRect(0, 0, width, height);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  for (const g of ground) {
-    ctx.fillStyle = g.shade;
-    ctx.fillRect(g.viewportX, g.viewportY, g.size, g.size);
-    ctx.font = "20px monospace";
-    ctx.fillStyle = "#9ab";
-    ctx.fillText(g.label, g.viewportX + g.size / 2, g.viewportY + g.size / 2);
-  }
-  for (const s of sprites) {
-    if (s.kind === "leashed") {
-      ctx.beginPath();
-      ctx.arc(s.viewportX, s.viewportY, dog_px * 0.7, 0, 2 * Math.PI);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#d33";
-      ctx.stroke();
+  for (const o of objects) {
+    switch (o.shape) {
+      case "rect":
+        ctx.fillStyle = o.fill;
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        break;
+      case "frame":
+        ctx.lineWidth = o.lineWidth;
+        ctx.strokeStyle = o.stroke;
+        ctx.strokeRect(o.x, o.y, o.w, o.h);
+        break;
+      case "dot":
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, o.w / 2, 0, 2 * Math.PI);
+        ctx.fillStyle = o.fill;
+        ctx.fill();
+        break;
+      case "ring":
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, o.w / 2, 0, 2 * Math.PI);
+        ctx.lineWidth = o.lineWidth;
+        ctx.strokeStyle = o.stroke;
+        ctx.stroke();
+        break;
+      case "glyph":
+        ctx.font = `${o.h}px serif`;
+        ctx.fillStyle = o.fill;
+        ctx.fillText(o.text, o.x, o.y);
+        break;
+      case "text":
+        ctx.font = o.font;
+        ctx.fillStyle = o.fill;
+        ctx.fillText(o.text, o.x, o.y);
+        break;
+      default:
+        throw new Error(`no shape ${o.shape} (${o.id})`);
     }
-    ctx.font = `${s.size}px serif`;
-    ctx.fillStyle = "#000";
-    ctx.fillText(s.emoji, s.viewportX, s.viewportY);
-    ctx.font = "11px monospace";
-    ctx.fillStyle = "#555";
-    ctx.fillText(s.label, s.viewportX, s.viewportY + s.size * 0.85);
   }
 }
 
-// The overview: each tile a square of its shade, each dog a dot (dark when
-// live, pale when remembered), a ringed dog with a ring, each cow a larger
-// brown dot, and the view a rectangle. All in viewport points.
-export function blitOverview(canvas, width, height, squares, dots, view) {
-  const ratio = window.devicePixelRatio || 1;
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  ctx.fillStyle = "#556";
-  ctx.fillRect(0, 0, width, height);
-  for (const q of squares) {
-    ctx.fillStyle = q.shade;
-    ctx.fillRect(q.viewportX, q.viewportY, q.size, q.size);
+// The id of the topmost target whose box holds the point (edges included),
+// or null when there is none.
+export function hit(objects, x, y) {
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const o = objects[i];
+    if (o.role === "scenery") continue;
+    if (o.role !== "target") throw new Error(`no role ${o.role} (${o.id})`);
+    if (inBox(o, x, y)) return o.id;
   }
-  for (const d of dots) {
-    ctx.beginPath();
-    ctx.arc(d.viewportX, d.viewportY, d.kind === "cow" ? 4 : 2.5, 0, 2 * Math.PI);
-    ctx.fillStyle = d.kind === "cow" ? (d.freshness === "live" ? "#7a4a1a" : "#c9a37a") : d.freshness === "live" ? "#333" : "#a88";
-    ctx.fill();
-    if (d.kind === "ringed") {
-      ctx.beginPath();
-      ctx.arc(d.viewportX, d.viewportY, 11, 0, 2 * Math.PI);
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = "#d33";
-      ctx.stroke();
-    }
+  return null;
+}
+
+function inBox(o, x, y) {
+  if (o.shape === "rect" || o.shape === "frame") {
+    return x >= o.x && x <= o.x + o.w && y >= o.y && y <= o.y + o.h;
   }
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "#222";
-  ctx.strokeRect(view.viewportX, view.viewportY, view.width, view.height);
+  return Math.abs(x - o.x) <= o.w / 2 && Math.abs(y - o.y) <= o.h / 2;
 }

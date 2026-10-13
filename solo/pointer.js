@@ -1,23 +1,5 @@
-// The pointer's pure helpers: which dog a press grabs, and how far the edge
-// bands scroll. The listeners that use them are park.js's.
-
-import { dog_px, viewportFromPark } from "./scene.js";
-
-// ── drag ────────────────────────────────────────────────────────────────────
-
-// The dog under the pointer, the one drawn last (on top) first, and where
-// the pointer grabbed it relative to its centre, so it doesn't jump.
-export function grabbed(viewport, dogs, pointerViewportX, pointerViewportY) {
-  for (let i = dogs.length - 1; i >= 0; i--) {
-    const at = viewportFromPark(viewport, dogs[i].parkX, dogs[i].parkY);
-    const dx = pointerViewportX - at.viewportX;
-    const dy = pointerViewportY - at.viewportY;
-    if (Math.abs(dx) <= dog_px / 2 && Math.abs(dy) <= dog_px / 2) {
-      return { kind: "holding", dog: dogs[i], grabDx: dx, grabDy: dy };
-    }
-  }
-  return { kind: "missed" };
-}
+// The pointer's pure helpers: how far the edge bands scroll. The listeners
+// that use them are park.js's; what a press is on is blit.js's `hit`.
 
 // ── scroll ──────────────────────────────────────────────────────────────────
 
