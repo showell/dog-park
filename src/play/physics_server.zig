@@ -407,6 +407,12 @@ pub const Server = struct {
             return out.bytes();
         }
         if (self.stuck) |t| return stuckAnswer(&out, t);
+        // **EVERY LOAD STARTS THE PARK AFRESH** (Steve, 2026-10-13): the
+        // first layout, nothing leashed, nothing pending; snapshotted
+        // before the load's entry, so a restart applies the log from here.
+        self.kept.board = physics.Board.laidOut();
+        self.kept.pending_len = 0;
+        try self.snapshot(io, alloc);
         const k1 = self.kept.tick + 1;
         // The region at K + 1, around the dog leashed after the inputs kept
         // for it.

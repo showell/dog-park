@@ -117,6 +117,9 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   // Requests: the last number used, the one in flight ({ req, count, x }),
   // when the last went, and how many have been answered this epoch.
   let req = 0;
+  // The last report sent and its answer, for the console when the page stops.
+  let lastBody = null;
+  let lastAnswer = null;
   let flight = null;
   let lastSendMs = -Infinity;
   let answered = 0;
@@ -472,16 +475,16 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     if (current && current.timer !== null) clearTimer(current.timer);
     current = null;
     log.error(`Dog Park stopped: ${message}`);
+    if (lastBody !== null) log.error(`the last report sent:\n${lastBody}`);
+    if (lastAnswer !== null) log.error(`its answer (${lastAnswer.status}):\n${lastAnswer.text}`);
   }
 
-  // A reload answer, a 413, an unreadable answer, `req ?`: the page loads
-  // afresh, unless this was the first report after its load, which a load
-  // just answered (another would loop).
+  // A reload answer, a 413, an unreadable answer, `req ?`: the page STOPS,
+  // its screen paused, the why and the last exchange on the console, so
+  // Steve can report it (Steve, 2026-10-13: never reload on its own).
   function startAgain(why) {
     if (answered === 0) return stop(`the first report after a load was answered ${why}: the page's reports can't be taken`);
-    status = { kind: "reloading", why };
-    log.warn(`reloading: ${why}`);
-    reload(why);
+    stop(`${why} (reload the page to play on)`);
   }
 
   // **A REPORT**: every run entry, after the header and `from K`; `wall`
@@ -496,6 +499,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     }
     req++;
     lastSendMs = now();
+    lastBody = body;
     flight = { req, count };
     flight.x = exchange("/report", body, takeAnswer);
   }
@@ -512,6 +516,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
 
   function takeAnswer(r) {
     const sent = flight;
+    lastAnswer = r;
     flight = null;
     if (r.status === 413) return startAgain("413, the report past the body limit");
     if (r.status !== 200) return startAgain(`${r.status}`);
@@ -520,6 +525,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     if (lines[0] === "req ?") return startAgain("req ?, its header unreadable");
     if (lines[0] !== `req ${sent.req}`) return startAgain(`"${lines[0]}" to req ${sent.req}`);
     const second = lines[1] ?? "";
+    if (second === "reload epoch" || second.startsWith("reload physics")) return stop(`the server restarted (${second}): reload the page to play on`);
     if (second.startsWith("reload ")) return startAgain(second);
     if (second === "taken over") return stop("a newer page load holds the park (another tab, or a reload)");
     if (second.startsWith("stuck ")) return stop(`the physics disagrees with itself at tick ${second.slice(6)}`);
