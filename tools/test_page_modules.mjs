@@ -191,3 +191,149 @@ test("a press in the overview is on the view's rectangle or nothing", () => {
   assert.equal(blit.hit(over, view.x - 1, view.y), null);
   assert.equal(blit.hit(over, 5, 5), null);
 });
+
+// ── what a pointer event means ──────────────────────────────────────────────
+
+// A gesture as a table: each row an event (and what the press hit), and the
+// hand and intents it must give, from the hand the row before left.
+function play(rows, { mode = "near", viewport } = {}) {
+  let hand = pointer.resting;
+  for (const [i, r] of rows.entries()) {
+    const out = pointer.meaning(hand, r.event, r.hit ?? null, r.mode ?? mode, viewport);
+    assert.deepEqual(out, { hand: r.hand, intents: r.intents }, `row ${i}: ${JSON.stringify(r.event)}`);
+    hand = out.hand;
+  }
+}
+
+const near = { parkX: 1000, parkY: 1000, width: 800, height: 600 };
+
+test("a gesture on a dog: grab where pressed, drags that keep it on screen, let go", () => {
+  // Dog 219 at park (1100, 1200), so at viewport (100, 200); pressed 5 px right and 3 px up of its centre.
+  const held = { kind: "dragging", dogId: 219, offsetX: 5, offsetY: -3 };
+  play([
+    { event: { type: "down", x: 105, y: 197, dogAt: { parkX: 1100, parkY: 1200 } }, hit: "dog:219",
+      hand: held, intents: [{ kind: "grab", dogId: 219 }] },
+    { event: { type: "move", x: 115, y: 190 },
+      hand: held, intents: [{ kind: "drag", dogId: 219, parkX: 1110, parkY: 1193 }] },
+    // Past the screen's left edge: held a half dog in from it.
+    { event: { type: "move", x: -50, y: 190 },
+      hand: held, intents: [{ kind: "drag", dogId: 219, parkX: 1020, parkY: 1193 }] },
+    { event: { type: "up" }, hand: pointer.resting, intents: [{ kind: "letgo" }] },
+    // A move with nothing in hand means nothing; so does a second up.
+    { event: { type: "move", x: 300, y: 300 }, hand: pointer.resting, intents: [] },
+    { event: { type: "up" }, hand: pointer.resting, intents: [] },
+  ], { viewport: near });
+});
+
+test("a drag stops at the world's edge", () => {
+  // The viewport hangs past the world's top-left corner.
+  const corner = { parkX: -300, parkY: -200, width: 800, height: 600 };
+  play([
+    { event: { type: "down", x: 400, y: 300, dogAt: { parkX: 100, parkY: 100 } }, hit: "dog:5",
+      hand: { kind: "dragging", dogId: 5, offsetX: 0, offsetY: 0 }, intents: [{ kind: "grab", dogId: 5 }] },
+    { event: { type: "move", x: 30, y: 30 },
+      hand: { kind: "dragging", dogId: 5, offsetX: 0, offsetY: 0 }, intents: [{ kind: "drag", dogId: 5, parkX: 0, parkY: 0 }] },
+    { event: { type: "cancel" }, hand: pointer.resting, intents: [{ kind: "letgo" }] },
+  ], { viewport: corner });
+});
+
+test("a press on empty ground pans: the viewport against the pointer", () => {
+  play([
+    { event: { type: "down", x: 400, y: 300, dogAt: "none" }, hit: null,
+      hand: { kind: "panning", lastX: 400, lastY: 300 }, intents: [] },
+    { event: { type: "move", x: 410, y: 280 },
+      hand: { kind: "panning", lastX: 410, lastY: 280 }, intents: [{ kind: "pan", parkX: 990, parkY: 1020 }] },
+    { event: { type: "up" }, hand: pointer.resting, intents: [] },
+  ], { viewport: near });
+  // A press on a cow, or on a dog that just left what the page knows, pans too.
+  play([
+    { event: { type: "down", x: 1, y: 2, dogAt: "none" }, hit: "cow:23", hand: { kind: "panning", lastX: 1, lastY: 2 }, intents: [] },
+  ], { viewport: near });
+  play([
+    { event: { type: "down", x: 1, y: 2, dogAt: "none" }, hit: "dog:219", hand: { kind: "panning", lastX: 1, lastY: 2 }, intents: [] },
+  ], { viewport: near });
+});
+
+test("a pan stops with the viewport's centre on the world's edge", () => {
+  play([
+    { event: { type: "down", x: 0, y: 0, dogAt: "none" }, hand: { kind: "panning", lastX: 0, lastY: 0 }, intents: [] },
+    { event: { type: "move", x: 5000, y: 0 }, hand: { kind: "panning", lastX: 5000, lastY: 0 }, intents: [{ kind: "pan", parkX: -400, parkY: 1000 }] },
+  ], { viewport: near });
+});
+
+test("in the overview, a press on the view's rectangle drags it, scaled; one off it means nothing", () => {
+  // 1040 x 700: scale 660 / 5000 = 0.132.
+  const viewport = { parkX: 500, parkY: 1000, width: 1040, height: 700 };
+  play([
+    { event: { type: "down", x: 300, y: 200, dogAt: "none" }, hit: scene.view_target,
+      hand: { kind: "panning", lastX: 300, lastY: 200 }, intents: [] },
+    { event: { type: "move", x: 300 + 13.2, y: 200 - 6.6 },
+      hand: { kind: "panning", lastX: 313.2, lastY: 193.4 }, intents: [{ kind: "pan", parkX: 500 + 13.2 / 0.132, parkY: 1000 - 6.6 / 0.132 }] },
+    { event: { type: "up" }, hand: pointer.resting, intents: [] },
+    // Off the rectangle: on nothing, so resting, and a move means nothing.
+    { event: { type: "down", x: 5, y: 5, dogAt: "none" }, hit: null, hand: pointer.resting, intents: [] },
+    { event: { type: "move", x: 50, y: 50 }, hand: pointer.resting, intents: [] },
+  ], { mode: "overview", viewport });
+});
+
+test('"z" mid-drag lets go and flips the mode; resting, it only flips', () => {
+  const held = { kind: "dragging", dogId: 7, offsetX: 0, offsetY: 0 };
+  play([
+    { event: { type: "down", x: 100, y: 200, dogAt: { parkX: 1100, parkY: 1200 } }, hit: "dog:7",
+      hand: held, intents: [{ kind: "grab", dogId: 7 }] },
+    { event: { type: "z" }, hand: pointer.resting, intents: [{ kind: "letgo" }, { kind: "mode", mode: "overview" }] },
+    // The move after means nothing: the hand rests.
+    { event: { type: "move", x: 120, y: 200 }, mode: "overview", hand: pointer.resting, intents: [] },
+    { event: { type: "z" }, mode: "overview", hand: pointer.resting, intents: [{ kind: "mode", mode: "near" }] },
+  ], { viewport: near });
+  // A pan under way just stops.
+  play([
+    { event: { type: "down", x: 0, y: 0, dogAt: "none" }, hand: { kind: "panning", lastX: 0, lastY: 0 }, intents: [] },
+    { event: { type: "z" }, hand: pointer.resting, intents: [{ kind: "mode", mode: "overview" }] },
+  ], { viewport: near });
+});
+
+test("no event outside the five", () => {
+  assert.throws(() => pointer.meaning(pointer.resting, { type: "wheel" }, null, "near", near), /no pointer event wheel/);
+});
+
+test("the edge bands each frame: a pan keeps going, a held dog carries the viewport", () => {
+  const f = pointer.fastest_px_per_frame;
+  // Resting, or a pan or a dog away from every edge: nothing.
+  assert.deepEqual(pointer.edgeScroll(pointer.resting, near, "none"), []);
+  assert.deepEqual(pointer.edgeScroll({ kind: "panning", lastX: 400, lastY: 300 }, near, "none"), []);
+  const held = { kind: "dragging", dogId: 9, offsetX: 0, offsetY: 0 };
+  assert.deepEqual(pointer.edgeScroll(held, near, { parkX: 1400, parkY: 1300 }), []);
+  // A pan held on the right edge: the park goes toward it, so the viewport away.
+  assert.deepEqual(pointer.edgeScroll({ kind: "panning", lastX: 800, lastY: 300 }, near, "none"),
+    [{ kind: "pan", parkX: 1000 - f, parkY: 1000 }]);
+  // ... and with the viewport's centre on the world's edge, it stops.
+  const east = { parkX: 4999 - 400, parkY: 1000, width: 800, height: 600 };
+  assert.deepEqual(pointer.edgeScroll({ kind: "panning", lastX: 0, lastY: 300 }, east, "none"), []);
+  // A dog held at the bottom edge: it and the viewport go south together.
+  assert.deepEqual(pointer.edgeScroll(held, near, { parkX: 1400, parkY: 1580 }), [
+    { kind: "drag", dogId: 9, parkX: 1400, parkY: 1580 + f },
+    { kind: "pan", parkX: 1000, parkY: 1000 + f },
+  ]);
+  // A dog at the world's edge goes no further, and the viewport with it.
+  const top = { parkX: 1000, parkY: -20, width: 800, height: 600 };
+  assert.deepEqual(pointer.edgeScroll(held, top, { parkX: 1400, parkY: 0 }), []);
+});
+
+test("the dog in hand is a number", () => {
+  assert.equal(pointer.inHand(pointer.resting), "none");
+  assert.equal(pointer.inHand({ kind: "panning", lastX: 0, lastY: 0 }), "none");
+  assert.equal(pointer.inHand({ kind: "dragging", dogId: 219, offsetX: 0, offsetY: 0 }), 219);
+});
+
+test("a press is on what was drawn in the mode it is made in", () => {
+  const viewport = { parkX: 0, parkY: 0, width: 800, height: 600 };
+  const nearList = scene.nearScene(viewport, [{ id: 1, emoji: "🐕", parkX: 100, parkY: 100 }], [], { kind: "none" });
+  const overList = scene.overviewScene(viewport, [], [], new Map(), { kind: "none" });
+  const view = overList.at(-1);
+  assert.equal(pointer.pressedOn({ mode: "near", objects: nearList }, "near", 100, 100), "dog:1");
+  assert.equal(pointer.pressedOn({ mode: "overview", objects: overList }, "overview", view.x, view.y), scene.view_target);
+  // Pressed after "z", before a frame drew the new mode: on nothing.
+  assert.equal(pointer.pressedOn({ mode: "near", objects: nearList }, "overview", 100, 100), null);
+  assert.equal(pointer.pressedOn({ mode: "overview", objects: overList }, "near", view.x, view.y), null);
+});

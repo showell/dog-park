@@ -39,19 +39,17 @@
 // moves.
 //
 // The page's modules: scene.js (the frames, tiles and the overview's
-// frame, and what a frame draws), pointer.js (the edge bands), blit.js (the
-// drawing, and what a press is on),
+// frame, and what a frame draws), pointer.js (what a pointer event means,
+// and the edge bands), blit.js (the drawing, and what a press is on),
 // engine.js (what the page knows, the leash, the sends). This file wires
 // them to the DOM, and starts only where there is one, so node can import
 // every module.
 
 import {
-  dog_px, world_px,
-  viewportFromPark, parkFromViewport, keptOnScreen, keptInWorld, viewportKeptOnWorld,
-  overviewFrame, nearScene, overviewScene, view_target, dogOfTarget,
+  world_px, viewportKeptOnWorld, nearScene, overviewScene, dogOfTarget,
 } from "./scene.js";
-import { axisScroll } from "./pointer.js";
-import { draw, hit } from "./blit.js";
+import { meaning, edgeScroll, inHand, pressedOn, resting } from "./pointer.js";
+import { draw } from "./blit.js";
 import {
   known, knownCows, subscribed, leashed, lastLeashed,
   fetchMe, leashTo, keepOnLeash, keptFromBefore, sendMove, sendViewport, syncTiles,
@@ -68,15 +66,11 @@ async function start() {
   const viewport = { parkX: 0, parkY: 0, width: 0, height: 0 };
   // Near (the park at its size) or the overview (the whole world).
   let mode = "near";
-  // What the human's hand is doing: holding a dog, panning the park (from
-  // the pointer's last viewport point), or resting.
-  let hold = { kind: "resting" };
-  const inHand = () => (hold.kind === "holding" ? hold.dog : "none");
-  // The pointer's last viewport point while holding: a still pointer in
-  // the band keeps scrolling.
-  const pointer = { viewportX: 0, viewportY: 0 };
-  // What the last frame drew: a press is on what the human saw.
-  let drawn = [];
+  // What the human's hand is doing (pointer.js says the shapes).
+  let hand = resting;
+  // What the last frame drew, and in which mode: a press is on what the
+  // human saw.
+  let drawn = { mode, objects: [] };
 
   function fit() {
     const ratio = window.devicePixelRatio || 1;
@@ -97,123 +91,69 @@ async function start() {
   // A dog still on your leash from before the reload: kept on it the usual
   // time from now, then let go.
   if (me.leash.dog !== undefined) keptFromBefore(me.leash.dog);
-  window.addEventListener("resize", fit);
-  window.addEventListener("keydown", (e) => {
-    if (e.key !== "z") return;
-    if (hold.kind === "holding") keepOnLeash();
-    hold = { kind: "resting" };
-    mode = mode === "near" ? "overview" : "near";
-  });
 
-  // The held dog under the pointer, as far as the screen allows.
-  function follow() {
-    const want = parkFromViewport(viewport, pointer.viewportX - hold.grabDx, pointer.viewportY - hold.grabDy);
-    const onScreen = keptOnScreen(viewport, want.parkX, want.parkY);
-    Object.assign(hold.dog, keptInWorld(onScreen.parkX, onScreen.parkY));
-    sendMove(hold.dog);
+  // The page does what an event means, in order.
+  function apply(intents) {
+    for (const i of intents) {
+      switch (i.kind) {
+        case "grab": leashTo(i.dogId); break;
+        case "drag": {
+          const dog = heldDog(i.dogId);
+          dog.parkX = i.parkX;
+          dog.parkY = i.parkY;
+          sendMove(dog);
+          break;
+        }
+        case "letgo": keepOnLeash(); break;
+        case "pan":
+          viewport.parkX = i.parkX;
+          viewport.parkY = i.parkY;
+          sendViewport(viewport);
+          break;
+        case "mode": mode = i.mode; break;
+        default: throw new Error(`no intent ${i.kind}`);
+      }
+    }
+  }
+  function heldDog(dogId) {
+    const dog = known.get(dogId);
+    if (dog === undefined) throw new Error(`dog ${dogId} is in hand but not known`);
+    return dog;
+  }
+  function handle(event, hitId = null) {
+    const out = meaning(hand, event, hitId, mode, viewport);
+    hand = out.hand;
+    apply(out.intents);
   }
 
+  window.addEventListener("resize", fit);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "z") handle({ type: "z" });
+  });
   canvas.addEventListener("pointerdown", (e) => {
     canvas.setPointerCapture(e.pointerId);
-    if (mode === "overview") {
-      // The view's rectangle moves only when it is pressed.
-      const inside = hit(drawn, e.offsetX, e.offsetY) === view_target;
-      hold = inside ? { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY } : { kind: "resting" };
-      return;
-    }
-    const dogId = dogOfTarget(hit(drawn, e.offsetX, e.offsetY));
-    const dog = dogId === "none" ? undefined : known.get(dogId);
-    if (dog !== undefined) {
-      // Held where it was grabbed, relative to its centre, so it doesn't jump.
-      const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
-      hold = { kind: "holding", dog, grabDx: e.offsetX - at.viewportX, grabDy: e.offsetY - at.viewportY };
-      leashTo(dog.id);
-    } else {
-      hold = { kind: "panning", lastViewportX: e.offsetX, lastViewportY: e.offsetY };
-    }
-    pointer.viewportX = e.offsetX;
-    pointer.viewportY = e.offsetY;
-    canvas.setPointerCapture(e.pointerId);
+    const hitId = pressedOn(drawn, mode, e.offsetX, e.offsetY);
+    const dog = known.get(dogOfTarget(hitId));
+    handle({ type: "down", x: e.offsetX, y: e.offsetY, dogAt: dog === undefined ? "none" : { parkX: dog.parkX, parkY: dog.parkY } }, hitId);
   });
-  canvas.addEventListener("pointermove", (e) => {
-    if (hold.kind === "panning") {
-      // Near, the park moves with the pointer, so the viewport moves
-      // against it; in the overview, the view's rectangle moves with it.
-      const dx = e.offsetX - hold.lastViewportX;
-      const dy = e.offsetY - hold.lastViewportY;
-      const o = overviewFrame(viewport.width, viewport.height);
-      const want = mode === "near"
-        ? { parkX: viewport.parkX - dx, parkY: viewport.parkY - dy }
-        : { parkX: viewport.parkX + dx / o.scale, parkY: viewport.parkY + dy / o.scale };
-      Object.assign(viewport, viewportKeptOnWorld(viewport, want.parkX, want.parkY));
-      sendViewport(viewport);
-      hold.lastViewportX = e.offsetX;
-      hold.lastViewportY = e.offsetY;
-      return;
-    }
-    if (hold.kind !== "holding") return;
-    pointer.viewportX = e.offsetX;
-    pointer.viewportY = e.offsetY;
-    follow();
-  });
-  const letGo = () => {
-    if (hold.kind === "holding") keepOnLeash();
-    hold = { kind: "resting" };
-  };
-  canvas.addEventListener("pointerup", letGo);
-  canvas.addEventListener("pointercancel", letGo);
+  canvas.addEventListener("pointermove", (e) => handle({ type: "move", x: e.offsetX, y: e.offsetY }));
+  canvas.addEventListener("pointerup", () => handle({ type: "up" }));
+  canvas.addEventListener("pointercancel", () => handle({ type: "cancel" }));
 
   const frame = () => {
-    syncTiles(viewport, inHand);
+    syncTiles(viewport, () => inHand(hand));
     predictKnownCows(cowRule);
     if (mode === "overview") {
-      drawOverview();
-      requestAnimationFrame(frame);
-      return;
+      drawn = { mode, objects: overviewScene(viewport, [...known.values()], [...knownCows.values()], subscribed, lastLeashed) };
+    } else {
+      const dogId = inHand(hand);
+      apply(edgeScroll(hand, viewport, dogId === "none" ? "none" : heldDog(dogId)));
+      drawn = { mode, objects: nearScene(viewport, [...known.values()], [...knownCows.values()], leashed) };
     }
-    if (hold.kind === "panning") {
-      // The cloth keeps moving while the pointer is held near an edge: the
-      // park toward that edge, so the viewport away from it.
-      const want = {
-        parkX: viewport.parkX - axisScroll(hold.lastViewportX, viewport.width, 0),
-        parkY: viewport.parkY - axisScroll(hold.lastViewportY, viewport.height, 0),
-      };
-      const kept = viewportKeptOnWorld(viewport, want.parkX, want.parkY);
-      if (kept.parkX !== viewport.parkX || kept.parkY !== viewport.parkY) {
-        Object.assign(viewport, kept);
-        sendViewport(viewport);
-      }
-    }
-    if (hold.kind === "holding") {
-      const dog = hold.dog;
-      const at = viewportFromPark(viewport, dog.parkX, dog.parkY);
-      const eastward = axisScroll(at.viewportX, viewport.width, dog_px / 2);
-      const southward = axisScroll(at.viewportY, viewport.height, dog_px / 2);
-      // The viewport and the dog move together: the dog stays put on screen
-      // while it travels through the park.
-      // The dog stops at the world's edge, and the scroll with it.
-      const to = keptInWorld(dog.parkX + eastward, dog.parkY + southward);
-      const movedX = to.parkX - dog.parkX;
-      const movedY = to.parkY - dog.parkY;
-      if (movedX !== 0 || movedY !== 0) {
-        viewport.parkX += movedX;
-        viewport.parkY += movedY;
-        dog.parkX = to.parkX;
-        dog.parkY = to.parkY;
-        sendMove(dog);
-        sendViewport(viewport);
-      }
-    }
-    drawn = nearScene(viewport, [...known.values()], [...knownCows.values()], leashed);
-    draw(ctx, drawn);
+    draw(ctx, drawn.objects);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
-
-  function drawOverview() {
-    drawn = overviewScene(viewport, [...known.values()], [...knownCows.values()], subscribed, lastLeashed);
-    draw(ctx, drawn);
-  }
 }
 
 if (typeof document !== "undefined") start().catch((e) => console.error("Dog Park did not start:", e.message));

@@ -206,11 +206,11 @@ export function syncTiles(viewport, inHand) {
       const fresh = new Set(named.filter((t) => t.is === "new").map(tileKey));
       let replaced = 0;
       for (const [id, d] of known) {
-        const kept = (leashed.kind !== "none" && leashed.dogId === id) || inHand() === d;
+        const kept = (leashed.kind !== "none" && leashed.dogId === id) || inHand() === id;
         if (!kept && fresh.has(tileKey(tileOf(d.parkX, d.parkY)))) { known.delete(id); replaced++; }
       }
       for (const d of ack.dogs) {
-        const kept = (leashed.kind !== "none" && leashed.dogId === d.id) || inHand() === known.get(d.id) || moving(d.id);
+        const kept = (leashed.kind !== "none" && leashed.dogId === d.id) || inHand() === d.id || moving(d.id);
         if (kept) continue;
         known.set(d.id, { id: d.id, emoji: d.emoji, parkX: d.park_x, parkY: d.park_y });
         beginPoints.set(d.id, { parkX: d.park_x, parkY: d.park_y });
