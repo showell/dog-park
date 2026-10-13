@@ -10,8 +10,8 @@ the page runs every tick, and the server re-runs, keeps and acks.
 playing, and may still change a foundational assumption here: it is that
 feel-driven. The server's side (re-running, keeping, `differ`) starts as
 provisional code for debugging, as the Safari drive and Lyn Rummy's drag
-and drop did, and firms up once the picture does. Draft 8, 2026-10-13:
-seven cold reviews are folded in below.
+and drop did, and firms up once the picture does. Draft 9, 2026-10-13:
+eight cold reviews are folded in below.
 
 Steve's rules, which everything here follows:
 - **No randomness.** A tick is a function of the board and the player's
@@ -58,16 +58,18 @@ Steve's rules, which everything here follows:
 - **About 1 px a second,** with positions kept in 256ths of a pixel so a
   slow dog really is slow. At 16 ticks a second that is exactly 16/256 of a
   pixel per tick.
-- **Awake means close and watched.** A critter takes part only if it
-  stands in a subscribed tile *and* within 500 px of the leashed dog.
+- **Awake means close and watched.** A critter takes part only if the
+  page knows it, it stands in a tile the page holds, *and* it is within
+  500 px of the leashed dog.
   Unleashing puts the whole park to sleep. When a tick moves nothing, the
   human does nothing and no let-go timer is running, the page stops
   ticking and sends nothing until the human acts again (a drag, a grab, a
   let-go, a leash), or until the tiles it holds change while a dog is
   leashed.
 - **The report is text,** one line per tick with the human's input, then
-  every critter that moved, before and after, in the order the cascade
-  moved them: a proof the server checks line by line. The server answers
+  every critter that moved, before and after, in rank order (the leashed
+  dog, cows by number, dogs by number): a proof the server checks line by
+  line. The server answers
   `kept`, `differ` (naming the first line it disagrees with), `reload`, or
   `taken over`.
 - **No two critters should share space.** The leashed dog stops at a
@@ -91,8 +93,8 @@ against another can still step along it or away.
 displacement as its x part then its y part (a street, then an avenue),
 in internal steps of at most 10 px. An axis part d is cut into
 n = ceil(|d| / 10 px) steps, as `cows.zig` cuts a move: step i ends at
-d·i/n, truncated toward zero, in 256ths (25 px goes 8, 8, 9). In each
-step:
+d·i/n, truncated toward zero, in 256ths: 25 px is 6400, cut 2133, 2133,
+2134 (about 8⅓ px each). In each step:
 1. **the cows react first,** by the grid rule, to the step the leashed dog
    is about to take;
 2. **then the leashed dog takes it,** swept against where everyone now is,
@@ -182,9 +184,11 @@ take east, or west at the world's east edge.
 of the centre-to-centre vector times the wish's length, divided by the
 distance (`isqrt`, rounded down), the product in `i64` and the quotient
 truncated toward zero. The wishes are summed per axis. The step is then
-the total if its length is at most the speed, else each axis of the total
-times the speed, divided by the total's length (`isqrt` again), truncated
-toward zero.
+the total if its squared length is at most the speed squared (exact, no
+root), else each axis of the total times the speed, divided by the total's
+length (`isqrt` of its squared length), truncated toward zero. **Every
+comparison of a length with a number is made squared,** the dead zone's
+too; `isqrt` appears only as a divisor.
 
 **Cows push dogs.** A cow is bigger than an unleashed dog and isn't afraid
 of it; it respects only the leashed dog, which has a human guiding it.
@@ -199,8 +203,8 @@ It's a little jump, and that's fine (Steve's call).
 
 **The step.**
 1. Add up the wishes.
-2. If the total is shorter than the **dead zone** (1 px to start), D stays
-   put this tick: close enough.
+2. If the total's squared length is less than the **dead zone**'s squared
+   (1 px to start), D stays put this tick: close enough.
 3. Otherwise D moves along the total, by the total's length or its speed
    per tick, whichever is less, and **stops where it would press into any
    known critter** (above or below it, awake or asleep): a dog's own step
@@ -306,6 +310,14 @@ sides, looks only at the **known** critters: the ones the page holds.
   leaves out the tile it then stands in.
 - **A page load resets it:** the known set becomes exactly the critters of
   the tiles in the load's `held K+1`.
+- **The page keeps every critter it received this epoch,** known or not.
+  When a `view` subscribes again a tile whose critters it already
+  received this epoch, the page writes that tile in a `held` line at the
+  same tick (no ack to wait for), and its critters rejoin where the page
+  last had them. That is where they are on the server too: a critter
+  outside the known set is absent from both runs, so nothing moves it.
+  (Of the two ways to fix a re-subscribed tile, this is the simpler: the
+  server never resends a tile within an epoch.)
 
 The server knows every critter in the park, but in its re-run it treats
 everyone outside the known set as absent, exactly as the page must. So a
@@ -366,7 +378,8 @@ fall over:
 - **an overlap never deepens:** against a critter it already overlaps and
   may not push, a mover's step on each axis may not shrink the gap
   between the two centres on that axis (|Δ|), nor carry its centre past
-  the other's (Δ changing sign). That part of the step is dropped (for the
+  the other's (Δ changing sign). From Δ = 0 a step may go either way: that
+  grows |Δ|, and no sign changes. That part of the step is dropped (for the
   leashed dog, it is a bump), and moving apart or along is free. A cow
   overlapping a critter it may push (a lower cow, an awake dog) doesn't
   use this rule: its step goes ahead and the push rule above places the
@@ -378,14 +391,19 @@ fall over:
 **The nearest spot clear of everyone, deterministically.** It is the
 closest position, by straight-line distance, that overlaps no critter and
 stays in the world, chosen from a finite list of candidates:
-- **The ways out** of every known critter within reach (any whose square
-  comes within 100 px of the pushed critter's on both axes: the gap
-  between the squares, axis by axis, is at most 100 px), pressed
-  against each side of each: not only the square it is under, so a spot
-  just past a third square is found. A way out moves one coordinate and
-  keeps the pushed critter's other.
-- **The corners** where two such ways meet: the x of one, the y of the
-  other.
+- **The squares that make candidates,** exactly: every obstacle within
+  reach (its square comes within 100 px of the pushed critter's on both
+  axes: the gap between the squares, axis by axis, is at most 100 px).
+  The obstacles are the pushing cow's square at the end of its step, the
+  area the cow swept in that internal step (a rectangle), the new squares
+  of critters already placed in this push, and every other known critter
+  as it stands. The old squares of the critters being pushed, the pushed
+  critter's own included, make none: they are all leaving.
+- **The ways out:** the pushed critter pressed against each side of each
+  such square, so a spot just past a third square is found. A way out
+  moves one coordinate and keeps the pushed critter's other.
+- **The corners** where two ways out meet, from one square or two: the x
+  of one, the y of the other.
 - **Only spots whose square lies in the world and wholly in tiles the
   page holds** at that tick (by the `held` lines).
 
@@ -397,10 +415,15 @@ critter's reach: a spot pressed against a neighbour's far side can
 overlap a critter the reach never saw) and the world's edge, and the
 nearest valid one wins. A jump can therefore go as far as the pushed
 critter's side, plus the 100 px gap, plus the neighbour's side: about
-200 px for a dog pressed past a cow, 220 px for a cow. Ties are broken by rank of the
-neighbour that made the candidate (for a corner, the higher-ranked of
-its two, then the other's), then by side (east, south, west, north, with
-corners after sides). The search
+200 px for a dog pressed past a cow, 220 px for a cow. **Ties** are broken
+by the rank of the square that made the candidate (for a corner, the
+higher-ranked of its two, then the other's; the swept area ranks with its
+cow, just after the cow's own square), then by direction in a fixed
+order: east, south, west, north, then the corners NE, SE, SW, NW (a
+corner's direction is its x side, then its y side: x from an east side
+and y from a north side is NE). Two corners still tied (the same two
+squares, each giving the x once) go to the one whose x comes from the
+higher-ranked square. The search
 stays within that reach, so it is local and cheap; finding none is
 "nowhere to go".
 
@@ -411,16 +434,20 @@ That catches a bug in the rule itself, which a re-run of the same code
 would repeat faithfully.
 
 **The park on load.** If the kept positions break the invariant (today's
-park can), the server resolves it once, before the first tick. First the
+park can), the server resolves it **once, when it starts on a board that
+has never been resolved**: one read from `dogs.json` with no snapshot
+behind it. A board from a snapshot or the log was resolved already and
+is never resolved again; a page load resolves nothing (an overlap a live
+page holds is handled by the graceful rule above). First the
 leashed dog, if any, is moved into the world: each axis of its point
 clamped so its square lies in the world (`keptInWorld` keeps only the
 point in). Nothing outranks it, so it needs no spot. Then in rank order
 (cows, then dogs, by number), each critter that overlaps one above it, or
 whose square sticks out of the world, jumps to the nearest spot clear of
 everyone, everyone treated as awake and known and every tile as held. It
-logs what moved and keeps the result. If some
-critter has nowhere to go, the server does not start, and says which
-(fail, never warn). The page gets the resolved board on load.
+logs what moved, as the log's first entry, and keeps the result (the
+first snapshot). If some critter has nowhere to go, the server does not
+start, and says which (fail, never warn). Every page loads that board.
 
 **Cost.** Each check looks only at critters within about 100 px of the
 pushed critter or of a candidate, found through the tiles; a handful per critter per tick.
@@ -449,12 +476,18 @@ ticks late.
 
 Both, as Steve decided: a critter is awake if it stands in a **subscribed
 tile** *and* within **500 px of the leashed dog**, at the tick's start.
+Exactly: it is **known**, its point stands in a tile the page **holds**
+(subscribed, and its critters arrived: a `held` line), and it is within
+500 px. A known dog that walked into a tile subscribed but not yet held
+is asleep, an obstacle.
 
 **The subscribed tiles become an input to the physics, so they travel
 with the reports.**
-- **When it changes:** a page's subscriptions change only when the leashed
-  dog moves (and the view follows) or the screen is resized. Either way,
-  the change is part of the game's history.
+- **When it changes:** when the leashed dog moves (the square follows it),
+  at a `leash` (the square appears) and a `release` (it goes), when the
+  human pans while nothing is leashed, and when the screen is resized.
+  Whichever, the change is part of the game's history: a `view` line at
+  that tick.
 - **How it's sent:** inside the next report, at the tick it takes effect,
   with the viewport's size: a `view` line (below). There is no separate
   request.
@@ -464,7 +497,9 @@ with the reports.**
   the answer's last kept tick. The server tracks that per epoch, so a
   tile's critters can't be lost with an answer: a `differ`, or a lost
   answer and a resend, still delivers them. (They are current: a critter
-  in a tile the page doesn't hold is unknown, so nothing moves it.)
+  in a tile the page doesn't hold is unknown, so nothing moves it.) A tile
+  already named in a `held` this epoch is never sent again; the page
+  re-holds it from what it kept (the known set, above).
 - **What's logged:** the server applies the set from that tick in its
   re-run, and keeps it in the game's log with the ticks, so a restart's
   replay wakes the same critters.
@@ -478,8 +513,8 @@ with the reports.**
   define the known set (above). So page and server agree on what was an
   obstacle at every tick, whenever the acks arrived. The page never ticks
   with critters it hasn't seen. The server checks that a `held` line names
-  only tiles whose critters it has sent this epoch and that the latest
-  `view` subscribes; otherwise `differ` at that line.
+  only tiles whose critters it has sent this epoch and that the `view` in
+  effect at its tick subscribes; otherwise `differ` at that line.
 - **The page's promise:** it subscribes every tile within 700 px of the
   leashed dog on each axis (the 1400 px square of item 11): the 500 px
   reach, plus the most a tick's drag may move it (below), plus a 100 px
@@ -506,8 +541,10 @@ That only matters when there are two players.
 **Unleashing puts the park to sleep.** The leash comes off when the human
 grabs another dog, or **80 ticks (5 s)** after the drag last ended
 (the human let go, or a bump ended it) with no new drag. Grabbing the
-leashed dog again within the 80 ticks is a new drag (`grab`), and the
-timer stops. While those 80
+leashed dog again at any tick up to and including T + 80 (T the tick the
+drag ended) is a new drag (`grab`), and the timer stops: inputs come
+before a tick's checked lines, so a `grab` at T + 80 beats the
+`release`. While those 80
 ticks run, the page keeps ticking (a board can't `rest` during them), so
 the release lands on the same tick on both sides. Then every critter
 stops where it is, and the page stops ticking until the next leash.
@@ -516,14 +553,16 @@ stops where it is, and the page stops ticking until the next leash.
 
 One report per round trip, as moves are sent today: everything since the
 last tick the server kept. For now it says a lot. It names every critter
-that moved, where it was and where it went, **in the order the cascade
-moved them**, so the report is the calculation written out and the server
-checks it line by line.
+that moved, where it was and where it went, **in rank order** (the
+leashed dog, then cows by number, then dogs by number: a dog a cow pushed
+is listed among the dogs, its one net line), so the report is the
+calculation written out and the server checks it line by line.
 
 ```
 dogpark 1 physics 5e0c91a2 page 3
 from 1040 wall 1791936000000
 leash 1041 219
+view 1041 1280x800 5,7 6,7 7,7 8,7 5,8 6,8 7,8 8,8 5,9 6,9 7,9 8,9
 t 1041 +0 drag -1.00,0@3 -2.00,0@19
  dog 219 d80.00,1216.00 > d7d.00,1216.00
  dog 223 e16.00,1216.00 > e15.f0,1216.00
@@ -534,8 +573,16 @@ t 1043 +125
  dog 223 e15.e0,1216.00 > e15.d0,1216.00
 ```
 
-The numbers follow the rules. The tiles around dog 219 are already held,
-no cow and no dog of another breed is within reach, and dog 223, of
+The numbers follow the rules. Before the leash, nothing was leashed and
+the page held its viewport's tiles: 1280 × 800 at x 2816 to 4096 px and
+y 4200 to 5000 px, columns 5 to 8 and rows 8 and 9. The leash brings the
+1400 px square around dog 219 (at 3456, 4630 px: x 2756 to 4156, y 3930
+to 5000), columns 5 to 8 and rows 7 to 9, so the `view 1041` adds row 7.
+Its critters come with the ack, and the page writes `held T 5,7 6,7 7,7
+8,7` at the tick it starts using them; until then row 7 is unknown. It
+doesn't stall this drag: row 7's nearest edge is y = 4000 px, 630 px
+away, and the drag goes west, along it. No cow and no dog of another
+breed is within reach in the held tiles, and dog 223, of
 219's breed (223 mod 4 = 3, as 219), stands 150 px east of it. The drag
 moves 219 3 px west, so 223 is 153 px from its anchor: 53 px beyond the
 band's outer edge. Its one wish is (−13568, 0) in 256ths; scaled to the
@@ -553,8 +600,8 @@ cow's line looks the same: `cow 23 a > b`.
 | `bump T dog N`, `bump T cow N` | the drag ended at tick T because the leashed dog pressed into that critter: the 80 ticks start, the leash stays |
 | `release T D` | the leash came off dog D at tick T (the 80 ticks ran out, or another dog was grabbed): the park sleeps |
 | `held T c,r …` | from the start of tick T, the page holds these tiles' critters (they arrived with an ack): an input, so the server counts exactly the tiles the page did |
-| `view T WxH c,r …` | from the start of tick T (before that tick's awake set is worked out), the viewport's size and the subscribed tiles: the other half of who is awake, logged with the ticks |
-| `t T +ms` | tick T begins, `+ms` after `wall` (data only). `drag` and its displacements in 256ths, when the human dragged during it, each with `@ms` from the tick's start (data only); at most 16 a tick (the shared Zig adds up any more, item 2) |
+| `view T WxH c,r …` | from the start of tick T (before that tick's awake set is worked out), the viewport's size and the subscribed tiles: the other half of who is awake, logged with the ticks. Written at a `leash`, a `release`, a pan while unleashed, a resize, and whenever the leashed dog's square meets a different set of tiles |
+| `t T +ms` | tick T begins, `+ms` after `wall` (data only). `drag` and its displacements in 256ths, when the human dragged during it, each with `@ms` from the tick's start (data only); at most 16 a tick (the shared Zig adds up any more, item 2). A tick that bumps carries its whole recorded drag, merged and capped, the displacements after the bump included: the physics drops those, and the server finds the bump itself |
 | `dog N a > b`, `cow N a > b` | a critter whose position changed over tick T, from a to b, in cascade order: the leashed dog, then cows by number, then dogs by number. A line is the net move over the tick; a critter that ends the tick where it began is not listed, even if it moved within it |
 | `rest T` | no critter's position changed over tick T, the human did nothing, and no let-go timer is running: a fixed point, so the page stops ticking until the human acts again (`drag`, `grab`, `letgo`, `leash`), or a change of tiles while leashed. Tick numbers carry on across a rest |
 
@@ -575,7 +622,10 @@ about 2 KB a tick), so the page also counts **bytes**: it sends as soon
 as its unsent text reaches **48 KiB** (when none is in flight), and
 freezes the physics while unsent text is at 48 KiB or more, as at the
 32-tick window. One tick is far smaller than the 16 KiB of headroom, so a
-report never passes 64 KiB. The parse bounds the lines too: at most one
+report never passes 64 KiB. **A replay obeys the same budget:** after a
+`differ`, the page regenerates the ticks from T only until the unsent
+text reaches 48 KiB, stopping on a tick boundary, and holds the rest of
+its recorded inputs, frozen, until the ack. The parse bounds the lines too: at most one
 critter line per known critter a tick, 16 displacements a tick, 32 ticks.
 A `board` holds only the awake critters and the ones the report named,
 so it is bounded the same way.
@@ -588,17 +638,34 @@ kept 1060
 ```
 kept 1041
 differ 1042 dog 220 d41.35,1203.f5 > d41.2a,1203.eb
-board 1042 dog 219 d7d.00,1217.00 cow 23 d1c.33,1210.1a dog 8 e73.f0,1194.80 dog 220 d41.35,1203.f5 …
-leashed 219 drag on since 1041 view 1280x800 5,7 … held 5,7 …
+board 1042 dog 219 d7d.00,1216.00 cow 23 d1c.33,1210.1a dog 8 e73.f0,1194.80 dog 220 d41.35,1203.f5 …
+state leash 219 drag ended 1041 view 1041 1280x800 5,7 … held 1041 5,7 …
 ```
+
+(Its numbers are a different moment from the example report's; the
+form is the point.)
+
+| answer line | says |
+|---|---|
+| `kept T` | every line of the report is kept: its ticks through T, and any inputs it carried for tick T + 1 after its last `t` line (they wait for that tick) |
+| `differ T <line>` | the server's run has this line at tick T, and the report lacks it or writes it differently |
+| `differ T none <line>` | the report has this line at tick T, and the server's run doesn't |
+| `differ T from F` | the report's `from` is F, not the last kept tick T − 1 (a stale or repeated report) |
+| `board T dog N a cow M b …` | the server's critters at the start of tick T, each with its position, in rank order |
+| `state leash D\|none drag on\|ended E\|none view T' WxH c,r … held T' c,r …` | who is leashed; whether a drag is on, or the tick E it ended (the release is due at E + 80), or none (unleashed); the `view` and `held` in effect at T, each with its own tick |
+| `input <line>` | an input the server already kept for tick T, written as in a report (after a stale `from`) |
+| `tile c,r dog N a cow M b …` | a subscribed tile's critters, not yet sent this epoch, as they stand at the answer's last kept tick |
+| `reload physics H`, `reload epoch`, `reload differs` | the page's physics isn't the server's (H is the server's); the page's epoch is not one this server run issued; three `differ`s in a row |
+| `taken over` | a newer page load holds the park |
 ```
 reload physics 7c2d04b9
 ```
 
 - **`kept T`:** checked, and written to the game's log and synced to disk
-  before the answer goes: safe. Every answer, this one and `differ`, also
-  carries the critters of the subscribed tiles the page hasn't named in a
-  `held` yet (above).
+  before the answer goes: safe. It covers the whole report, the trailing
+  inputs for T + 1 included, so the page never sends those again. Every
+  answer, this one and `differ`, also carries the critters of the
+  subscribed tiles the page hasn't named in a `held` yet (above).
 - **`differ T`:** the first line the server's re-run disagreed with, with
   the server's own version of it: `differ T <the server's line>` when its
   run has a line the report lacks or writes differently (critter, `bump`,
@@ -622,32 +689,51 @@ drag or timer, the view, the held tiles), and moves it forward on each
 from that board through T − 1 (ticks the server kept, so the two agree),
 lays the server's board over the result (a critter in it takes the
 server's position; the rest stand), and replays its own inputs from T.
-- **`reload`:** the page's physics is not the server's, or three `differ`s
-  came in a row (a circuit breaker: something is wrong that rewinding
-  won't fix). Reload and resume from the last kept tick.
+**What a rewind can heal.** Page and server run the same compiled code,
+so replaying the same inputs reproduces the same lines. A rewind heals
+only what went wrong on the page's side: a page bug outside the shared
+Zig, state that drifted, a stale or tampered page. A real disagreement
+in the shared code comes back each time, and the breaker below reloads
+within three round trips. Nobody should expect a rewind to fix the rule.
+- **`reload`:** the page's physics is not the server's (`reload physics`);
+  the page's epoch isn't one this run of the server issued (`reload
+  epoch`: **a server start issues a new epoch,** so every open page
+  reloads, and nothing about tiles sent or held needs to survive a
+  restart); or three `differ`s came in a row on one epoch, counted by the
+  server (`reload differs`, a circuit breaker: something is wrong that
+  rewinding won't fix). A stale-`from` answer never counts toward the
+  three. Reload and resume from the last kept tick.
 - **`taken over`:** a newer page load (another tab, a reload) holds the
   park now; this page stops. The server answers only the newest epoch.
   A report whose `from` isn't the last kept tick (a duplicate, or one
   sent before a reload) gets `kept K`, then `differ K+1 from F` (F the
-  report's `from`, K the last kept tick), then the board at the start of
-  K + 1. The page rewinds to it as above.
+  report's `from`, K the last kept tick), then the board and state at the
+  start of K + 1, then an `input` line for each input already kept for
+  K + 1 (the page drops its own copies of those). The page rewinds to it
+  as above.
 - **No answer:** if none comes within 5 s of wall time, the page sends the
-  same report again. If the server had kept it, the resend gets the
+  same report again and abandons the first request: the resend is now
+  the one in flight. If the server had kept it, the resend gets the
   stale-`from` answer, which carries the board and any unheld tiles'
-  critters, so nothing is lost either way.
+  critters, so nothing is lost either way. **The page ignores any answer
+  whose `kept` is at or below its own last kept tick** (a late answer to
+  an abandoned request, or a stale-`from` answer to a resend that crossed
+  the ack), so a slow link costs a resend, never a rewind.
 
 **Every field is bounded as it is parsed,** before any arithmetic: ticks
 after `from` and within the 32-tick window, positions in the world,
 displacements at most 100 px on each axis and at most 16 a tick, the
 tick's displacements within the cap (item 3: the absolute x parts add up
 to at most 100 px, and the y parts), tiles in the world, critters that
-exist, at most one line per known critter a tick, hex that fits, and the
+exist, a `leash` naming a known dog (one the page holds; a dog it only
+drew from an answer must be held first), at most one line per known
+critter a tick, hex that fits, and the
 canonical form (above). A report that breaks a bound gets `differ` at
 the offending line (for the cap, the `t` line), with the board: a trap on
 the server would be a crash, not a refutation.
 
-**Loading the page** carries the viewport's size. The answer is the
-board, the last kept tick K, a new epoch, the view (the viewport's tiles
+**Loading the page** carries the viewport's size. It resolves nothing
+(above). The answer is the board, the last kept tick K, a new epoch, the view (the viewport's tiles
 and the 1400 px square around the leashed dog) and those tiles' critters,
 all in one. The server logs a `view K+1 …` and a `held K+1 …` for the new
 epoch, which replace the old page's tiles and reset the known set to
@@ -680,7 +766,8 @@ ended; the current `view` and the held tiles; the known set (critter
 numbers, since a critter that walked out of a held tile is known without
 being in one); and the physics hash. A restart loads the last snapshot
 and replays the log after it, which is exactly the re-run the server does
-for every report anyway. If the log grows too big to keep, it is the
+for every report anyway; then it issues a new epoch, so the tiles each
+page was sent need not be saved. If the log grows too big to keep, it is the
 first thing to trim: the snapshots alone are enough to resume.
 
 ## For the first implementation (the page)
@@ -733,7 +820,8 @@ play says otherwise:
    are hex like positions, with a sign: `+1.00`, `-2.80`, and `0` for none.
 8. **Tick numbers after a sleep:** a `leash` takes the last tick + 1.
 9. **The timer:** a drag ending at tick T releases at tick T + 80, and the
-   dogs still take their step in that tick.
+   dogs still take their step in that tick. A `grab` at any tick up to and
+   including T + 80 stops it.
 10. **When a report goes:** whenever none is in flight and there is
     something unsent (ticks, a `view` or a `held`), but no sooner than
     250 ms of wall time after the last one went (wall time, so a page that
@@ -741,8 +829,8 @@ play says otherwise:
     48 KiB. One in flight, never more. **At the 32-tick window, or at
     48 KiB unsent,** the page freezes the physics (it keeps drawing) until
     the ack; the pointer's movement meanwhile adds up and is played,
-    capped, at the next tick. A `release` ends the ticking: no `rest` after
-    it.
+    capped, at the next tick. A replay after `differ` stops at 48 KiB the
+    same way. A `release` ends the ticking: no `rest` after it.
 11. **Which tiles are subscribed:** the viewport's, plus every tile
     meeting the 1400 px square centred on the leashed dog. The square
     meets at most 4 × 4 = 16 tiles; a W × H viewport at most
@@ -806,6 +894,12 @@ play says otherwise:
   so dragging into a mixed crowd bumps and ends the drag often.
 - **A cow can push a dog into the player's path:** it lands clear of the
   cow's sweep but maybe in the lane ahead, and the next step bumps it.
+- **More stops near the edge of the held tiles.** A jump may not leave
+  them, so near that edge more cows stop short and more drags bump.
+- **After a bump, the mouse is still down** but the drag is over: the
+  human must lift and press again to carry on.
+- **Cows move only during drags.** A cow beside a leashed dog held still
+  never yields, and the dogs keep their 90 px from it.
 
 ## Decisions (Steve, 2026-10-13)
 
