@@ -858,6 +858,11 @@ pub const Scene = struct {
     /// The last walk's dogs, by number, in visit order (`Lines.walk`).
     walk: [walk_most]u16 = undefined,
     walk_len: usize = 0,
+    /// The walk so far, by seen index: the leashed dog, then each dog as
+    /// it is visited. A dog follows the nearest of its breed here
+    /// (`walkAnchor`).
+    walk_seen: [walk_most + 1]u16 = undefined,
+    walk_seen_len: usize = 0,
     /// The wishes' grid (`wish_cell`): each bucket's first awake critter,
     /// each one's next and previous in its bucket, and its bucket.
     wg_head: [wish_classes * wish_grid * wish_grid]u16 = @splat(wish_none),
@@ -908,6 +913,7 @@ pub const Scene = struct {
         s.drift = 0;
         s.jumped = .initEmpty();
         s.walk_len = 0;
+        s.walk_seen_len = 0;
         s.pair_checks = 0;
         s.wg_head = @splat(wish_none);
         s.rooms = .none;
@@ -1486,6 +1492,8 @@ fn wishes(sc: *Scene, most: i32) void {
     }
     const root = leashed orelse return;
     sc.walk_len = 0;
+    sc.walk_seen[0] = @intCast(root);
+    sc.walk_seen_len = 1;
     var waiting: Waiting = .{};
     var visited: std.StaticBitSet(critter_count) = .initEmpty();
     visited.set(root);
@@ -1494,6 +1502,8 @@ fn wishes(sc: *Scene, most: i32) void {
     while (walked < walk_most) : (walked += 1) {
         const i: usize = waiting.pop() orelse break;
         visited.set(i);
+        sc.walk_seen[sc.walk_seen_len] = @intCast(i);
+        sc.walk_seen_len += 1;
         sc.walk[sc.walk_len] = sc.seen[i].who.n;
         sc.walk_len += 1;
         stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
@@ -1867,8 +1877,24 @@ pub fn wishTotalGridded(sc: *const Scene, i: usize) Point {
         // Every awake cow is above it, within `cow_room`.
         addRoom(sc, &total, i, p, breeds, cow_room);
     }
-    if (anchorOf(sc, i, p, breed)) |a| addAnchor(&total, p, sc.pos(a.j), a.d2);
+    if (walkAnchor(sc, i, p, breed)) |a| addAnchor(&total, p, sc.pos(a.j), a.d2);
     return total;
+}
+
+/// **THE ANCHOR, FROM THE WALK** (Steve, 2026-10-14): the nearest dog of
+/// `breed` the walk has visited before dog `i` (at `p`) this step, the
+/// leashed dog counting as first; on a tie, the lower index. No reach but
+/// the awake area's; no rank. Outside a walk there is none.
+fn walkAnchor(sc: *const Scene, i: usize, p: Point, breed: u16) ?Anchor {
+    var best: ?Anchor = null;
+    for (sc.walk_seen[0..sc.walk_seen_len]) |j16| {
+        const j: usize = j16;
+        if (j == i or sc.seen[j].who.n % breeds != breed) continue;
+        const d2 = measure(delta(sc.pos(j), p));
+        if (best) |b| if (d2 > b.d2 or (d2 == b.d2 and j > b.j)) continue;
+        best = .{ .j = j, .d2 = d2 };
+    }
+    return best;
 }
 
 /// Adds, for each awake critter of class `class` above dog `i` (at `p`)
@@ -2030,8 +2056,6 @@ pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
     const p = sc.pos(i);
     const breed = me.who.n % breeds;
     var total: Point = .{ .x = 0, .y = 0 };
-    var anchor: ?usize = null;
-    var anchor_d2: i64 = 0;
     for (sc.awakeOnes()) |j16| {
         const j: usize = j16;
         const o = sc.seen[j];
@@ -2045,20 +2069,14 @@ pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
                 add(&total, awayRooted(v, l, cow_room - @as(i32, @intCast(l))));
             },
             .dog => {
-                const above = o.rank < me.rank;
-                if (o.who.n % breeds != breed) {
-                    if (d2 <= measureOf(wary)) {
-                        const l = lengthOf(d2);
-                        add(&total, awayRooted(v, l, wary - @as(i32, @intCast(l))));
-                    }
-                } else if (above and d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
-                    anchor = j;
-                    anchor_d2 = d2;
+                if (o.who.n % breeds != breed and d2 <= measureOf(wary)) {
+                    const l = lengthOf(d2);
+                    add(&total, awayRooted(v, l, wary - @as(i32, @intCast(l))));
                 }
             },
         }
     }
-    if (anchor) |j| addAnchor(&total, p, sc.pos(j), anchor_d2);
+    if (walkAnchor(sc, i, p, breed)) |a| addAnchor(&total, p, sc.pos(a.j), a.d2);
     return total;
 }
 
