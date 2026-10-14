@@ -675,21 +675,53 @@ fn outFromUnder(sc: *Scene, i: usize) void {
 /// `most`: once a tick at the speed, and once per pixel-tick of the drag at
 /// the leashed dog's own step.
 fn wishes(sc: *Scene, most: i32) void {
-    // Everyone at once: out from under, then every wish from the same
-    // positions, then the steps, each pass in rank order.
+    // Out from under, in rank order; then the walk out from the leashed
+    // dog (physics.zig's `wishes`), written plainly: each visited dog's
+    // newly lined-up dogs sorted by distance from its new place, then rank.
+    var root: ?usize = null;
     for (sc.awakeOnes()) |w16| {
         const s = sc.seen[w16];
-        if (s.who.kind == .dog and s.rank != 0) outFromUnder(sc, w16);
+        if (s.who.kind != .dog) continue;
+        if (s.rank == 0) root = w16 else outFromUnder(sc, w16);
     }
-    var steps: [critter_count]Point = undefined;
-    for (sc.awakeOnes()) |w16| {
-        const s = sc.seen[w16];
-        if (s.who.kind == .dog and s.rank != 0) steps[w16] = stepAtMost(wishTotal(sc, w16), most);
+    const r = root orelse return;
+    var lined = [_]bool{false} ** critter_count;
+    var queue: std.ArrayList(usize) = .empty;
+    var buf: [critter_count]usize = undefined;
+    queue = .initBuffer(&buf);
+    lined[r] = true;
+    lineUp(sc, r, &queue, &lined);
+    var head: usize = 0;
+    var walked: usize = 0;
+    while (head < queue.items.len and walked < physics.walk_most) : (head += 1) {
+        const i = queue.items[head];
+        stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
+        walked += 1;
+        lineUp(sc, i, &queue, &lined);
     }
-    for (sc.awakeOnes()) |w16| {
-        const s = sc.seen[w16];
-        if (s.who.kind == .dog and s.rank != 0) stepSwept(sc, w16, steps[w16]);
+}
+
+fn lineUp(sc: *const Scene, from: usize, queue: *std.ArrayList(usize), lined: []bool) void {
+    const p = sc.pos(from);
+    const start = queue.items.len;
+    for (sc.awakeOnes()) |j16| {
+        const j: usize = j16;
+        const s = sc.seen[j];
+        if (s.who.kind != .dog or s.rank == 0 or lined[j]) continue;
+        if (measure(delta(sc.pos(j), p)) > measureOf(physics.walk_reach)) continue;
+        lined[j] = true;
+        queue.appendAssumeCapacity(j);
     }
+    const Ctx = struct {
+        sc: *const Scene,
+        p: Point,
+        fn less(c: @This(), a: usize, b: usize) bool {
+            const da = measure(delta(c.sc.pos(a), c.p));
+            const db = measure(delta(c.sc.pos(b), c.p));
+            return da < db or (da == db and a < b);
+        }
+    };
+    std.sort.pdq(usize, queue.items[start..], Ctx{ .sc = sc, .p = p }, Ctx.less);
 }
 
 /// Which axis a straight step meets a square on: the face it presses into,

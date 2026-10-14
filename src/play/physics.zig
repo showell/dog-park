@@ -1424,31 +1424,79 @@ noinline fn jumpOut(sc: *Scene, i: usize) void {
     if (jump.nearestSpot(sc.frame(sc.pos(i)), sc.seen[i].half, obs.slice(), sc.region)) |spot| sc.jumpTo(i, spot);
 }
 
-/// **THE DOGS' WISHES**, every awake dog by number, each step at most
-/// `most`: once a tick at the speed, and once per pixel-tick of the drag at
-/// the leashed dog's own step.
+/// **THE WALK'S SIZE**: the most dogs a wish step moves, the leashed dog
+/// aside (Steve, 2026-10-14: N = 30).
+pub const walk_most = 30;
+/// **THE WALK'S REACH**: a visited dog lines up the awake dogs within this
+/// of its new place. The dogs' own reach on one another, `wary`.
+pub const walk_reach: i32 = wary;
+
+/// **THE DOGS' WISHES**, each step at most `most`: once a tick at the
+/// speed, and once per pixel-tick of the drag at the leashed dog's own
+/// step.
 ///
-/// **EVERYONE AT ONCE**: every awake dog out from under first, in rank
-/// order; then every wish, from the same positions; then the steps, swept
-/// in rank order.
+/// **A WALK OUT FROM THE LEASHED DOG** (Steve, 2026-10-14; decision 20):
+/// every awake dog comes out from under first, in rank order; then the
+/// dogs move one at a time, breadth first from the leashed dog. A dog
+/// visited lines up the awake dogs within `walk_reach` of where it now
+/// stands, not yet lined up, nearest first (ties to the lower rank), behind
+/// those already waiting. Each, in its turn, wishes as the rules say,
+/// seeing the dogs visited before it where they moved to, and steps at
+/// once. The walk stops after `walk_most` dogs; a dog it doesn't reach
+/// stays put this step.
 fn wishes(sc: *Scene, most: i32) void {
     sc.refresh(most);
+    var leashed: ?usize = null;
     for (sc.awakeOnes()) |w16| {
         const s = sc.seen[w16];
-        if (s.who.kind != .dog or s.rank == 0) continue;
+        if (s.who.kind != .dog) continue;
+        if (s.rank == 0) {
+            leashed = w16;
+            continue;
+        }
         outFromUnder(sc, w16);
     }
-    var steps: [critter_count]Point = undefined;
-    for (sc.awakeOnes()) |w16| {
-        const s = sc.seen[w16];
-        if (s.who.kind != .dog or s.rank == 0) continue;
-        steps[w16] = stepAtMost(wishTotal(sc, w16), most);
+    const root = leashed orelse return;
+    var queue: [critter_count]u16 = undefined;
+    var lined: std.StaticBitSet(critter_count) = .initEmpty();
+    lined.set(root);
+    var head: usize = 0;
+    var tail: usize = lineUp(sc, root, &queue, 0, &lined);
+    var walked: usize = 0;
+    while (head < tail and walked < walk_most) : (head += 1) {
+        const i: usize = queue[head];
+        stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
+        walked += 1;
+        tail = lineUp(sc, i, &queue, tail, &lined);
     }
-    for (sc.awakeOnes()) |w16| {
-        const s = sc.seen[w16];
-        if (s.who.kind != .dog or s.rank == 0) continue;
-        stepSwept(sc, w16, steps[w16]);
+}
+
+/// The awake unleashed dogs within `walk_reach` of dog `from`'s place, not
+/// yet `lined`, appended to `queue` at `tail` nearest first (ties to the
+/// lower rank) and marked; the new tail.
+fn lineUp(sc: *const Scene, from: usize, queue: []u16, tail: usize, lined: *std.StaticBitSet(critter_count)) usize {
+    const p = sc.pos(from);
+    var end = tail;
+    for (sc.awakeOnes()) |j16| {
+        const j: usize = j16;
+        const s = sc.seen[j];
+        if (s.who.kind != .dog or s.rank == 0 or lined.isSet(j)) continue;
+        const d = measure(delta(sc.pos(j), p));
+        if (d > measureOf(walk_reach)) continue;
+        lined.set(j);
+        // Insertion, nearest first, ties to the lower rank (`seen` is in
+        // rank order, so the lower index).
+        var k = end;
+        while (k > tail) : (k -= 1) {
+            const o: usize = queue[k - 1];
+            const od = measure(delta(sc.pos(o), p));
+            if (od < d or (od == d and o < j)) break;
+            queue[k] = queue[k - 1];
+        }
+        queue[k] = j16;
+        end += 1;
     }
+    return end;
 }
 
 /// Which axis a straight step meets a square on: the face it presses into,

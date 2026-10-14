@@ -756,12 +756,18 @@ test "a dog's own step stops where it would press into anyone, awake or asleep, 
     const b0 = 16000;
     var b = leashedAt(px(b0, b0));
     b.place(.dog(4), px(b0 + 150, b0));
-    // Dog 8 (its breed, below it) touching dog 4's west side: dog 4 can't
-    // step toward its anchor. Not another breed's: under `together` dog 4
-    // would be wary of it and step away east (205(c)).
-    b.place(.dog(8), px(b0 + 110, b0));
+    // A cow touching dog 4's west side, between it and its anchor. The cow
+    // doesn't move (there is no drag); a dog there would step out of the
+    // way first, the walk reaching it first. Dog 4's wish, toward the
+    // anchor against its room from the cow, may point either way with the
+    // tuning: west it is stopped where it stands, east it steps away.
+    const cow_x = b0 + 150 - 20 - 30;
+    b.place(.cow(0), px(cow_x, b0));
     _ = ticked(&b, 1, &.{}, &.{});
-    try testing.expectEqual(px(b0 + 150, b0), b.dogs[4]);
+    try testing.expect(b.dogs[4].x >= px(b0 + 150, b0).x);
+    try testing.expectEqual(px(b0, b0).y, b.dogs[4].y);
+    var found: [4][2]physics.Critter = undefined;
+    try testing.expectEqual(@as(usize, 0), physics.overlaps(&b, &found));
 }
 
 test "the speed: with no drag, a dog far past its band closes `speed` 256ths every tick" {

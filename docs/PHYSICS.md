@@ -61,12 +61,13 @@ Steve's rules, which everything here follows:
   clock: drags are displacements, and critters react to them at once,
   whatever their speed. Wall time paces the page and is recorded, never
   computed with.
-- **Every dog thinks at once:** at each step, every awake dog's wish
-  comes from the same positions, and only then do they move. A dog heeds
-  every stranger near it, above or below; it follows only a more-alpha
-  dog of its breed (its anchor), so a herd hangs off its most-alpha
-  member and the board has a direction. How well it settles is for play
-  to show, not for a proof.
+- **The dogs move in a walk out from the leashed dog:** at each step,
+  breadth first from the leashed dog, nearest first, at most 30 dogs,
+  each reacting to where the dogs before it now stand. A dog heeds every
+  stranger near it, above or below; it follows only a more-alpha dog of
+  its breed (its anchor), so a herd hangs off its most-alpha member and
+  the board has a direction. How well it settles is for play to show,
+  not for a proof.
 - **A dog wants three things, each with a comfortable band:**
   - to keep its distance from dogs of other breeds;
   - to keep near, but not on top of, the nearest more-alpha dog of its
@@ -151,13 +152,19 @@ Within a tick, in this order:
 2. **Then, once per tick, every awake dog** takes its own step at the
    speed (7.5 px a second).
 
-**Everyone at once** (Steve, 2026-10-14), in each wish step, the
+**The walk** (Steve, 2026-10-14, decision 20), in each wish step, the
 pixel-tick's and the tick's own: every awake dog comes out from under a
-cow first, by number; then every dog's wish is worked out from the same
-positions (the cows' and the leashed dog's new places included); then
-the steps are swept, by number, smallest first. So a dog reacts to the
-dog beside it, not to its rank; rank decides only who follows whom and
-who yields when two steps meet.
+cow first, by number. Then the dogs move one at a time, breadth first
+out from the leashed dog. A dog visited lines up the awake dogs within
+`walk_reach` (225 px, the `wary` distance) of where it now stands that
+are not yet lined up, nearest first (ties to the lower number), behind
+those already waiting. Each in its turn works out its wish by the rules
+below, seeing the dogs visited before it where they moved to (and the
+cows' and the leashed dog's new places), and steps at once. The walk
+stops after `walk_most` (30) dogs; a dog it doesn't reach stays put this
+step. So a pull ripples out from the leashed dog through whoever is near,
+and a dog reacts to the dog beside it, not to its rank: rank decides only
+who follows whom.
 
 So the cows and the dogs both react to every pixel of a drag, and the
 dogs creep on at the speed once a tick, drag or not. A critter's report
@@ -1456,3 +1463,12 @@ and the request numbering.
     longer stalls on bumps (one script went from 122 bumps and 472 of
     1,200 px to none), and herds grow longer. The straight line and rank
     order were build switches while they were compared, and are gone.
+20. **The walk** (Steve, 2026-10-14): the dogs no longer all move from
+    one snapshot. At each step they move one at a time in a breadth-first
+    walk out from the leashed dog: a visited dog lines up the dogs within
+    `walk_reach` of its new place, nearest first, and each dog reacts to
+    those visited before it where they now stand. At most `walk_most`
+    (30) dogs move a step; a dog the walk doesn't reach stays put. The
+    cows are as before. Two tests moved with it: the minimal scene's dog
+    is 200 px off (within the walk's reach), and the blocked-step test
+    blocks with a cow, since a dog in the way now steps aside first.

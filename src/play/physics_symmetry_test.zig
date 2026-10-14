@@ -277,8 +277,8 @@ test "a pack: exact under every symmetry" {
     try expectShifted(b, 0, &script);
 }
 
-// **THE MINIMAL SCENE**: the leashed dog still, dog 4 (its breed) 400 px
-// off on the diagonal, closing on it at the speed, its step (−120, −120)
+// **THE MINIMAL SCENE**: the leashed dog still, dog 4 (its breed) 200 px
+// off on the diagonal (within the walk's reach), closing on it at the speed, its step (−120, −120)
 // in 256ths (the speed on both axes: distance is the larger axis); a cow
 // just off its path, 40 and 20 256ths beyond touching. As one move
 // (decision 18), the step overlaps the cow on y at 20/120 of the way and
@@ -289,7 +289,7 @@ test "the minimal scene: a dog's diagonal step meets a cow's face, not its corne
     if (physics.knobs != .played) return error.SkipZigTest;
     const hs = physics.dog_half + physics.cow_half;
     var b = leashedBoard();
-    const dog: Point = px(16400, 16400);
+    const dog: Point = px(16200, 16200);
     b.place(.dog(4), dog);
     b.place(.cow(0), .{ .x = dog.x - hs - 40, .y = dog.y - hs - 20 });
     const one = [1]TickIn{.{}};
