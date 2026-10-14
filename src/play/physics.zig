@@ -1444,10 +1444,12 @@ fn stepSwept(sc: *Scene, i: usize, want: Point) void {
     if (s.x == 0 and s.y == 0) return;
     var first: ?Contact = null;
     if (near_list) |list| {
-        for (list) |j| first = earliest(first, stepMeets(sc, i, j, s, may_overlap));
+        for (list) |j| if (stepMeets(sc, i, j, s, may_overlap)) |c| {
+            first = earliest(first, c);
+        };
     } else {
         for (0..sc.len) |j| if (j != i) {
-            first = earliest(first, stepMeets(sc, i, j, s, may_overlap));
+            if (stepMeets(sc, i, j, s, may_overlap)) |c| first = earliest(first, c);
         };
     }
     const c = first orelse return sc.put(i, .{ .x = p.x + s.x, .y = p.y + s.y });
@@ -1484,10 +1486,10 @@ inline fn stepMeets(sc: *Scene, i: usize, j: usize, s: Point, may_overlap: bool)
     return stepContact(p, sc.seen[i].half, s, q, sc.seen[j].half);
 }
 
-/// The earlier of two contacts; at the same moment, their faces together.
-fn earliest(a: ?Contact, b: ?Contact) ?Contact {
-    const x = a orelse return b;
-    const y = b orelse return a;
+/// The earlier of the earliest so far (if any) and `y`; at the same moment,
+/// their faces together.
+fn earliest(a: ?Contact, y: Contact) Contact {
+    const x = a orelse return y;
     if (Contact.before(y, x)) return y;
     if (Contact.before(x, y)) return x;
     return .{ .num = x.num, .den = x.den, .face = x.face.with(y.face) };
