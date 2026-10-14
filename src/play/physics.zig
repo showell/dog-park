@@ -689,6 +689,37 @@ fn gridCell(p: Point, dx: i32, dy: i32) u16 {
     return @intCast(cy * grid_side + cx);
 }
 
+/// Each seen critter in an `nb_cell` square, the cells folded onto a
+/// `grid_side` square, each cell's in rank order: a critter within
+/// `nb_reach` of another on both axes is in its cell's 3 × 3.
+const Cells = struct {
+    from: [grid_side * grid_side + 1]u16,
+    by_cell: [critter_count]u16,
+
+    fn of(s: *const Scene) Cells {
+        var c: Cells = undefined;
+        var cell_len: [grid_side * grid_side]u16 = @splat(0);
+        var cell_of: [critter_count]u16 = undefined;
+        for (0..s.len) |i| {
+            const k = gridCell(s.pos(i), 0, 0);
+            cell_of[i] = k;
+            cell_len[k] += 1;
+        }
+        c.from[0] = 0;
+        for (cell_len, 0..) |l, k| c.from[k + 1] = c.from[k] + l;
+        var fill: [grid_side * grid_side]u16 = c.from[0 .. grid_side * grid_side].*;
+        for (0..s.len) |i| {
+            c.by_cell[fill[cell_of[i]]] = @intCast(i);
+            fill[cell_of[i]] += 1;
+        }
+        return c;
+    }
+
+    fn in(c: *const Cells, k: u16) []const u16 {
+        return c.by_cell[c.from[k]..c.from[k + 1]];
+    }
+};
+
 /// **THE WISHES' GRID**: every awake critter in a `wish_cell` square, by
 /// class (a dog's breed, or a cow), the cells folded onto a square
 /// `wish_grid` a side; kept current by `Scene.put`. A wish's sum reads only
@@ -935,24 +966,7 @@ pub const Scene = struct {
         const reach = nb_reach;
         var n: usize = 0;
         for (0..s.len) |i| s.overlap[i] = .clear;
-        // Each critter in an `nb_cell` square, the cells folded onto a
-        // `grid_side` square; a critter's neighbours are in its cell's 3 × 3.
-        var cell_len: [grid_side * grid_side]u16 = @splat(0);
-        var cell_of: [critter_count]u16 = undefined;
-        for (0..s.len) |i| {
-            const c = gridCell(s.pos(i), 0, 0);
-            cell_of[i] = c;
-            cell_len[c] += 1;
-        }
-        var cell_from: [grid_side * grid_side + 1]u16 = undefined;
-        cell_from[0] = 0;
-        for (cell_len, 0..) |l, c| cell_from[c + 1] = cell_from[c] + l;
-        var fill: [grid_side * grid_side]u16 = cell_from[0 .. grid_side * grid_side].*;
-        var by_cell: [critter_count]u16 = undefined;
-        for (0..s.len) |i| {
-            by_cell[fill[cell_of[i]]] = @intCast(i);
-            fill[cell_of[i]] += 1;
-        }
+        const cells: Cells = .of(s);
         var cand: [critter_count]u16 = undefined;
         for (0..s.len) |i| {
             s.nb_from[i] = @intCast(n);
@@ -962,8 +976,7 @@ pub const Scene = struct {
             while (dy <= 1) : (dy += 1) {
                 var dx: i32 = -1;
                 while (dx <= 1) : (dx += 1) {
-                    const c = gridCell(p, dx, dy);
-                    for (by_cell[cell_from[c]..cell_from[c + 1]]) |j| {
+                    for (cells.in(gridCell(p, dx, dy))) |j| {
                         if (j == i) continue;
                         s.pair_checks += 1;
                         const d = delta(p, s.pos(j));
@@ -1746,15 +1759,36 @@ fn wishAlongRooted(v: Point, l: i64, length: i32) Point {
 /// Every overlapping pair among the critters the physics sees: the
 /// invariant the server checks after every tick (a finding, not a
 /// refutation).
+///
+/// Each critter is checked against those after it in its cell's 3 × 3 of
+/// the neighbours' grid (`Cells`: two squares that overlap are less than
+/// 2 × `half_most` < `nb_cell` apart on both axes), and each one's finds
+/// sorted, so `found` is in the order of every pair in turn: by the first
+/// critter, then the second.
 pub fn overlaps(b: *Board, found: []([2]Critter)) usize {
     const sc = Scene.of(b) orelse return 0;
+    const cells: Cells = .of(&sc);
     var n: usize = 0;
+    var hit: [critter_count]u16 = undefined;
     for (sc.list(), 0..) |a, i| {
-        for (sc.list()[i + 1 ..], i + 1..) |c, j| {
-            if (squaresOverlap(sc.pos(i), a.half, sc.pos(j), c.half)) {
-                if (n < found.len) found[n] = .{ a.who, c.who };
-                n += 1;
+        const p = sc.pos(i);
+        var hits: usize = 0;
+        var dy: i32 = -1;
+        while (dy <= 1) : (dy += 1) {
+            var dx: i32 = -1;
+            while (dx <= 1) : (dx += 1) {
+                for (cells.in(gridCell(p, dx, dy))) |j| {
+                    if (j <= i) continue;
+                    if (!squaresOverlap(p, a.half, sc.pos(j), sc.seen[j].half)) continue;
+                    hit[hits] = j;
+                    hits += 1;
+                }
             }
+        }
+        std.sort.insertion(u16, hit[0..hits], {}, std.sort.asc(u16));
+        for (hit[0..hits]) |j| {
+            if (n < found.len) found[n] = .{ a.who, sc.seen[j].who };
+            n += 1;
         }
     }
     return n;

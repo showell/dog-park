@@ -1138,6 +1138,49 @@ test "divTruncPos is @divTrunc, either side of 2^32 and over a seeded fuzz of th
     }
 }
 
+test "overlaps from the grid finds every overlapping pair the all-pairs scan finds, in its order: crowds that overlap, across the seam too (202)" {
+    const scan = struct {
+        fn f(b: *Board, found: [][2]physics.Critter) usize {
+            const sc = physics.Scene.of(b) orelse return 0;
+            var n: usize = 0;
+            for (sc.list(), 0..) |a, i| {
+                for (sc.list()[i + 1 ..], i + 1..) |c, j| {
+                    if (physics.squaresOverlap(sc.pos(i), a.half, sc.pos(j), c.half)) {
+                        if (n < found.len) found[n] = .{ a.who, c.who };
+                        n += 1;
+                    }
+                }
+            }
+            return n;
+        }
+    }.f;
+    var prng: std.Random.DefaultPrng = .init(2028);
+    const r = prng.random();
+    for (0..fuzzed(200)) |round| {
+        var b = Board.empty();
+        // Near the seam's corner every other round, else mid-world.
+        const c0: i32 = if (round % 2 == 0) 0 else @divExact(physics.world, 2);
+        const spread = physics.px(r.intRangeAtMost(i32, 60, 400));
+        const dogs = r.intRangeAtMost(u16, 1, 150);
+        const cows = r.intRangeAtMost(u16, 0, 40);
+        for (0..dogs) |n| b.place(.dog(@intCast(n)), physics.wrapped(.{ .x = c0 + r.intRangeAtMost(i32, -spread, spread), .y = c0 + r.intRangeAtMost(i32, -spread, spread) }));
+        for (0..cows) |k| b.place(.cow(@intCast(k)), physics.wrapped(.{ .x = c0 + r.intRangeAtMost(i32, -spread, spread), .y = c0 + r.intRangeAtMost(i32, -spread, spread) }));
+        b.hold = .{ .leashed = .{ .dog = r.intRangeLessThan(u16, 0, dogs), .drag = .on } };
+        var want: [4096][2]physics.Critter = undefined;
+        var got: [4096][2]physics.Critter = undefined;
+        const n = scan(&b, &want);
+        try testing.expectEqual(n, physics.overlaps(&b, &got));
+        for (want[0..@min(n, want.len)], got[0..@min(n, got.len)]) |w, g| {
+            try testing.expectEqual(w[0], g[0]);
+            try testing.expectEqual(w[1], g[1]);
+        }
+        // And the first only, as the judge asks.
+        var one: [1][2]physics.Critter = undefined;
+        try testing.expectEqual(n, physics.overlaps(&b, &one));
+        if (n > 0) try testing.expectEqual(want[0], one[0]);
+    }
+}
+
 test "the room lists give the wishes the scan gives, while they serve and after (202): crowds past wish_scan_most, the lists built, then the critters drifting a little and a lot" {
     var prng: std.Random.DefaultPrng = .init(2023);
     const r = prng.random();
