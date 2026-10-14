@@ -284,6 +284,16 @@ pub fn checkedLine(t: Tick, c: physics.Checked) Line {
 /// as a set; `+ms`, `@ms` and `wall` included, though only inputs carry
 /// them).
 pub fn same(a: Line, b: Line) bool {
+    // A tick's checked lines, field for field the same, write the same
+    // text: the judge's every line, compared without writing it (202).
+    // Any other pair is written out and compared, as before.
+    if (std.meta.activeTag(a) == std.meta.activeTag(b)) switch (a) {
+        .critter => |l| if (std.meta.eql(l, b.critter)) return true,
+        .bump => |l| if (std.meta.eql(l, b.bump)) return true,
+        .release => |l| if (std.meta.eql(l, b.release)) return true,
+        .rest => |t| if (t == b.rest) return true,
+        else => {},
+    };
     var x: [1024]u8 = undefined;
     var y: [1024]u8 = undefined;
     var wa: Text = .{ .buf = &x };
