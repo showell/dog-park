@@ -142,6 +142,32 @@ pub fn isqrt(v: i64) i64 {
     return std.math.sqrt(@as(u64, @intCast(v)));
 }
 
+/// **THE METRIC** (205(b)): physics.zig's (`-Dmetric`), written plainly
+/// here, each reach compared as `dist(v) <= reach` would be: under
+/// `euclid` in squares, under the others in lengths.
+const metric = physics.metric;
+
+/// A vector's length under the metric, as a key that orders as it does.
+fn measure(v: Point) i64 {
+    const x: i64 = @intCast(@abs(v.x));
+    const y: i64 = @intCast(@abs(v.y));
+    return switch (metric) {
+        .euclid => x * x + y * y,
+        .chebyshev => @max(x, y),
+        .manhattan => x + y,
+    };
+}
+
+/// The key of a length `r`.
+fn measureOf(r: i64) i64 {
+    return if (metric == .euclid) r * r else r;
+}
+
+/// The length a key stands for, rounded down.
+fn lengthOf(k: i64) i64 {
+    return if (metric == .euclid) isqrt(k) else k;
+}
+
 pub const Kind = physics.Kind;
 
 /// A critter, by kind and number.
@@ -379,7 +405,7 @@ pub const Scene = struct {
         const center = b.dogs[l];
         var s: Scene = .{ .board = b, .leashed = l, .center = center, .region = region(center) };
         const span = TileSpan.of(s.region);
-        const sphere: i64 = @as(i64, awake_reach) * awake_reach;
+        const sphere: i64 = measureOf(awake_reach);
         s.add(.dog(l), .awake);
         for (0..cow_count) |i| s.consider(.cow(@intCast(i)), span, center, sphere);
         for (0..dog_count) |i| {
@@ -393,7 +419,7 @@ pub const Scene = struct {
         if (s.board.known(c) != .present) return;
         const p = s.board.at(c);
         if (!span.holds(tileOf(p))) return;
-        s.add(c, if (len2(delta(center, p)) <= sphere) .awake else .asleep);
+        s.add(c, if (measure(delta(center, p)) <= sphere) .awake else .asleep);
     }
 
     fn add(s: *Scene, c: Critter, awake: Seen.Awake) void {
@@ -836,10 +862,10 @@ pub fn stepOf(total: Point) Point {
 
 /// The step a total of wishes comes to, at most `most` long.
 pub fn stepAtMost(total: Point, most: i32) Point {
-    const t2 = len2(total);
-    if (t2 < @as(i64, dead_zone) * dead_zone) return .{ .x = 0, .y = 0 };
-    if (t2 <= @as(i64, most) * most) return total;
-    const l = isqrt(t2);
+    const t2 = measure(total);
+    if (t2 < measureOf(dead_zone)) return .{ .x = 0, .y = 0 };
+    if (t2 <= measureOf(most)) return total;
+    const l = lengthOf(t2);
     return .{
         .x = @intCast(@divTrunc(@as(i64, total.x) * most, l)),
         .y = @intCast(@divTrunc(@as(i64, total.y) * most, l)),
@@ -860,16 +886,16 @@ pub fn wishTotal(sc: *const Scene, i: usize) Point {
         const o = sc.seen[j];
         if (j == i) continue;
         const q = sc.pos(j);
-        const d2 = len2(delta(q, p));
+        const d2 = measure(delta(q, p));
         switch (o.who.kind) {
-            .cow => if (d2 <= @as(i64, cow_room) * cow_room) {
-                add(&total, away(q, p, cow_room - @as(i32, @intCast(isqrt(d2)))));
+            .cow => if (d2 <= measureOf(cow_room)) {
+                add(&total, away(q, p, cow_room - @as(i32, @intCast(lengthOf(d2)))));
             },
             .dog => {
                 if (o.rank >= me.rank) continue;
                 if (o.who.n % breeds != breed) {
-                    if (d2 <= @as(i64, wary) * wary) add(&total, away(q, p, wary - @as(i32, @intCast(isqrt(d2)))));
-                } else if (d2 <= @as(i64, follow) * follow and (anchor == null or d2 < anchor_d2)) {
+                    if (d2 <= measureOf(wary)) add(&total, away(q, p, wary - @as(i32, @intCast(lengthOf(d2)))));
+                } else if (d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
                     anchor = j;
                     anchor_d2 = d2;
                 }
@@ -878,10 +904,10 @@ pub fn wishTotal(sc: *const Scene, i: usize) Point {
     }
     if (anchor) |j| {
         const q = sc.pos(j);
-        if (anchor_d2 > @as(i64, band_outer) * band_outer) {
-            add(&total, wishAlong(delta(p, q), @as(i32, @intCast(isqrt(anchor_d2))) - band_outer));
-        } else if (anchor_d2 < @as(i64, band_inner) * band_inner) {
-            add(&total, away(q, p, band_inner - @as(i32, @intCast(isqrt(anchor_d2)))));
+        if (anchor_d2 > measureOf(band_outer)) {
+            add(&total, wishAlong(delta(p, q), @as(i32, @intCast(lengthOf(anchor_d2))) - band_outer));
+        } else if (anchor_d2 < measureOf(band_inner)) {
+            add(&total, away(q, p, band_inner - @as(i32, @intCast(lengthOf(anchor_d2)))));
         }
     }
     return total;
@@ -901,9 +927,9 @@ fn away(from: Point, p: Point, length: i32) Point {
 }
 
 /// A wish `length` long along `v`: each axis of `v` times the length,
-/// divided by `v`'s length (`isqrt`), truncated toward zero.
+/// divided by `v`'s length (`lengthOf`), truncated toward zero.
 pub fn wishAlong(v: Point, length: i32) Point {
-    const l = isqrt(len2(v));
+    const l = lengthOf(measure(v));
     return .{
         .x = @intCast(@divTrunc(@as(i64, v.x) * length, l)),
         .y = @intCast(@divTrunc(@as(i64, v.y) * length, l)),

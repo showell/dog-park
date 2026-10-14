@@ -73,6 +73,21 @@ pub const tile: i32 = px(tiles.tile_px);
 pub const Knobs = @TypeOf(@import("physics_options").knobs);
 pub const knobs: Knobs = @import("physics_options").knobs;
 
+/// **THE METRIC** (metal-vmm QUEUE 205(b), `zig build -Dmetric`): how far
+/// apart two critters are, for every rule that reaches (awake, `wary`,
+/// `follow`, the herd band, `cow_room`, a step's `speed` and its
+/// `dead_zone`):
+/// - `euclid`, the straight line (the played one);
+/// - `chebyshev`, the larger axis: a reach is a square, as the critters
+///   are, and a step at the speed may go that far on both axes at once;
+/// - `manhattan`, the axes added: a reach is a diamond.
+/// A wish keeps its direction under all three; only its length is the
+/// metric's. Unchanged by it: the overlap test (squares'), the drag's
+/// budget (per axis), and a jump's nearest clear spot, by straight line
+/// (physics_jump.zig), so a jump has the same few ties under every metric.
+pub const Metric = @TypeOf(@import("physics_options").metric);
+pub const metric: Metric = @import("physics_options").metric;
+
 fn tuned(comptime played: anytype, comptime alt: @TypeOf(played)) @TypeOf(played) {
     return switch (knobs) {
         .played => played,
@@ -257,9 +272,46 @@ pub inline fn isqrt(v: i64) i64 {
     return @intCast(r);
 }
 
+/// A vector's length under `metric`, as a key that orders as the length
+/// does: under `euclid` its square (no root is needed to compare), under
+/// the others the length itself. Every reach is compared in keys:
+/// `measure(v) <= measureOf(reach)`.
+pub inline fn measure(v: Point) i64 {
+    const x: i64 = v.x;
+    const y: i64 = v.y;
+    return switch (metric) {
+        .euclid => x * x + y * y,
+        .chebyshev => @max(@as(i64, @intCast(@abs(x))), @as(i64, @intCast(@abs(y)))),
+        .manhattan => @as(i64, @intCast(@abs(x))) + @as(i64, @intCast(@abs(y))),
+    };
+}
+
+/// The key `measure` gives a vector `r` long, `r` ≥ 0.
+pub inline fn measureOf(r: i64) i64 {
+    return if (metric == .euclid) r * r else r;
+}
+
+/// The length a `measure` key stands for, rounded down: under `euclid`
+/// `isqrt`, the one root the physics takes; under the others the key.
+/// A vector's every axis is at most it, under all three (`quotientAlong`).
+pub inline fn lengthOf(k: i64) i64 {
+    return if (metric == .euclid) isqrt(k) else k;
+}
+
+/// How many times `Scene.drift` (the most any critter moved on an axis)
+/// bounds how much nearer two critters can have come under `metric`: each
+/// moved at most √2 × drift by straight line (and 2√2 < 3), drift on its
+/// larger axis, 2 × drift on both added.
+pub const drift_nearer: i32 = switch (metric) {
+    .euclid => 3,
+    .chebyshev => 2,
+    .manhattan => 4,
+};
+
 /// **A WISH'S AXIS: `@divTrunc(c × length, l)`, FOR |c| ≤ l** (202), where
-/// `l` > 0 is the `isqrt` length of the vector `c` is an axis of, so |c| ≤
-/// `l` (c² ≤ the squared length, and |c| is whole), and `length` >
+/// `l` > 0 is the `lengthOf` length of the vector `c` is an axis of, so
+/// |c| ≤ `l` (under `euclid` c² ≤ the squared length, and |c| is whole;
+/// under the others an axis is at most their length), and `length` >
 /// minInt(i32). Truncated toward zero, it is the magnitudes' quotient with
 /// the product's sign, at most |`length`| < 2³¹: so it is worked in
 /// unsigned magnitudes, and the narrowings ReleaseSafe would check cannot
@@ -845,8 +897,9 @@ pub const Scene = struct {
     /// the neighbour lists were built (`refresh`): `rl[rl_lo[i]..rl_hi[i]]`,
     /// the strangers before `rl_mid[i]` and the cows from it.
     /// A cost knob only: one left out was past the reach plus `skin`, and
-    /// while 3 × `drift` < `skin` (each of two critters moved at most √2 ×
-    /// `drift`) it is still past the reach (`roomsServe`).
+    /// while `drift_nearer` × `drift` < `skin` (by straight line, each of
+    /// two critters moved at most √2 × `drift`) it is still past the reach
+    /// (`roomsServe`).
     rooms: Lists = .none,
     rl_lo: [critter_count]u16 = undefined,
     rl_mid: [critter_count]u16 = undefined,
@@ -885,7 +938,7 @@ pub const Scene = struct {
         s.wg_head = @splat(wish_none);
         s.rooms = .none;
         const span = TileSpan.of(s.region);
-        const sphere: i64 = @as(i64, awake_reach) * awake_reach;
+        const sphere: i64 = measureOf(awake_reach);
         s.add(.dog(l), .awake);
         for (0..cow_count) |i| s.consider(.cow(@intCast(i)), span, center, sphere);
         for (0..dog_count) |i| {
@@ -907,7 +960,7 @@ pub const Scene = struct {
         if (s.board.known(c) != .present) return;
         const p = s.board.at(c);
         if (!span.holdsPoint(p)) return;
-        s.add(c, if (len2(delta(center, p)) <= sphere) .awake else .asleep);
+        s.add(c, if (measure(delta(center, p)) <= sphere) .awake else .asleep);
     }
 
     fn add(s: *Scene, c: Critter, awake: Seen.Awake) void {
@@ -1077,14 +1130,14 @@ pub const Scene = struct {
                 if (class == breed) continue;
                 if (class == breeds) s.rl_mid[i] = @intCast(n);
                 const reach: i32 = (if (class == breeds) cow_room else wary) + skin;
-                const reach2 = @as(i64, reach) * reach;
+                const reach2 = measureOf(reach);
                 var cy = wishCellOf(p.y - reach);
                 while (cy <= wishCellOf(p.y + reach)) : (cy += 1) {
                     var cx = wishCellOf(p.x - reach);
                     while (cx <= wishCellOf(p.x + reach)) : (cx += 1) {
                         var j = s.wg_head[wishBucket(@intCast(class), cx, cy)];
                         while (j != wish_none and j < i) : (j = s.wg_next[j]) {
-                            if (len2(delta(s.pos(j), p)) > reach2) continue;
+                            if (measure(delta(s.pos(j), p)) > reach2) continue;
                             if (n == rooms_most) return;
                             s.rl[n] = j;
                             n += 1;
@@ -1100,7 +1153,7 @@ pub const Scene = struct {
     /// Whether dog `i`'s room list holds every critter whose room it must
     /// keep now.
     fn roomsServe(s: *const Scene) bool {
-        return s.rooms == .built and s.lists == .built and 3 * s.drift < skin;
+        return s.rooms == .built and s.lists == .built and drift_nearer * s.drift < skin;
     }
 
     /// Seen critter `i`'s neighbours when they hold everyone a step of `s`
@@ -1668,10 +1721,10 @@ pub fn stepOf(total: Point) Point {
 
 /// The step a total of wishes comes to, at most `most` long.
 pub fn stepAtMost(total: Point, most: i32) Point {
-    const t2 = len2(total);
-    if (t2 < @as(i64, dead_zone) * dead_zone) return .{ .x = 0, .y = 0 };
-    if (t2 <= @as(i64, most) * most) return total;
-    const l = isqrt(t2);
+    const t2 = measure(total);
+    if (t2 < measureOf(dead_zone)) return .{ .x = 0, .y = 0 };
+    if (t2 <= measureOf(most)) return total;
+    const l = lengthOf(t2);
     return .{
         .x = @intCast(@divTrunc(@as(i64, total.x) * most, l)),
         .y = @intCast(@divTrunc(@as(i64, total.y) * most, l)),
@@ -1726,7 +1779,7 @@ pub fn wishTotalGridded(sc: *const Scene, i: usize) Point {
 /// Adds, for each awake critter of class `class` above dog `i` (at `p`)
 /// within `reach`, a push away as long as the shortfall.
 fn addRoom(sc: *const Scene, total: *Point, i: usize, p: Point, class: u16, reach: i32) void {
-    const reach2 = @as(i64, reach) * reach;
+    const reach2 = measureOf(reach);
     var cy = wishCellOf(p.y - reach);
     while (cy <= wishCellOf(p.y + reach)) : (cy += 1) {
         var cx = wishCellOf(p.x - reach);
@@ -1735,9 +1788,9 @@ fn addRoom(sc: *const Scene, total: *Point, i: usize, p: Point, class: u16, reac
             var j = sc.wg_head[wishBucket(class, cx, cy)];
             while (j != wish_none and j < i) : (j = sc.wg_next[j]) {
                 const v = delta(sc.pos(j), p);
-                const d2 = len2(v);
+                const d2 = measure(v);
                 if (d2 > reach2) continue;
-                const l = isqrt(d2);
+                const l = lengthOf(d2);
                 add(total, awayRooted(v, l, reach - @as(i32, @intCast(l))));
             }
         }
@@ -1764,6 +1817,8 @@ const room_lanes: comptime_int = std.simd.suggestVectorLength(f64) orelse 1;
 /// - the axes (|v| ≤ `half_world` < 2²³) convert to f64 exactly, and their
 ///   squares and sum (< 2⁴⁷) are exact;
 /// - below 2⁵² a double's square root, truncated, is `isqrt` (as there);
+///   under the other metrics the length is the axes' larger or sum, in
+///   i32 (each axis < 2²³), exactly `lengthOf`;
 /// - the shortfall `reach` − l and each axis times it (< 2⁴⁶) are exact;
 /// - a quotient of integers below 2⁵³, rounded once, truncates to the
 ///   integer one: if whole it is exact, and otherwise the true quotient is
@@ -1800,9 +1855,15 @@ fn addRoomsListed(sc: *const Scene, total: *Point, p: Point, list: []const u16, 
             vy = @select(i32, vy >= hw, vy - w, @select(i32, vy < -hw, vy + w, vy));
             const fx: VF = @floatFromInt(vx);
             const fy: VF = @floatFromInt(vy);
+            const ux: VI = @bitCast(@abs(vx));
+            const uy: VI = @bitCast(@abs(vy));
             const d2 = fx * fx + fy * fy;
-            const near = d2 <= reach2;
-            const l: VI = @intFromFloat(@sqrt(d2));
+            const l: VI = switch (metric) {
+                .euclid => @intFromFloat(@sqrt(d2)),
+                .chebyshev => @max(ux, uy),
+                .manhattan => ux + uy,
+            };
+            const near = if (metric == .euclid) d2 <= reach2 else l <= reach_v;
             const short: VF = @floatFromInt(reach_v - l);
             const lf: VF = @floatFromInt(@max(l, @as(VI, @splat(1))));
             const ax: VI = @intFromFloat(fx * short / lf);
@@ -1815,12 +1876,12 @@ fn addRoomsListed(sc: *const Scene, total: *Point, p: Point, list: []const u16, 
         }
         add(total, .{ .x = @reduce(.Add, sum_x), .y = @reduce(.Add, sum_y) });
     }
-    const reach2 = @as(i64, reach) * reach;
+    const reach2 = measureOf(reach);
     for (rest) |j| {
         const v = delta(sc.pos(j), p);
-        const d2 = len2(v);
+        const d2 = measure(v);
         if (d2 > reach2) continue;
-        const l = isqrt(d2);
+        const l = lengthOf(d2);
         add(total, awayRooted(v, l, reach - @as(i32, @intCast(l))));
     }
 }
@@ -1835,16 +1896,17 @@ const Anchor = struct { j: usize, d2: i64 };
 /// is past the best found (it can hold nothing nearer, nor a tie) or past
 /// `follow`.
 fn anchorOf(sc: *const Scene, i: usize, p: Point, breed: u16) ?Anchor {
-    const follow2 = @as(i64, follow) * follow;
+    const follow2 = measureOf(follow);
     const pcx = wishCellOf(p.x);
     const pcy = wishCellOf(p.y);
     var best: ?Anchor = null;
     var k: i32 = 0;
     while (k <= wish_rings) : (k += 1) {
         if (k > 0) {
-            const least = @as(i64, k - 1) * wish_cell;
-            if (least * least > follow2) break;
-            if (best) |b| if (least * least > b.d2) break;
+            // Under every metric a length is at least the larger axis.
+            const least = measureOf(@as(i64, k - 1) * wish_cell);
+            if (least > follow2) break;
+            if (best) |b| if (least > b.d2) break;
         }
         var cy = pcy - k;
         while (cy <= pcy + k) : (cy += 1) {
@@ -1853,7 +1915,7 @@ fn anchorOf(sc: *const Scene, i: usize, p: Point, breed: u16) ?Anchor {
             while (cx <= pcx + k) : (cx += if (edge_row or cx == pcx + k) 1 else 2 * k) {
                 var j = sc.wg_head[wishBucket(breed, cx, cy)];
                 while (j != wish_none and j < i) : (j = sc.wg_next[j]) {
-                    const d2 = len2(delta(sc.pos(j), p));
+                    const d2 = measure(delta(sc.pos(j), p));
                     if (d2 > follow2) continue;
                     if (best) |b| if (d2 > b.d2 or (d2 == b.d2 and j > b.j)) continue;
                     best = .{ .j = j, .d2 = d2 };
@@ -1867,10 +1929,10 @@ fn anchorOf(sc: *const Scene, i: usize, p: Point, breed: u16) ?Anchor {
 /// The anchor's wish: toward it from past `band_outer`, away from it
 /// inside `band_inner`.
 fn addAnchor(total: *Point, p: Point, q: Point, anchor_d2: i64) void {
-    if (anchor_d2 > @as(i64, band_outer) * band_outer) {
-        add(total, wishAlong(delta(p, q), @as(i32, @intCast(isqrt(anchor_d2))) - band_outer));
-    } else if (anchor_d2 < @as(i64, band_inner) * band_inner) {
-        add(total, away(q, p, band_inner - @as(i32, @intCast(isqrt(anchor_d2)))));
+    if (anchor_d2 > measureOf(band_outer)) {
+        add(total, wishAlong(delta(p, q), @as(i32, @intCast(lengthOf(anchor_d2))) - band_outer));
+    } else if (anchor_d2 < measureOf(band_inner)) {
+        add(total, away(q, p, band_inner - @as(i32, @intCast(lengthOf(anchor_d2)))));
     }
 }
 
@@ -1892,20 +1954,20 @@ pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
         if (past_me_none_count and j > i) break;
         const q = sc.pos(j);
         const v = delta(q, p);
-        const d2 = len2(v);
+        const d2 = measure(v);
         switch (o.who.kind) {
-            .cow => if (d2 <= @as(i64, cow_room) * cow_room) {
-                const l = isqrt(d2);
+            .cow => if (d2 <= measureOf(cow_room)) {
+                const l = lengthOf(d2);
                 add(&total, awayRooted(v, l, cow_room - @as(i32, @intCast(l))));
             },
             .dog => {
                 if (o.rank >= me.rank) continue;
                 if (o.who.n % breeds != breed) {
-                    if (d2 <= @as(i64, wary) * wary) {
-                        const l = isqrt(d2);
+                    if (d2 <= measureOf(wary)) {
+                        const l = lengthOf(d2);
                         add(&total, awayRooted(v, l, wary - @as(i32, @intCast(l))));
                     }
-                } else if (d2 <= @as(i64, follow) * follow and (anchor == null or d2 < anchor_d2)) {
+                } else if (d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
                     anchor = j;
                     anchor_d2 = d2;
                 }
@@ -1925,11 +1987,11 @@ fn add(total: *Point, w: Point) void {
 /// `p`; when the centres coincide, east.
 fn away(from: Point, p: Point, length: i32) Point {
     const v = delta(from, p);
-    return awayRooted(v, isqrt(len2(v)), length);
+    return awayRooted(v, lengthOf(measure(v)), length);
 }
 
 /// `away`, `v` from the other's centre to the critter's and `l` its
-/// `isqrt` length, already taken.
+/// `lengthOf` length, already taken.
 inline fn awayRooted(v: Point, l: i64, length: i32) Point {
     if (v.x == 0 and v.y == 0) return .{ .x = length, .y = 0 };
     return wishAlongRooted(v, l, length);
@@ -1938,10 +2000,10 @@ inline fn awayRooted(v: Point, l: i64, length: i32) Point {
 /// A wish `length` long along `v`: each axis of `v` times the length,
 /// divided by `v`'s length (`isqrt`), truncated toward zero.
 pub fn wishAlong(v: Point, length: i32) Point {
-    return wishAlongRooted(v, isqrt(len2(v)), length);
+    return wishAlongRooted(v, lengthOf(measure(v)), length);
 }
 
-/// `wishAlong`, `l` being `v`'s `isqrt` length.
+/// `wishAlong`, `l` being `v`'s `lengthOf` length.
 inline fn wishAlongRooted(v: Point, l: i64, length: i32) Point {
     return .{
         .x = quotientAlong(v.x, length, l),

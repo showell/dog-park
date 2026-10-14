@@ -285,7 +285,8 @@ test "a pack: exact under every symmetry" {
 // apart. As one move (decision 18), the step overlaps the cow
 // on y at 20/84 of the way and presses into its x face at 40/84: cut
 // there to (−40, −40), it slides the rest of y to (−40, −84), and the
-// transpose gives the same.
+// transpose gives the same. Under another metric (205(b)) the step and
+// the cow's room are other lengths, so only the orientations are held.
 test "the minimal scene: a dog's diagonal step meets a cow's face, not its corner, the same in every orientation" {
     // Its numbers are the played knobs' speed and halves.
     if (physics.knobs != .played) return error.SkipZigTest;
@@ -297,7 +298,7 @@ test "the minimal scene: a dog's diagonal step meets a cow's face, not its corne
     const one = [1]TickIn{.{}};
     var a = b;
     play(&a, null, 1, 0, one[0]);
-    try testing.expectEqual(Point{ .x = dog.x - 40, .y = dog.y - 84 }, a.dogs[4]);
+    if (physics.metric == .euclid) try testing.expectEqual(Point{ .x = dog.x - 40, .y = dog.y - 84 }, a.dogs[4]);
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &one);
     try expectShifted(b, 0, &one);
 }

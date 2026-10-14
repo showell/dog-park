@@ -329,6 +329,28 @@ relations; `zig build slow` runs the physics' tests under it, so a test
 that pins a played value instead of a property fails there. The worked
 example's tests are the played knobs' and skip under alt.
 
+**The metric** (metal-vmm QUEUE 205(b)). `zig build -Dmetric=` picks how far
+apart two critters are, for every rule above that reaches: the sphere,
+`wary`, `follow`, the herd band, `cow_room`, the speed and the dead zone.
+- `euclid` (the default, the played one): the straight line, compared in
+  squares, with the one integer root for a wish's length.
+- `chebyshev`: the larger axis. Every reach is a square, as the critters
+  are, and a step at the speed may go that far on both axes at once (a
+  diagonal step is √2 longer than under euclid). No root anywhere.
+- `manhattan`: the axes added. Every reach is a diamond; a diagonal step
+  is half each axis. No root either.
+
+A wish keeps its direction under all three: its axes are the vector's,
+times its length, over the vector's length in the metric
+(`quotientAlong`). Not the metric's: the overlap test (squares'), the
+drag's budget (per axis), and a jump's nearest clear spot (by straight
+line, physics_jump.zig). The metric's name joins the physics hash, as the
+alt knobs' does, so a page and a server built with different metrics
+never agree. `zig build slow` runs the physics' tests and the identity
+test under each other metric; the worked example's tests are euclid's and
+skip under the others. `zig build herds` (herd_bench.zig) prints the
+herds' census on fixed play under the build's metric.
+
 **Arithmetic.** Every critter's position is an integer count of 256ths of
 a pixel, the cows' too, with an integer square root for distances. **Every product is `i64`:** squared distances
 (in 256ths, about 7·10^13 along one axis of the 64 × 64 world and

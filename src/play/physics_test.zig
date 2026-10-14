@@ -106,7 +106,7 @@ fn dragAlong(w: Way, n: i32) physics.Disp {
 }
 
 fn awakeAt(from: Point, p: Point) bool {
-    return physics.len2(physics.delta(from, p)) <= @as(i64, physics.awake_reach) * physics.awake_reach;
+    return physics.measure(physics.delta(from, p)) <= physics.measureOf(physics.awake_reach);
 }
 
 test "a dog's step moves a cow ahead of it, in the scare box and out of the lane: across the step's axis only, away from the dog's line, never farther than the dog stepped" {
@@ -518,15 +518,15 @@ test "the seam: the leashed dog dragged across x = 0, then y = 0: it wraps on ea
 
 test "the seam: a critter across the corner from the leashed dog is seen and awake, its wish the short way round" {
     const world = physics.world;
-    var b = leashedAt(px(100, 100));
-    // Dog 1, another breed, 150 px west and north across the corner:
-    // within `wary` of the leashed dog.
-    b.place(.dog(1), .{ .x = world - physics.px(50), .y = world - physics.px(50) });
+    var b = leashedAt(px(60, 60));
+    // Dog 1, another breed, 100 px west and north across the corner:
+    // within `wary` of the leashed dog, under every metric.
+    b.place(.dog(1), .{ .x = world - physics.px(40), .y = world - physics.px(40) });
     const sc = physics.Scene.of(&b).?;
     try testing.expectEqual(@as(usize, 2), sc.len);
     try testing.expectEqual(physics.Seen.Awake.awake, sc.list()[1].awake);
-    try testing.expectEqual(px(-150, -150), physics.delta(b.dogs[0], b.dogs[1]));
-    try testing.expect(physics.len2(physics.delta(b.dogs[0], b.dogs[1])) < @as(i64, physics.wary) * physics.wary);
+    try testing.expectEqual(px(-100, -100), physics.delta(b.dogs[0], b.dogs[1]));
+    try testing.expect(physics.measure(physics.delta(b.dogs[0], b.dogs[1])) < physics.measureOf(physics.wary));
     // Wary of the leashed dog: away from it, west and north, past the seam.
     const w = physics.wishTotal(&sc, 1);
     try testing.expect(w.x < 0 and w.y < 0);
@@ -548,7 +548,7 @@ test "the seam: a herd follows the leashed dog across the corner, every critter 
         // Across too, and still with it.
         try testing.expect(p.x > physics.half_world and p.y > physics.half_world);
         const v = physics.delta(b.dogs[0], p);
-        try testing.expect(physics.len2(v) <= @as(i64, physics.follow) * physics.follow);
+        try testing.expect(physics.measure(v) <= physics.measureOf(physics.follow));
     }
     var pairs: [4][2]Critter = undefined;
     try testing.expectEqual(@as(usize, 0), physics.overlaps(&b, &pairs));
@@ -695,14 +695,14 @@ test "a dog in its herd band is content; inside it, it steps away; past it, towa
         const sc = physics.Scene.of(&b).?;
         try testing.expectEqual(c.step, physics.wishStep(&sc, 1));
     }
-    // Diagonal, the band's outer edge each way: toward, along the diagonal,
-    // no longer than the speed.
+    // Diagonal, 10 px past the band's outer edge each way (past it under
+    // every metric): toward, along the diagonal, no longer than the speed.
     var b = leashedAt(from);
-    b.place(.dog(4), .{ .x = from.x + physics.band_outer, .y = from.y + physics.band_outer });
+    b.place(.dog(4), .{ .x = from.x + physics.band_outer + ten, .y = from.y + physics.band_outer + ten });
     const sc = physics.Scene.of(&b).?;
     const s = physics.wishStep(&sc, 1);
     try testing.expect(s.x < 0 and s.x == s.y);
-    try testing.expect(physics.len2(s) <= @as(i64, physics.speed) * physics.speed);
+    try testing.expect(physics.measure(s) <= physics.measureOf(physics.speed));
 }
 
 test "a dog keeps its wary distance from other breeds above it, and its room from cows; wishes add up" {
@@ -786,7 +786,7 @@ test "pixel-ticks: in a drag of N px, a lone awake dog of another breed moves at
         _ = ticked(&b, 1, &.{}, &.{d(dx, 0)});
         const moved = physics.delta(start, b.dogs[1]);
         const most: i64 = physics.px(n) + physics.speed;
-        try testing.expect(physics.len2(moved) <= most * most);
+        try testing.expect(physics.measure(moved) <= physics.measureOf(most));
         // Away: along the line from the leashed dog's start to it.
         const out = physics.delta(from, start);
         try testing.expect(@as(i64, moved.x) * out.x + @as(i64, moved.y) * out.y > 0);
@@ -809,7 +809,7 @@ test "pixel-ticks: a dog of the leashed dog's breed keeps up with a long drag, w
     while (t <= ticks) : (t += 1) _ = ticked(&b, t, &.{}, &.{d(-per_tick, 0)});
     try testing.expectEqual(Point{ .x = from.x - physics.px(ticks * per_tick), .y = from.y }, b.dogs[0]);
     // Still in its band, give or take the dead zone and one pixel-tick.
-    const gap: i64 = physics.isqrt(physics.len2(physics.delta(b.dogs[0], b.dogs[follower])));
+    const gap: i64 = physics.lengthOf(physics.measure(physics.delta(b.dogs[0], b.dogs[follower])));
     try testing.expect(gap <= physics.band_outer + physics.dead_zone + physics.px(1));
     // The speed alone covers a sliver of that.
     try testing.expect(ticks * physics.speed < start.x - b.dogs[follower].x);
@@ -949,13 +949,17 @@ test "subscribing more tiles changes nothing: the server's board, a page holding
         .fast => 100,
         .full => 400,
     };
+    // Seeds 1 and 2 under the played physics; under another (205's
+    // metrics) the seeds from 1 up until two have both.
     var moved: usize = 0;
-    for ([_]u64{ 1, 2 }) |seed| {
+    var walks: usize = 0;
+    var seed: u64 = 1;
+    while (walks < 2 and seed <= 16) : (seed += 1) {
         const walk = try walkCompared(seed, ticks);
-        try testing.expect(walk.bumps > 0);
-        try testing.expect(walk.letgos > 0);
         moved += walk.moved;
+        if (walk.bumps > 0 and walk.letgos > 0) walks += 1;
     }
+    try testing.expectEqual(@as(usize, 2), walks);
     try testing.expect(moved > 100);
 }
 
@@ -1031,13 +1035,24 @@ test "the wish arithmetic at the i64 extremes gives the same bits on every targe
         const w = physics.wishAlong(v, rand.intRangeAtMost(i32, 0, longest));
         const total: Point = .{ .x = rand.intRangeAtMost(i32, -span, span), .y = rand.intRangeAtMost(i32, -span, span) };
         const s = if (total.x == 0 and total.y == 0) total else physics.wishAlong(total, rand.intRangeAtMost(i32, 0, longest));
-        const r = physics.isqrt(physics.len2(v));
+        const r = physics.lengthOf(physics.measure(v));
         crc.update(std.mem.asBytes(&[_]i64{ w.x, w.y, s.x, s.y, r }));
     }
     // Golden: the first 20,000 samples' checksum, and all 200,000's.
-    try testing.expectEqual(@as(u32, switch (fuzz) {
-        .fast => 549483793,
-        .full => 2544406423,
+    // One golden per metric (205(b)): each is the same on every target.
+    try testing.expectEqual(@as(u32, switch (physics.metric) {
+        .euclid => switch (fuzz) {
+            .fast => 549483793,
+            .full => 2544406423,
+        },
+        .chebyshev => switch (fuzz) {
+            .fast => 2874612707,
+            .full => 1179115397,
+        },
+        .manhattan => switch (fuzz) {
+            .fast => 4177009382,
+            .full => 3631720777,
+        },
     }), crc.final());
 }
 

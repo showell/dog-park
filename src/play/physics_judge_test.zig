@@ -18,8 +18,10 @@ const Point = physics.Point;
 /// The worked example is the doc's, written under the played knobs: under
 /// another tuning (-Dknobs=alt) the same inputs play out otherwise, so its
 /// tests skip there, by name; the tests derived from no example still run.
+/// The worked example (docs/PHYSICS.md) is the played physics': Steve's
+/// knobs and the straight-line metric.
 fn playedOnly() !void {
-    if (physics.knobs != .played) return error.SkipZigTest;
+    if (physics.knobs != .played or physics.metric != .euclid) return error.SkipZigTest;
 }
 
 /// The doc's physics hash (a placeholder there): the judge takes it as its

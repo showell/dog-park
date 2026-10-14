@@ -9,11 +9,17 @@ const Fuzz = enum { fast, full };
 /// instead of a property fails.
 const Knobs = enum { played, alt };
 
+/// The physics' distance (physics.zig's `metric`, metal-vmm QUEUE 205(b)):
+/// `euclid`, the straight line (the played one, the default); `chebyshev`,
+/// the larger axis; `manhattan`, the axes added.
+const Metric = enum { euclid, chebyshev, manhattan };
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const fuzz = b.option(Fuzz, "fuzz", "the seeded fuzz loops' size: fast (a tenth, the default) or full") orelse .fast;
     const knobs = b.option(Knobs, "knobs", "the physics' tuning: played (Steve's, the default) or alt (every knob moved by about half)") orelse .played;
+    const metric = b.option(Metric, "metric", "the physics' distance: euclid (the default), chebyshev (the larger axis) or manhattan (the axes added)") orelse .euclid;
 
     // webbox is two modules: `webbox`, portable, what the application's code
     // imports; and `webbox_linux`, the Linux host, for a Linux `main` only.
@@ -27,7 +33,7 @@ pub fn build(b: *std.Build) void {
     // **THE PHYSICS HASH, ONCE** (physics_wire.zig): a CRC-32 over the
     // files src/play/physics_sources.zon lists, read here at configure
     // time and handed to every module that compiles the physics.
-    const physics_mod = physicsOptions(b, knobs);
+    const physics_mod = physicsOptions(b, knobs, metric);
 
     const wasm32 = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const wasi = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
@@ -176,15 +182,24 @@ pub fn build(b: *std.Build) void {
     check.dependOn(physics_wasm);
     for (node_server) |f| check.dependOn(nodeTest(b, f));
 
-    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics against its reference, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, the physics' tests under -Dknobs=alt, every node test");
+    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics against its reference, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, the physics' tests under -Dknobs=alt and under each other -Dmetric, every node test");
     slow.dependOn(units.all(.full));
     slow.dependOn(units.identity());
     // The physics' tests under the other tuning, so a test that pins a
     // played value instead of a property fails here.
     if (knobs != .alt) {
         var alt = units;
-        alt.physics_mod = physicsOptions(b, .alt);
+        alt.physics_mod = physicsOptions(b, .alt, metric);
         slow.dependOn(alt.physics(.full));
+    }
+    // The physics' tests, and its reference, under the other metrics
+    // (205(b)): the tests state properties, so they hold under each.
+    for ([_]Metric{ .euclid, .chebyshev, .manhattan }) |m| {
+        if (m == metric) continue;
+        var other = units;
+        other.physics_mod = physicsOptions(b, knobs, m);
+        slow.dependOn(other.physics(.full));
+        slow.dependOn(other.identity());
     }
     units.onWasm(wasi, wasm32, .ReleaseSafe, .full, slow);
     for (node_fast ++ node_server) |f| slow.dependOn(nodeTest(b, f));
@@ -204,6 +219,17 @@ pub fn build(b: *std.Build) void {
     // QUEUE 202).
     if (b.args) |args| physics_bench_run.addArgs(args);
     b.step("physics-bench", "Time a physics tick natively (ReleaseSafe); -- herd, busiest or rerun: that one alone, for a profiler").dependOn(&physics_bench_run.step);
+
+    // The herd numbers on fixed play (herd_bench.zig, metal-vmm QUEUE
+    // 205(a)): the census of each script, under this build's -Dmetric and
+    // -Dknobs.
+    const herd_bench = b.addExecutable(.{ .name = "herd_bench", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/herd_bench.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
+    }) });
+    b.step("herds", "The herds' census on fixed play scripts (ReleaseSafe), under this build's -Dmetric and -Dknobs").dependOn(&b.addRunArtifact(herd_bench).step);
 
     // A 32-tick report's round trip through POST /report, in process
     // (ReleaseSafe): the route, the judge's re-run, the log's append.
@@ -255,17 +281,21 @@ fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.built
     return exe;
 }
 
-/// The physics' build options, `physics_options`: its hash and its tuning.
-fn physicsOptions(b: *std.Build, knobs: Knobs) *std.Build.Module {
+/// The physics' build options, `physics_options`: its hash, its tuning and
+/// its metric.
+fn physicsOptions(b: *std.Build, knobs: Knobs, metric: Metric) *std.Build.Module {
     const options = b.addOptions();
-    options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play"), knobs));
+    options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play"), knobs, metric));
     options.addOption(Knobs, "knobs", knobs);
+    options.addOption(Metric, "metric", metric);
     return options.createModule();
 }
 
 /// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
-/// lists, in its order; under a tuning other than `played`, its name too.
-fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs) u32 {
+/// lists, in its order; under a tuning other than `played`, its name too,
+/// and under a metric other than `euclid`, its name: a page and a server
+/// built with different physics never agree on the hash.
+fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs, metric: Metric) u32 {
     const io = b.graph.io;
     const list_path = b.fmt("{s}/physics_sources.zon", .{dir});
     const list = std.Io.Dir.cwd().readFileAlloc(io, list_path, b.allocator, .limited(1 << 16)) catch |e|
@@ -279,5 +309,6 @@ fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs) u32 {
             std.process.fatal("the physics hash's source {s} does not read ({t})", .{ path, e }));
     }
     if (knobs != .played) crc.update(@tagName(knobs));
+    if (metric != .euclid) crc.update(@tagName(metric));
     return crc.final();
 }
