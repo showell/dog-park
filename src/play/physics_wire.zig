@@ -169,7 +169,7 @@ pub const Line = union(enum) {
     critter: physics.CritterLine,
     poop: physics.PoopLine,
     eaten: u16,
-    bump: struct { tick: Tick, who: Critter },
+    bump: struct { tick: Tick, who: physics.Bumped },
     rest: Tick,
 };
 
@@ -255,7 +255,13 @@ pub fn write(w: *Text, line: Line) Text.Error!void {
         .bump => |b| {
             try tickOnly(w, "bump ", b.tick);
             try w.char(' ');
-            try w.critter(b.who);
+            switch (b.who) {
+                .critter => |c| try w.critter(c),
+                .poop => |n| {
+                    try w.str("poop ");
+                    try w.dec(n);
+                },
+            }
         },
     }
     try w.char('\n');
@@ -578,7 +584,9 @@ pub fn parse(text: []const u8) ParseError!Line {
     }
     if (std.mem.eql(u8, word, "bump")) {
         const t = try parseTick(try w.next());
-        const who = try parseCritter(try w.next(), try w.next());
+        const kind = try w.next();
+        const n = try w.next();
+        const who: physics.Bumped = if (std.mem.eql(u8, kind, "poop")) .{ .poop = try parsePoopNumber(n) } else .{ .critter = try parseCritter(kind, n) };
         try w.end();
         return .{ .bump = .{ .tick = t, .who = who } };
     }

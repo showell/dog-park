@@ -96,17 +96,19 @@ own kin in turn, up to `nudge_most` (8) in all; if any of them is
 blocked, none moves. Nobody is ever pressed into, and still critters
 never attract or repel.
 
-## Poop and chickens (decisions 26-27)
+## Poop and chickens (decisions 26-28)
 
-**A dog poops** each time its walk (every step it takes, counted by the
-step's larger axis, the leashed dog's own included) passes another 700 px.
+**Only the leashed dog poops** (decision 28), each time its walk (every
+step it takes, counted by the step's larger axis) passes another 700 px.
 The poop lands at the nearest spot where its 12 px square overlaps no
-critter and no poop the physics sees: rings 4 px apart out from the dog,
-each walked clockwise from its north-west corner, out to 200 px (none
-fits: no poop). **Poop stays until a chicken eats it.** The park's poops
+critter and no poop the physics sees and keeps 6 px from the leashed dog:
+rings 4 px apart out from the dog, each walked clockwise from the point
+straight to the right of its step (beside it: a dog following in its
+track passes the poop by), out to 200 px (none fits: no poop). **Poop stays until a chicken eats it.** The park's poops
 take 2048 slots in turn, counted since the load (`laid`, on the `state`
-line), so only the 2049th would take the first one's slot. No critter
-treats poop as an obstacle.
+line), so only the 2049th would take the first one's slot. **Poop is an
+obstacle to dogs and cows** (decision 28): a walked step onto one is
+vetoed like a step onto a critter, and the leashed dog bumps it.
 
 **A chicken** (two to each blue tile, a 20 px square) is part of the
 walk (decision 27): it moves only when the walk visits it, so only while
@@ -118,6 +120,11 @@ its square overlaps. It heeds no critter and plans nothing: three
 chickens chase the same poop until it's gone. Every other critter treats
 a chicken as an obstacle and nothing more: no dog or cow reacts to a
 moving one.
+
+**A bump into a chicken or a poop** (decision 28) ends the drag as any
+bump does, and then sets the leashed dog back 6 px the way it came (as
+far as that way is clear), so the next drag has 6 px of room toward it
+before it bumps again: a grab's jitter doesn't end the drag at once.
 
 **On the wire:** a tick's checked lines add ` poop N x,y` (slot N holds a
 new poop) and ` eaten N` (a poop the region's tiles held is gone), by
@@ -146,7 +153,8 @@ Tuned by playing; each is a constant in `physics.zig`.
 | the region | `region_reach`, 1500 px each way |
 | the leash off | 320 ticks (20 s) after the drag ends |
 | the squares | dogs 40 px, cows 60 px, chickens 20 px, poop 12 px |
-| poop | every 700 px walked; 2048 slots, in turn; within 200 px of the dog |
+| poop | the leashed dog's, every 700 px walked; 2048 slots, in turn; within 200 px of it, 6 px clear |
+| the bump room | 6 px: a bump into a chicken or a poop sets the leashed dog back this far |
 | a chicken | sees 250 px (half a tile); steps 3 times the leashed dog's |
 | the first layout | `layout.zig`: 400 dogs, four to a tile, one breed per corner; 50 cows in the white tiles; 100 chickens, two side by side in the middle of each blue tile |
 
@@ -339,7 +347,7 @@ so nothing moves; the let-go timer (320 ticks) runs from 1042.
 | `leash T D` | the human leashed dog D at tick T: the park wakes around it |
 | `grab T` | the pointer went down on the leashed dog at tick T: a drag is on, and any let-go timer stops (a `leash` implies it) |
 | `letgo T` | the drag ended at tick T because the human let go: the let-go ticks (`let_go_ticks`, 320) start |
-| `bump T dog N`, `bump T cow N` | the drag ended at tick T because the leashed dog pressed into that critter: the let-go ticks start, the leash stays |
+| `bump T dog N`, `bump T cow N`, `bump T chicken N`, `bump T poop N` | the drag ended at tick T because the leashed dog pressed into that critter or poop: the let-go ticks start, the leash stays |
 | `release T D` | the leash came off dog D at tick T (the let-go ticks ran out, or another dog was grabbed): the park sleeps |
 | `held T c,r …` | from the start of tick T, the page holds these tiles' critters (they arrived with an ack): an input, so the server counts exactly the tiles the page did. A tile list (here and in `view`, `state`) is a set: listed in any order, compared as a set |
 | `view T WxH c,r …` | from the start of tick T, the viewport's size and the tiles the page subscribes: which tiles the server sends, and which stay held. Never an input to the physics. Written whenever the subscription changes: a leash, a release, a pan, a resize, the region reaching new tiles |
@@ -629,9 +637,10 @@ snapshots alone are enough to start from.
    a cow, it closes in; a dog, it flees.
 11. **The nudge** (decision 25, 2026-10-14): a step blocked by kin
    carries them along, up to 8 critters.
-12. **Poop and chickens** (decisions 26-27, 2026-10-14): dogs poop every
-   700 px, and poop stays until eaten; chickens walk in the cascade,
+12. **Poop and chickens** (decisions 26-28, 2026-10-14): only the
+   leashed dog poops, every 700 px, beside itself, and poop stays until
+   eaten, an obstacle to dogs and cows; chickens walk in the cascade,
    chase the nearest poop within 250 px at triple a dog's pace, and eat
-   it.
+   it; a bump into a chicken or a poop sets the leashed dog back 6 px.
 
 The history behind each is in git.

@@ -56,7 +56,7 @@ fn cowAfter(from: Point, by: physics.Disp, cow: Point) Point {
     return b.cows[0];
 }
 
-fn bumpOf(lines: *const Lines) ?Critter {
+fn bumpOf(lines: *const Lines) ?physics.Bumped {
     for (lines.slice()) |c| switch (c) {
         .bump => |who| return who,
         else => {},
@@ -127,10 +127,10 @@ test "the leashed dog overlapping another: a bump only when the drag shrinks |Δ
         b.place(.dog(1), c.other);
         const lines = ticked(&b, 1, &.{}, &.{c.drag});
         if (c.bump) {
-            try testing.expectEqual(@as(?Critter, .dog(1)), bumpOf(&lines));
+            try testing.expectEqual(@as(?physics.Bumped, .{ .critter = .dog(1) }), bumpOf(&lines));
             try testing.expectEqual(px(b0, b0), b.dogs[0]);
         } else {
-            try testing.expectEqual(@as(?Critter, null), bumpOf(&lines));
+            try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
             try testing.expectEqual(Point{ .x = physics.px(b0) + c.drag.dx, .y = physics.px(b0) + c.drag.dy }, b.dogs[0]);
         }
     }
@@ -144,7 +144,7 @@ test "the seam: the leashed dog dragged across x = 0, then y = 0: it wraps on ea
     const lines = ticked(&b, 1, &.{}, &.{ d(-50, 0), d(0, -50) });
     const after: Point = .{ .x = world - physics.px(20), .y = world - physics.px(20) };
     try testing.expectEqual(after, b.dogs[0]);
-    try testing.expectEqual(@as(?Critter, null), bumpOf(&lines));
+    try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
     try testing.expectEqual(physics.Checked{ .critter = .{ .who = .dog(0), .before = px(30, 30), .after = after } }, lines.slice()[0]);
 }
 
@@ -171,7 +171,7 @@ test "a bump ends the drag, not the leash: the dog stops just short, the rest of
     b.place(.dog(5), .{ .x = short.x + 2 * physics.dog_half, .y = short.y });
     const lines = ticked(&b, 10, &.{}, &.{ d(80, 0), d(0, 30) });
     try testing.expectEqual(short, b.dogs[0]);
-    try testing.expectEqual(@as(?Critter, .dog(5)), bumpOf(&lines));
+    try testing.expectEqual(@as(?physics.Bumped, .{ .critter = .dog(5) }), bumpOf(&lines));
     try testing.expectEqual(physics.Hold{ .leashed = .{ .dog = 0, .drag = .{ .ended = 10 } } }, b.hold);
     // The bump is the last line, after the critter lines.
     try testing.expect(lines.slice()[lines.len - 1] == .bump);
@@ -213,7 +213,7 @@ test "a bump that presses two critters at once names the higher-ranked" {
     b.place(.dog(9), .{ .x = from.x + 2 * physics.dog_half, .y = from.y + physics.dog_half });
     b.place(.dog(5), .{ .x = from.x + 2 * physics.dog_half, .y = from.y - physics.dog_half });
     const lines = ticked(&b, 1, &.{}, &.{d(80, 0)});
-    try testing.expectEqual(@as(?Critter, .dog(5)), bumpOf(&lines));
+    try testing.expectEqual(@as(?physics.Bumped, .{ .critter = .dog(5) }), bumpOf(&lines));
     try testing.expectEqual(from, b.dogs[0]);
 }
 
@@ -303,7 +303,7 @@ test "across the seam the drag wraps, and carries on (decision 14: no edge)" {
     const lines = ticked(&b, 1, &.{}, &.{ d(-50, 0), d(0, 20) });
     // 50 px west from 30 px: 20 px short of the world's east side.
     try testing.expectEqual(Point{ .x = physics.world - physics.px(20), .y = physics.px(16020) }, b.dogs[0]);
-    try testing.expectEqual(@as(?Critter, null), bumpOf(&lines));
+    try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
     try testing.expectEqual(physics.Drag.on, b.hold.leashed.drag);
 }
 
@@ -663,12 +663,14 @@ test "the nudge stops at a critter not kin: a cow pressed against a dog vetoes t
     try testing.expectEqual(px(15990, 16250), b.cows[1]);
 }
 
-test "poop (decisions 26-27): a dog poops at each 700 px it walks, in the nearest spot clear of every critter, into the park's next slot" {
-    // The leashed dog alone, dragged east 1400 px over 14 ticks: two
-    // poops, slots 0 and 1 (the park's first and second), each on the
-    // first ring clear of its square (28 px: 20 + 6 rounded up to the 4 px
-    // grid), at that ring's north-west corner; both still there.
+test "poop (decisions 26-28): only the leashed dog poops, at each 700 px it walks, beside it (to its step's right) and clear of the bump room, into the park's next slot" {
+    // The leashed dog dragged east 1400 px over 14 ticks, dog 4 (its
+    // breed) following, closing onto its row and walking as far, past
+    // both: two poops, the leashed dog's, slots 0 and 1, each 32 px south
+    // of it (20 + 6 + 6: its half, the bump room, the poop's half); both
+    // still there.
     var b = leashedAt(px(15000, 16250));
+    b.place(.dog(4), px(15000, 16400));
     var t: physics.Tick = 1;
     var laid: [4]physics.PoopLine = undefined;
     var n: usize = 0;
@@ -679,14 +681,52 @@ test "poop (decisions 26-27): a dog poops at each 700 px it walks, in the neares
             n += 1;
         };
     }
+    try testing.expect(b.dogs[4].x > physics.px(16200));
     try testing.expectEqual(@as(usize, 2), n);
     try testing.expectEqual(@as(u16, 0), laid[0].n);
-    try testing.expectEqual(px(15700 - 28, 16250 - 28), laid[0].at);
+    try testing.expectEqual(px(15700, 16250 + 32), laid[0].at);
     try testing.expectEqual(@as(u16, 1), laid[1].n);
-    try testing.expectEqual(px(16400 - 28, 16250 - 28), laid[1].at);
+    try testing.expectEqual(px(16400, 16250 + 32), laid[1].at);
     try testing.expectEqual(@as(u32, 2), b.laid);
     try testing.expectEqual(physics.Known.present, b.poop_known[0]);
-    try testing.expectEqual(@as(u32, @intCast(physics.px(1400))), b.walked[0]);
+    try testing.expectEqual(@as(u32, 0), b.walked[4]);
+}
+
+test "poop is an obstacle (decision 28): a dog the walk moves never steps onto it, and the leashed dog bumps it with the bump room to spare" {
+    // Dog 4 follows the leashed dog west; a poop sits right in front of
+    // it, touching: it stays.
+    var b = leashedAt(px(16000, 16250));
+    b.place(.dog(4), px(16200, 16250));
+    b.poops[9] = px(16174, 16250);
+    b.poop_known[9] = .present;
+    _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
+    try testing.expectEqual(px(16200, 16250), b.dogs[4]);
+    // The leashed dog dragged east at the poop: it stops touching it, then
+    // is set back 6 px (16174 - 6 - 20 - 6), and the drag ends.
+    var c = leashedAt(px(16100, 16250));
+    c.poops[9] = px(16174, 16250);
+    c.poop_known[9] = .present;
+    const lines = ticked(&c, 1, &.{}, &.{d(60, 0)});
+    try testing.expectEqual(@as(?physics.Bumped, .{ .poop = 9 }), bumpOf(&lines));
+    try testing.expectEqual(px(16142, 16250), c.dogs[0]);
+}
+
+test "a bump into a chicken sets the leashed dog back 6 px, so the next drag has room: up to 6 px more toward it, sideways and away freely" {
+    var b = leashedAt(px(16100, 16250));
+    b.place(.chicken(0), px(16200, 16250));
+    var lines = ticked(&b, 1, &.{}, &.{d(90, 0)});
+    try testing.expectEqual(@as(?physics.Bumped, .{ .critter = .chicken(0) }), bumpOf(&lines));
+    // Touching at 16170 (16200 - 10 - 20), set back to 16164.
+    try testing.expectEqual(px(16164, 16250), b.dogs[0]);
+    // A grab and a jitter of 4 px toward it: no bump.
+    lines = ticked(&b, 2, &.{.grab}, &.{d(4, 0)});
+    try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
+    try testing.expectEqual(px(16168, 16250), b.dogs[0]);
+    lines = ticked(&b, 3, &.{}, &.{d(0, 30)});
+    try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
+    lines = ticked(&b, 4, &.{}, &.{d(-30, -30)});
+    try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
+    try testing.expectEqual(px(16138, 16250), b.dogs[0]);
 }
 
 test "a chicken the walk reaches steps three times the leashed dog's step toward the nearest poop it sees, and eats it; poop past half a tile it doesn't see" {

@@ -16,7 +16,7 @@
 //! which takes the short way round; every move wraps its result back into
 //! the world (`wrapped`).
 //!
-//! **A tick** (decisions 20-26): only while the leashed dog is dragged does
+//! **A tick** (decisions 20-28): only while the leashed dog is dragged does
 //! anything move. The drag is cut into pixel-ticks; in each, the leashed
 //! dog takes the step (stopping just short of pressing into anyone), then
 //! the walk moves up to `walk_most` critters, dogs and cows, one at a time,
@@ -101,10 +101,11 @@ pub const walk_fan = 3;
 /// **THE NUDGE**: the most critters one step moves together, the stepper
 /// and the kin it nudges (decision 25).
 pub const nudge_most = 8;
-/// **POOP** (decisions 26-27): a dog poops each time it has walked
-/// another `poop_every` (each step counted by its larger axis), in the
-/// nearest empty spot, a square `poop_px` a side (drawn as a circle) that
-/// no critter treats as an obstacle. It stays till a chicken eats it: the
+/// **POOP** (decisions 26-28): the leashed dog poops each time it has
+/// walked another `poop_every` (each step counted by its larger axis), in
+/// the nearest empty spot, beside it, a square `poop_px` a side (drawn as a
+/// circle) that dogs and cows treat as an obstacle (a chicken eats it). It
+/// stays till a chicken eats it: the
 /// park's poops take the `poop_count` slots in turn (`Board.laid`), so only
 /// the 2049th poop since the load would take the first one's slot.
 pub const poop_every: u32 = @intCast(px(700));
@@ -120,6 +121,10 @@ pub const poop_grid: i32 = px(4);
 pub const chicken_sight: i32 = px(250);
 /// A chicken's step: this many times a dog's (decision 27).
 pub const chicken_pace = 3;
+/// A bump into a chicken or a poop sets the leashed dog back this far
+/// (decision 28), so the next drag has room before it bumps again; a poop
+/// lands this clear of the dog that laid it.
+pub const bump_room: i32 = px(6);
 
 comptime {
     // **THE WORLD IS WIDER THAN THE REGION** (decision 14): the region's
@@ -599,13 +604,19 @@ pub const CritterLine = struct { who: Critter, before: Point, after: Point };
 /// A poop slot that holds a new poop at the tick's end.
 pub const PoopLine = struct { n: u16, at: Point };
 
+/// What the leashed dog bumped: a critter, or a poop by slot.
+pub const Bumped = union(enum) {
+    critter: Critter,
+    poop: u16,
+};
+
 /// A tick's checked line.
 pub const Checked = union(enum) {
     critter: CritterLine,
     poop: PoopLine,
     /// A poop slot emptied by the tick (a chicken ate it).
     eaten: u16,
-    bump: Critter,
+    bump: Bumped,
     release: u16,
     rest,
 };
@@ -727,25 +738,27 @@ pub const Scene = struct {
         return s.at[i];
     }
 
-    /// Seen critter `i` to `to`, wrapped into the world. A dog counts the
-    /// step on its walk and poops at each `poop_every`.
+    /// Seen critter `i` to `to`, wrapped into the world. The leashed dog
+    /// (seen index 0) counts the step on its walk and poops at each
+    /// `poop_every`, beside the step (decision 28).
     pub fn put(s: *Scene, i: usize, to: Point) void {
         const p = wrapped(to);
         const was = s.at[i];
         s.at[i] = p;
         const who = s.seen[i].who;
         s.board.put(who, p);
-        if (who.kind != .dog) return;
+        if (i != 0) return;
+        const step = delta(was, p);
         const before = s.board.walked[who.n];
-        const after = before +| @as(u32, @intCast(measure(delta(was, p))));
+        const after = before +| @as(u32, @intCast(measure(step)));
         s.board.walked[who.n] = after;
         var k = before / poop_every;
-        while (k < after / poop_every) : (k += 1) layPoop(s, p);
+        while (k < after / poop_every) : (k += 1) layPoop(s, p, step);
     }
 };
 
 /// The result of sweeping a square along an axis.
-const Swept = struct { by: i32, blocker: ?usize };
+const Swept = struct { by: i32, blocker: ?Bumped };
 
 /// How far the square of half `h` at `p` may go along `axis` by `s`
 /// (signed) against the square of half `oh` at `o`: contact means pressing
@@ -766,19 +779,28 @@ pub fn sweepLimit(p: Point, h: i32, axis: Axis, s: i32, o: Point, oh: i32) i32 {
     return 0;
 }
 
-/// Sweeps seen critter `i` along `axis` by `s` against every other seen
-/// critter; the blocker is the one that stops it shortest, the
-/// higher-ranked on a tie.
-fn sweep(sc: *Scene, i: usize, axis: Axis, s: i32) Swept {
+/// Sweeps the leashed dog (seen index 0) along `axis` by `s` against every
+/// other seen critter and every poop the physics sees; the blocker is the
+/// one that stops it shortest, the higher-ranked on a tie, poops after
+/// critters.
+fn sweep(sc: *Scene, axis: Axis, s: i32) Swept {
     var best = s;
-    var blocker: ?usize = null;
-    const me = sc.seen[i];
-    for (sc.list(), 0..) |o, j| {
-        if (j == i) continue;
-        const got = sweepLimit(sc.pos(i), me.half, axis, s, sc.pos(j), o.half);
+    var blocker: ?Bumped = null;
+    const p = sc.pos(0);
+    const h = sc.seen[0].half;
+    for (sc.list()[1..], 1..) |o, j| {
+        const got = sweepLimit(p, h, axis, s, sc.pos(j), o.half);
         if (mag(got) < mag(best)) {
             best = got;
-            blocker = j;
+            blocker = .{ .critter = o.who };
+        }
+    }
+    for (sc.poops[0..sc.poops_len]) |n| {
+        if (sc.board.poop_known[n] != .present) continue;
+        const got = sweepLimit(p, h, axis, s, sc.board.poops[n], poop_half);
+        if (mag(got) < mag(best)) {
+            best = got;
+            blocker = .{ .poop = n };
         }
     }
     return .{ .by = best, .blocker = blocker };
@@ -789,7 +811,7 @@ fn sweep(sc: *Scene, i: usize, axis: Axis, s: i32) Swept {
 pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) void {
     out.len = 0;
     out.walk_len = 0;
-    var bumped: ?Critter = null;
+    var bumped: ?Bumped = null;
     if (b.hold == .leashed) {
         // **NO FILL FOR THE SCENE**: a safe build writes 0xaa over memory
         // declared `undefined`; `init` sets every field a scene reads.
@@ -854,9 +876,9 @@ pub fn tick(b: *Board, t: Tick, humans: []const Human, drag: []const Disp, out: 
 }
 
 /// The drag's displacements, x then y, each cut into pixel-ticks; the
-/// critter the leashed dog bumped, if it did (the rest of the drag is then
-/// dropped).
-fn playDrag(sc: *Scene, drag: []const Disp) ?Critter {
+/// critter or poop the leashed dog bumped, if it did (the rest of the
+/// drag is then dropped).
+fn playDrag(sc: *Scene, drag: []const Disp) ?Bumped {
     for (drag) |d| {
         for ([_]Axis{ .x, .y }) |axis| {
             const part: i64 = if (axis == .x) d.dx else d.dy;
@@ -876,14 +898,24 @@ fn playDrag(sc: *Scene, drag: []const Disp) ?Critter {
 }
 
 /// One pixel-tick: the leashed dog takes the step, stopping just short of
-/// pressing into anyone; then the walk.
-fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Critter {
+/// pressing into anyone; then the walk. A bump into a chicken or a poop
+/// then sets it back `bump_room` the way it came, as far as that way is
+/// clear (decision 28).
+fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
     if (inc == 0) return null;
-    const r = sweep(sc, 0, axis, inc);
+    const r = sweep(sc, axis, inc);
     sc.put(0, moved(sc.pos(0), axis, r.by));
     if (r.by != 0) walk(sc, mag(r.by));
-    if (r.blocker) |j| return sc.seen[j].who;
-    return null;
+    const bumped = r.blocker orelse return null;
+    const back_off = switch (bumped) {
+        .critter => |c| c.kind == .chicken,
+        .poop => true,
+    };
+    if (back_off) {
+        const back = sweep(sc, axis, -sign(inc) * bump_room);
+        sc.put(0, moved(sc.pos(0), axis, back.by));
+    }
+    return bumped;
 }
 
 /// **THE WALK** (decisions 20-22, 27): out from the leashed dog (seen
@@ -1098,6 +1130,7 @@ fn stepVetoed(sc: *Scene, i: usize, step: Point) void {
         const to = wrapped(.{ .x = sc.pos(g).x + step.x, .y = sc.pos(g).y + step.y });
         const h = sc.seen[g].half;
         if (!clearOfTheEdge(sc.span, to, h)) return;
+        if (sc.seen[g].who.kind != .chicken and onPoop(sc, to, h)) return;
         for (sc.list(), 0..) |o, j| {
             if (in_group.isSet(j) or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
             if (j == 0 or breed == null or kinOf(o.who) != breed or n == nudge_most) return;
@@ -1107,6 +1140,15 @@ fn stepVetoed(sc: *Scene, i: usize, step: Point) void {
         }
     }
     for (group[0..n]) |g| sc.put(g, .{ .x = sc.pos(g).x + step.x, .y = sc.pos(g).y + step.y });
+}
+
+/// Whether a square of half `h` at `p` overlaps a poop the physics sees
+/// (decision 28: an obstacle to dogs and cows).
+fn onPoop(sc: *const Scene, p: Point, h: i32) bool {
+    for (sc.poops[0..sc.poops_len]) |n| {
+        if (sc.board.poop_known[n] == .present and squaresOverlap(p, h, sc.board.poops[n], poop_half)) return true;
+    }
+    return false;
 }
 
 /// Who nudges whom: cows are one kin, each breed of dog another; a
@@ -1119,29 +1161,39 @@ fn kinOf(c: Critter) ?u8 {
     };
 }
 
-/// **A DOG POOPS** (decisions 26-27): into slot `laid` mod `poop_count`,
-/// at the nearest spot to `p` where its square overlaps no critter and no
-/// poop the physics sees: rings `poop_grid` apart out to `poop_reach`,
-/// each walked clockwise from its north-west corner. With no such spot, no
-/// poop.
-fn layPoop(sc: *Scene, p: Point) void {
+/// **THE LEASHED DOG POOPS** (decisions 26-28): into slot `laid` mod
+/// `poop_count`, at the nearest spot to `p` where its square overlaps no
+/// critter and no poop the physics sees and keeps `bump_room` from the
+/// leashed dog: rings `poop_grid` apart out to `poop_reach`, each walked
+/// clockwise from the point straight to the right of the dog's `step`
+/// (beside it, so a dog following in its track passes it). With no such
+/// spot, no poop.
+fn layPoop(sc: *Scene, p: Point, step: Point) void {
     const slot: u16 = @intCast(sc.board.laid % poop_count);
-    var r: i32 = 0;
+    var r: i32 = poop_grid;
     while (r <= poop_reach) : (r += poop_grid) {
-        if (r == 0) {
-            if (poopFits(sc, p, slot)) return placePoop(sc, slot, p);
-            continue;
+        const side = @divExact(2 * r, poop_grid);
+        const half_side = @divExact(r, poop_grid);
+        // To the step's right, by its larger axis: east's is the south
+        // side's middle, south's the west's, west's the north's, north's
+        // the east's (sides north, east, south, west, each walked
+        // clockwise).
+        const right: i32 = if (mag(step.x) >= mag(step.y))
+            (if (step.x > 0) 2 * side + half_side else half_side)
+        else
+            (if (step.y > 0) 3 * side + half_side else side + half_side);
+        var k: i32 = 0;
+        while (k < 4 * side) : (k += 1) {
+            const at = @mod(right + k, 4 * side);
+            const off = @mod(at, side) * poop_grid;
+            const d: Point = switch (@divFloor(at, side)) {
+                0 => .{ .x = -r + off, .y = -r },
+                1 => .{ .x = r, .y = -r + off },
+                2 => .{ .x = r - off, .y = r },
+                else => .{ .x = -r, .y = r - off },
+            };
+            if (tryPoop(sc, slot, p, d.x, d.y)) return;
         }
-        // Clockwise: the north side west to east, the east side down, the
-        // south side east to west, the west side up.
-        var t: i32 = -r;
-        while (t < r) : (t += poop_grid) if (tryPoop(sc, slot, p, t, -r)) return;
-        t = -r;
-        while (t < r) : (t += poop_grid) if (tryPoop(sc, slot, p, r, t)) return;
-        t = r;
-        while (t > -r) : (t -= poop_grid) if (tryPoop(sc, slot, p, t, r)) return;
-        t = r;
-        while (t > -r) : (t -= poop_grid) if (tryPoop(sc, slot, p, -r, t)) return;
     }
 }
 
@@ -1153,9 +1205,12 @@ fn tryPoop(sc: *Scene, slot: u16, p: Point, dx: i32, dy: i32) bool {
 }
 
 /// Whether a poop at `q` overlaps no critter and no other poop the
-/// physics sees.
+/// physics sees, and keeps `bump_room` from the leashed dog.
 fn poopFits(sc: *const Scene, q: Point, slot: u16) bool {
-    for (sc.list(), 0..) |o, j| if (squaresOverlap(q, poop_half, sc.pos(j), o.half)) return false;
+    for (sc.list(), 0..) |o, j| {
+        const room: i32 = if (j == 0) bump_room else 0;
+        if (squaresOverlap(q, poop_half, sc.pos(j), o.half + room)) return false;
+    }
     for (sc.poops[0..sc.poops_len]) |n| {
         if (n == slot or sc.board.poop_known[n] != .present) continue;
         if (squaresOverlap(q, poop_half, sc.board.poops[n], poop_half)) return false;
@@ -1231,8 +1286,9 @@ pub fn wishAlong(v: Point, length: i32) Point {
 }
 
 /// Every overlapping pair among the critters the physics sees, by the
-/// first critter then the second: the invariant the server checks after
-/// every tick (a finding, not a refutation).
+/// first critter then the second, and every critter on a poop (counted,
+/// not listed): the invariant the server checks after every tick (a
+/// finding, not a refutation).
 pub fn overlaps(b: *Board, found: []([2]Critter)) usize {
     @setRuntimeSafety(false);
     var sc: Scene = undefined;
@@ -1245,6 +1301,16 @@ pub fn overlaps(b: *Board, found: []([2]Critter)) usize {
             if (n < found.len) found[n] = .{ a.who, o.who };
             n += 1;
         }
+    }
+    return n + onPoops(&sc);
+}
+
+/// How many seen critters overlap a poop the physics sees (decision 28:
+/// none should; a chicken eats one the step it reaches it).
+pub fn onPoops(sc: *const Scene) usize {
+    var n: usize = 0;
+    for (sc.list(), 0..) |a, i| {
+        if (onPoop(sc, sc.pos(i), a.half)) n += 1;
     }
     return n;
 }

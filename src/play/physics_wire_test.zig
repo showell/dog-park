@@ -80,8 +80,9 @@ test "every kind of line round-trips: written, parsed, the same integers, writte
         .{ .t = .{ .tick = 1042, .ms = 63, .drag = .{} } },
         .{ .critter = .{ .who = .dog(223), .before = .{ .x = 0x42d200, .y = 0x46d200 }, .after = .{ .x = 0x42d1f0, .y = 0x46d200 } } },
         .{ .critter = .{ .who = .cow(49), .before = .{ .x = 0, .y = physics.world - 1 }, .after = .{ .x = 1, .y = 255 } } },
-        .{ .bump = .{ .tick = 5, .who = .cow(0) } },
-        .{ .bump = .{ .tick = 5, .who = .dog(17) } },
+        .{ .bump = .{ .tick = 5, .who = .{ .critter = .cow(0) } } },
+        .{ .bump = .{ .tick = 6, .who = .{ .poop = 2047 } } },
+        .{ .bump = .{ .tick = 5, .who = .{ .critter = .dog(17) } } },
     };
     for (lines) |l| try roundTrip(l);
 }

@@ -682,7 +682,7 @@ test "23. a tile sent again after a differ, its held never kept: the page's boar
     try page.write(.{ .held = .{ .tick = page.last + 1, .tiles = one } });
     try page.write(.{ .t = .{ .tick = page.last + 1, .ms = 0, .drag = .{} } });
     // The server's run rests there (the drag on, nothing moving).
-    try page.write(.{ .bump = .{ .tick = page.last + 1, .who = .cow(0) } });
+    try page.write(.{ .bump = .{ .tick = page.last + 1, .who = .{ .critter = .cow(0) } } });
     const a = try rig.report(page.body());
     try testing.expect(std.mem.indexOf(u8, a, "\ndiffer ") != null);
     try testing.expect(std.mem.indexOf(u8, a, "\ntile 40,40\n") != null);
@@ -789,7 +789,7 @@ test "the breaker: the third differ in a row answers reload differs; three of th
         for (0..3) |i| {
             try page.begin();
             try page.write(.{ .t = .{ .tick = page.from + 1, .ms = 0, .drag = .{} } });
-            try page.write(.{ .bump = .{ .tick = page.from + 1, .who = .cow(0) } });
+            try page.write(.{ .bump = .{ .tick = page.from + 1, .who = .{ .critter = .cow(0) } } });
             const a = try rig.report(page.body());
             if (i < 2) {
                 try testing.expect(std.mem.indexOf(u8, a, "\ndiffer ") != null);
