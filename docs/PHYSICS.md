@@ -313,6 +313,24 @@ rate a second as 256ths a tick; one that doesn't divide doesn't compile),
 | the squares | `dog_px`, `cow_px` | dogs 40 px, cows 60 px |
 | the first layout | `layout.zig` | 400 dogs, four to a tile, one breed per corner; 50 cows |
 
+**What a retune must keep.** These relations between the knobs are
+checked; the first three refuse to compile.
+- **The region outreaches the rules:** `region_reach` at least
+  `region_needs`, the longest of the three chains in "The region's size,
+  derived".
+- **A cow's room is more than touching:** `cow_room > dog_half +
+  cow_half`. Otherwise a cow lets a dog overlap it before it moves off.
+- **The wishes' grid fits:** `wary <= follow`, and `follow / wary` small
+  enough that the anchor's rings fit the grid's 16 cells.
+- **The scare box spans two lanes:** `scare_box >= 2 * lane`. Otherwise
+  a cow on the dog's line can't get out of its way in time. The lane
+  test states this as its precondition.
+
+`zig build -Dknobs=alt` moves every tuned knob by about half, within these
+relations; `zig build slow` runs the physics' tests under it, so a test
+that pins a played value instead of a property fails there. The worked
+example's tests are the played knobs' and skip under alt.
+
 **Arithmetic.** Every critter's position is an integer count of 256ths of
 a pixel, the cows' too, with an integer square root for distances. **Every product is `i64`:** squared distances
 (in 256ths, about 7·10^13 along one axis of the 64 × 64 world and
