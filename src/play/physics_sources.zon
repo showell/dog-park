@@ -4,7 +4,6 @@
 // configure time.
 .{
     "physics.zig",
-    "physics_jump.zig",
     "physics_wire.zig",
     "tiles.zig",
     "layout.zig",

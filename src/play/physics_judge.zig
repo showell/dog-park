@@ -256,7 +256,7 @@ fn writeBoard(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.
     var board = kept.board;
     var awake: Named = .{};
     if (physics.Scene.of(&board)) |sc| {
-        for (sc.list()) |s| if (s.awake == .awake) switch (s.who.kind) {
+        for (sc.list()) |s| switch (s.who.kind) {
             .dog => awake.dogs[s.who.n] = .named,
             .cow => awake.cows[s.who.n] = .named,
         };

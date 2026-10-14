@@ -487,15 +487,6 @@ test("a fast drag glides: the leashed dog, 100 px a tick, is drawn from where it
       if (was && now.parkX - was.parkX > 50) glided++;
     }
     assert.ok(glided > 0, "the leashed dog moved over 50 px in a tick and was drawn gliding");
-    // The physics' own answer: a copy of the live board, a full drag; the
-    // jumpers are ids the board has.
-    const { physics } = rig;
-    physics.copy(LIVE, SCRATCH);
-    const r = physics.tick(SCRATCH, 100000, [[100 * 256, 100 * 256, 0]]);
-    assert.ok(Array.isArray(r.jumped.dogs) && Array.isArray(r.jumped.cows));
-    const c = physics.critters(SCRATCH);
-    for (const id of r.jumped.dogs) assert.ok(c.dogs.some((d) => d.id === id));
-    for (const id of r.jumped.cows) assert.ok(c.cows.some((d) => d.id === id));
   } finally {
     await server.stop();
   }

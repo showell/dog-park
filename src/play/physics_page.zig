@@ -45,9 +45,6 @@ var line_tick: Tick = 0;
 /// The last tick's flags and its displacements as merged and capped.
 var flags: u32 = 0;
 var capped_len: u32 = 0;
-/// The last tick's jumpers, one byte a critter (dogs, then cows): 1 for a
-/// critter that jumped (out from under, or a push's nearest spot).
-var jumped: [physics.critter_count]u8 = @splat(0);
 /// The last tick's walk: the dogs it moved, by number, in visit order
 /// (the page labels them 1 to `walk_most`).
 var walk: [physics.walk_most]u16 = @splat(0);
@@ -281,7 +278,6 @@ export fn tick(b: u32, t: f64, n: u32) u32 {
     const tk = tickOf(t);
     physics.run(board(b), tk, begun[b], drag.slice(), &lines);
     begun[b] = .{};
-    for (&jumped, 0..) |*j, i| j.* = @intFromBool(lines.jumped.isSet(i));
     walk_len = @intCast(lines.walk_len);
     @memcpy(walk[0..lines.walk_len], lines.walk[0..lines.walk_len]);
     flags = 0;
@@ -306,11 +302,6 @@ export fn tick(b: u32, t: f64, n: u32) u32 {
 
 export fn tickFlags() u32 {
     return flags;
-}
-
-/// The last tick's jumpers: `critterCount` bytes, dogs then cows.
-export fn jumpedAt() [*]u8 {
-    return &jumped;
 }
 
 export fn walkLen() u32 {

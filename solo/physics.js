@@ -23,8 +23,8 @@
 //     tick(board, t, drag)         drag: [[dx, dy, ms], ...] in 256ths, as the
 //                                  pointer made them; merged, capped and run:
 //                                  { checked (text), drag (as capped), flags,
-//                                    jumped: { dogs: [id], cows: [id] }, the
-//                                    critters that jumped }
+//                                    walk: ["dog:ID" | "cow:ID"], the last
+//                                    walk's critters in visit order }
 //     tLine(t, plusMs, drag)       the `t` line, for a capped drag
 //     header({ ms, count }, req, from, wall)   wall: a number, or "none"
 //     loadLine(width, height)
@@ -52,16 +52,6 @@ export function createPhysics(x) {
   const decoder = new TextDecoder();
   const bytes = (ptr, len) => new Uint8Array(x.memory.buffer, ptr, len);
   const ints = () => new Int32Array(x.memory.buffer, x.ints(), x.intsCap());
-  // The last tick's jumpers, by id.
-  const takeJumped = () => {
-    const nd = x.dogCount();
-    const j = new Uint8Array(x.memory.buffer, x.jumpedAt(), nd + x.cowCount());
-    const out = { dogs: [], cows: [] };
-    j.forEach((v, i) => {
-      if (v) (i < nd ? out.dogs : out.cows).push(i < nd ? i : i - nd);
-    });
-    return out;
-  };
   // The last tick's walk: the critters it moved, in visit order, as
   // "dog:ID" or "cow:ID".
   const takeWalk = () => {
@@ -136,7 +126,7 @@ export function createPhysics(x) {
     },
     tick(b, t, drag) {
       const len = x.tick(b, t, putDrag(drag));
-      return { checked: text(len), drag: takeDrag(x.cappedLen()), flags: x.tickFlags(), jumped: takeJumped(), walk: takeWalk() };
+      return { checked: text(len), drag: takeDrag(x.cappedLen()), flags: x.tickFlags(), walk: takeWalk() };
     },
     tLine(t, plusMs, drag) { return text(x.writeT(t, plusMs, putDrag(drag))); },
     header(epoch, req, from, wall) { return text(x.writeHeader(epoch.ms, epoch.count, req, from, wall === "none" ? -1 : wall)); },

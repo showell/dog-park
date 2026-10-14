@@ -32,7 +32,6 @@ const std = @import("std");
 const physics = @import("physics.zig");
 const wire = @import("physics_wire.zig");
 const judge = @import("physics_judge.zig");
-const jump = @import("physics_jump.zig");
 const Tick = physics.Tick;
 const Board = physics.Board;
 const Critter = physics.Critter;
@@ -222,64 +221,31 @@ pub const Resolution = union(enum) {
     nowhere: Critter,
 };
 
-/// **THE PARK ON LOAD**, once, on a board never resolved: in rank order
-/// each critter that overlaps one above it jumps to the nearest spot clear
-/// of everyone. The torus has no edge to stick out of (decision 14): the
-/// jump works around the critter itself (every obstacle as its copy
-/// nearest it, inside a square just short of half the world), and its
-/// landing wraps into the world. The moves go to `out` as critter lines.
+/// **THE PARK ON LOAD**, once, on a board never resolved: it must have no
+/// two critters overlapping. The first layout has none, and no tick makes
+/// one (the walk's veto, the leashed dog's sweep), so a board with one is a
+/// bug: the server does not start (`nowhere` names the later of the pair).
+/// Nothing moves, so nothing goes to `out`.
 pub fn resolve(b: *Board, out: *std.ArrayList(u8), alloc: std.mem.Allocator) !Resolution {
-    const leashed = b.leashedDog();
-    var moved: usize = 0;
-    var order: [physics.critter_count]Critter = undefined;
+    _ = out;
+    _ = alloc;
+    var all: [physics.critter_count]Critter = undefined;
     var n: usize = 0;
     for (0..physics.cow_count) |i| {
-        order[n] = .cow(@intCast(i));
+        all[n] = .cow(@intCast(i));
         n += 1;
     }
     for (0..physics.dog_count) |i| {
-        if (leashed != null and leashed.? == i) continue;
-        order[n] = .dog(@intCast(i));
+        all[n] = .dog(@intCast(i));
         n += 1;
     }
-    if (leashed) |l| {
-        // Nothing outranks it: it is the first above every other.
-        std.mem.copyBackwards(Critter, order[1 .. n + 1], order[0..n]);
-        order[0] = .dog(l);
-        n += 1;
-    }
-    for (order[0..n], 0..) |c, i| {
-        if (i == 0 and leashed != null) continue;
+    for (all[0..n], 0..) |c, i| {
         if (b.known(c) != .present) continue;
-        const p = b.at(c);
-        const half = c.half();
-        var clash = false;
-        for (order[0..i]) |o| {
-            if (b.known(o) == .present and physics.squaresOverlap(p, half, b.at(o), o.half())) {
-                clash = true;
-                break;
-            }
+        for (all[0..i]) |o| {
+            if (b.known(o) == .present and physics.squaresOverlap(b.at(c), c.half(), b.at(o), o.half())) return .{ .nowhere = c };
         }
-        if (!clash) continue;
-        var obs: jump.Obstacles = .{};
-        for (order[0..n]) |o| {
-            if (o.eql(c) or b.known(o) != .present) continue;
-            obs.add(physics.Rect.square(physics.nearestCopy(p, b.at(o)), o.half()), 2 * physics.rank(leashed, o));
-        }
-        const around = physics.Rect.square(p, physics.half_world - half);
-        const spot = physics.wrapped(jump.nearestSpot(p, half, obs.slice(), around) orelse return .{ .nowhere = c });
-        try writeMove(out, alloc, .{ .who = c, .before = p, .after = spot });
-        b.put(c, spot);
-        moved += 1;
     }
-    return .{ .resolved = moved };
-}
-
-fn writeMove(out: *std.ArrayList(u8), alloc: std.mem.Allocator, c: physics.CritterLine) !void {
-    var buf: [128]u8 = undefined;
-    var w: wire.Text = .{ .buf = &buf };
-    try wire.write(&w, .{ .critter = c });
-    try out.appendSlice(alloc, w.bytes());
+    return .{ .resolved = 0 };
 }
 
 // ── snapshots ───────────────────────────────────────────────────────────────

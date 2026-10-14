@@ -217,7 +217,7 @@ test("a dog's look is its breed, n mod 4", () => {
 
 // ── what a frame draws, and what a press is on ──────────────────────────────
 
-test("between ticks: part way however far (a fast drag's walk glides), where it is when new (or jumped: the engine leaves it out)", () => {
+test("between ticks: part way however far (a fast drag's walk glides), where it is when new", () => {
   const was = { parkX: 100, parkY: 200 };
   assert.deepEqual(scene.between(was, { parkX: 140, parkY: 180 }, 0), { parkX: 100, parkY: 200 });
   assert.deepEqual(scene.between(was, { parkX: 140, parkY: 180 }, 0.25), { parkX: 110, parkY: 195 });

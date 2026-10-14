@@ -15,13 +15,6 @@ const testing = std.testing;
 const Board = physics.Board;
 const Point = physics.Point;
 
-/// The worked example is the doc's, written under the played knobs: under
-/// another tuning (-Dknobs=alt) the same inputs play out otherwise, so its
-/// tests skip there, by name; the tests derived from no example still run.
-fn playedOnly() !void {
-    if (physics.knobs != .played) return error.SkipZigTest;
-}
-
 /// The doc's physics hash (a placeholder there): the judge takes it as its
 /// own, so the fixture reads as written.
 const doc_hash: u32 = 0x5e0c91a2;
@@ -34,7 +27,6 @@ pub const example_report =
     \\held 1041 30,32 31,32 32,32 33,32 34,32 35,32 36,32 30,33 31,33 32,33 33,33 34,33 35,33 36,33 30,34 31,34 32,34 33,34 34,34 35,34 36,34 30,35 31,35 36,35 30,36 31,36 36,36 30,37 31,37 32,37 33,37 34,37 35,37 36,37 30,38 31,38 32,38 33,38 34,38 35,38 36,38
     \\t 1041 +0 drag -1.00,0@3 -2.00,0@19
     \\ dog 219 423c.00,463c.00 > 4239.00,463c.00
-    \\ cow 43 416e.00,4556.00 > 416e.00,4554.80
     \\ dog 223 42d2.00,463c.00 > 42cf.00,463c.00
     \\letgo 1042
     \\t 1042 +63
@@ -150,13 +142,11 @@ fn judged(report: []const u8, buf: []u8, kept: *judge_mod.Kept) ![]const u8 {
 }
 
 test "the worked example from the page's side: its own run writes the doc's report, byte for byte" {
-    try playedOnly();
     var buf: [8192]u8 = undefined;
     try testing.expectEqualStrings(example_report, try examplePageRun(&buf));
 }
 
 test "the worked example: the report is kept through 1043, the drag ended at the letgo, the leash on" {
-    try playedOnly();
     var k = exampleKept();
     var buf: [4096]u8 = undefined;
     try testing.expectEqualStrings("req 4\nkept 1043\n", try judged(example_report, &buf, &k));
@@ -176,7 +166,6 @@ fn exampleLine(t: physics.Tick, who: []const u8, buf: []u8) ![]const u8 {
 }
 
 test "the worked example, dog 223's step at 1041 a 256th off: differ at that line, the server's own line and its state and board at 1041" {
-    try playedOnly();
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -194,8 +183,7 @@ test "the worked example, dog 223's step at 1041 a 256th off: differ at that lin
     try testing.expectEqual(@as(physics.Tick, 1040), k.tick);
 }
 
-test "the worked example's region holds the viewport, and its awake critters are every one in the region's tiles" {
-    try playedOnly();
+test "the worked example's region holds the viewport, and its seen critters are every one in the region's tiles" {
     var b = exampleBoard();
     b.hold = .{ .leashed = .{ .dog = leashed, .drag = .on } };
     const region = exampleRegion();
@@ -206,8 +194,8 @@ test "the worked example's region holds the viewport, and its awake critters are
     const span = physics.TileSpan.of(physics.region(b.dogs[leashed]));
     var n: usize = 0;
     for (sc.list()) |s| {
-        try testing.expectEqual(span.holdsPoint(b.at(s.who)), s.awake == .awake);
-        if (s.awake == .awake and s.who.kind == .dog) n += 1;
+        try testing.expect(span.holdsPoint(b.at(s.who)));
+        if (s.who.kind == .dog) n += 1;
     }
     try testing.expectEqual(@as(usize, 2), n);
 }
@@ -268,19 +256,18 @@ test "a refused input: a leash while one is leashed is differ none at that line"
 }
 
 test "a report missing a line the server's run has, and one with a line it doesn't" {
-    try playedOnly();
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var buf: [4096]u8 = undefined;
-    // Cow 43's line dropped: the server's is named.
+    // Dog 223's line dropped: the server's is named.
     {
         var k = exampleKept();
         var line_buf: [128]u8 = undefined;
-        const cow43 = try exampleLine(1041, " cow 43 ", &line_buf);
-        const report = try std.mem.replaceOwned(u8, a, example_report, try std.fmt.allocPrint(a, " {s}\n", .{cow43}), "");
+        const dog223 = try exampleLine(1041, " dog 223 ", &line_buf);
+        const report = try std.mem.replaceOwned(u8, a, example_report, try std.fmt.allocPrint(a, " {s}\n", .{dog223}), "");
         const answer = try judged(report, &buf, &k);
-        try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.allocPrint(a, "req 4\nkept 1040\ndiffer 1041 {s}\n", .{cow43})));
+        try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.allocPrint(a, "req 4\nkept 1040\ndiffer 1041 {s}\n", .{dog223})));
     }
     // A rest the server's run doesn't have, after the last tick's lines.
     {
@@ -292,7 +279,6 @@ test "a report missing a line the server's run has, and one with a line it doesn
 }
 
 test "a drag with no drag on is ignored and noted as a finding" {
-    try playedOnly();
     var k = exampleKept();
     var buf: [4096]u8 = undefined;
     const report = try std.mem.replaceOwned(u8, testing.allocator, example_report, "t 1043 +125\n", "t 1043 +125 drag +1.00,0@5\n");

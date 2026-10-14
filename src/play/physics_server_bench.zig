@@ -1,11 +1,11 @@
-//! How long a 32-tick report's round trip through `POST /report` takes,
+//! How long a 16-tick report's round trip through `POST /report` takes,
 //! in process (ReleaseSafe, as the server runs): `zig build
 //! physics-server-bench`. The play server set up on a temporary data dir,
-//! a load, a leash in the park's middle, then 32 ticks of a drag through
+//! a load, a leash in the park's middle, then 16 ticks of a drag through
 //! the park written as the page writes them, routed as webbox's hosts
 //! route a request: the parse, the judge's re-run, the log's append, the
 //! answer. Each run starts from the same kept tick (the board put back), so
-//! every run re-runs and logs all 32 ticks; about a second of runs.
+//! every run re-runs and logs all 16 ticks; about a second of runs.
 
 const std = @import("std");
 const webbox = @import("webbox");
@@ -54,7 +54,7 @@ pub fn main(init: std.process.Init) !void {
     const dog: u16 = 137;
     s.kept.board.hold = .{ .leashed = .{ .dog = dog, .drag = .on } };
     s.last = 1;
-    // 32 ticks of a drag through the park, as the page writes them; the
+    // 16 ticks of a drag through the park, as the page writes them; the
     // view, every tile the region meets at some tick's start.
     var body: std.ArrayList(u8) = .empty;
     try line(&body, a, .{ .header = .{ .language = wire.language, .physics = s.physics_hash, .epoch = .{ .ms = s.started, .count = s.epoch }, .req = 2 } });
@@ -62,7 +62,7 @@ pub fn main(init: std.process.Init) !void {
     var page = s.kept.board;
     var region: wire.TileSet = .{};
     var critter_lines: usize = 0;
-    for (0..32) |i| {
+    for (0..16) |i| {
         const span = physics.TileSpan.of(physics.region(page.dogs[dog]));
         var r = span.row_lo;
         while (r <= span.row_hi) : (r += 1) {
@@ -99,5 +99,5 @@ pub fn main(init: std.process.Init) !void {
         total += std.Io.Clock.awake.now(io).nanoseconds - t0;
     }
     const us = @as(f64, @floatFromInt(total)) / @as(f64, @floatFromInt(runs)) / 1000.0;
-    std.debug.print("a 32-tick report ({d} bytes, {d} critter lines) through POST /report, judged, logged, answered: {d:.1} us (mean of {d}); its answer: {s}", .{ body.items.len, critter_lines, us, runs, answer });
+    std.debug.print("a 16-tick report ({d} bytes, {d} critter lines) through POST /report, judged, logged, answered: {d:.1} us (mean of {d}); its answer: {s}", .{ body.items.len, critter_lines, us, runs, answer });
 }

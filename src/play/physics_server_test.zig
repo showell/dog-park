@@ -883,7 +883,7 @@ test "the log's frames: a torn tail is dropped, a bad entry before a whole one i
     try testing.expectError(error.CorruptLog, e.next());
 }
 
-test "the load resolution: an overlapping park is resolved once, logged first, and never again" {
+test "a park starts once from its base, logged first, and a restart applies the snapshot, not the base" {
     var rig: Rig = undefined;
     rig.arena = .init(testing.allocator);
     rig.threaded = .init(testing.allocator, .{});
@@ -892,22 +892,9 @@ test "the load resolution: an overlapping park is resolved once, logged first, a
     rig.server = try testing.allocator.create(Server);
     defer rig.deinit();
     var base = Board.laidOut();
-    // Dog 7 dragged onto dog 6, and dog 8 onto cow 3.
-    base.dogs[7] = .{ .x = base.dogs[6].x + physics.px(5), .y = base.dogs[6].y };
-    base.dogs[8] = base.cows[3];
     rig.started = try rig.server.start(rig.io(), rig.arena.allocator(), rig.data, &base, t0);
-    try testing.expectEqual(@as(usize, 2), rig.started.board.resolved);
-    const b = &rig.server.kept.board;
-    var pairs: [4][2]physics.Critter = undefined;
-    for ([_]u16{ 6, 7, 8 }) |n| {
-        b.hold = .{ .leashed = .{ .dog = n, .drag = .on } };
-        try testing.expectEqual(@as(usize, 0), physics.overlaps(b, &pairs));
-    }
-    b.hold = .none;
-    const log = try rig.logBytes();
-    try testing.expect(std.mem.startsWith(u8, log, "entry resolved "));
-    try testing.expect(std.mem.indexOf(u8, log, "\n dog 7 ") != null);
-    // A restart applies the snapshot: nothing resolved again, same board.
+    try testing.expectEqual(@as(usize, 0), rig.started.board.resolved);
+    try testing.expect(std.mem.startsWith(u8, try rig.logBytes(), "entry resolved "));
     const was = rig.server.kept.board;
     var other = Board.laidOut();
     other.dogs[0].x += physics.px(1);
@@ -916,7 +903,7 @@ test "the load resolution: an overlapping park is resolved once, logged first, a
     try testing.expect(std.meta.eql(was.dogs, rig.server.kept.board.dogs));
 }
 
-test "a park with a critter that has nowhere to go does not start, and the log says which" {
+test "a park with two critters overlapping does not start, and the log says which (no tick makes one: it is a bug)" {
     var rig: Rig = undefined;
     rig.arena = .init(testing.allocator);
     rig.threaded = .init(testing.allocator, .{});
@@ -924,21 +911,10 @@ test "a park with a critter that has nowhere to go does not start, and the log s
     rig.data = try std.fs.path.join(rig.arena.allocator(), &.{ ".zig-cache", "tmp", &rig.tmp.sub_path, "data" });
     rig.server = try testing.allocator.create(Server);
     defer rig.deinit();
-    // On the torus nothing sticks out (decision 14): nowhere to go is a
-    // dog on top of another in a solid block. Dogs 0 to 168 tile a 13 by 13
-    // square edge to edge, past the jump's reach every way from its middle,
-    // so every candidate square overlaps one of them; dog 169 sits on the
-    // middle one, below it in rank, and is the one that clashes.
-    var base = Board.empty();
-    const at = physics.px(16000);
-    const side = 2 * physics.dog_half;
-    for (0..13) |r| for (0..13) |c| {
-        base.place(.dog(@intCast(r * 13 + c)), .{ .x = at + @as(i32, @intCast(c)) * side - 6 * side, .y = at + @as(i32, @intCast(r)) * side - 6 * side });
-    };
-    try testing.expect(6 * side > physics.jump_reach + 2 * side);
-    base.place(.dog(169), .{ .x = at, .y = at });
+    var base = Board.laidOut();
+    base.dogs[7] = .{ .x = base.dogs[6].x + physics.px(5), .y = base.dogs[6].y };
     try testing.expectError(error.ParkDoesNotResolve, rig.server.start(rig.io(), rig.arena.allocator(), rig.data, &base, t0));
-    try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "the park does not resolve: dog 169 has nowhere to go") != null);
+    try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "the park does not start: dog 7 overlaps another") != null);
 }
 
 test "a snapshot reads back what it wrote" {
@@ -985,8 +961,6 @@ fn post(io: std.Io, alloc: std.mem.Allocator, hub: *webbox.bus.Hub, path: []cons
 }
 
 test "the worked example through POST /report: the doc's report in, req 4 kept 1043 out, byte for byte; and a body past 64 KiB is a 413" {
-    // The doc's worked example is the played knobs' (physics_judge_test.zig).
-    if (physics.knobs != .played) return error.SkipZigTest;
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

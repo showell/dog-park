@@ -336,22 +336,12 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     ticked(r.flags);
     // The last walk's order, for the labels: kept until a tick walks again.
     if (r.walk.length) visits = new Map(r.walk.map((id, k) => [id, k + 1]));
-    // The tick's jumpers are drawn where they land, not slid there.
-    wasDogs = without(wasDogs, r.jumped.dogs);
-    wasCows = without(wasCows, r.jumped.cows);
     refresh(false);
     if (before && (band.x !== 0 || band.y !== 0)) {
       const after = dogs.get(leashedDog);
       const follow = (b, moved) => (b === 0 || Math.sign(moved) !== Math.sign(b) ? 0 : Math.sign(b) * Math.min(Math.abs(b), Math.abs(moved)));
       moveViewport(viewport.parkX + follow(band.x, offset(before.parkX, after.parkX)), viewport.parkY + follow(band.y, offset(before.parkY, after.parkY)));
     }
-  }
-
-  function without(was, ids) {
-    if (ids.length === 0) return was;
-    const m = new Map(was);
-    for (const id of ids) m.delete(id);
-    return m;
   }
 
   function ticked(flags) {

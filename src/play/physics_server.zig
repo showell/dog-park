@@ -145,7 +145,7 @@ pub const Server = struct {
                 .nowhere => |c| {
                     // Fail, never warn, and say which: the log's one entry
                     // names it (the host prints the error's name).
-                    _ = try store.append(io, alloc, self.log_path, try plog.framed(alloc, .finding, try std.fmt.allocPrint(alloc, "the park does not resolve: {t} {d} has nowhere to go\n", .{ c.kind, c.n })));
+                    _ = try store.append(io, alloc, self.log_path, try plog.framed(alloc, .finding, try std.fmt.allocPrint(alloc, "the park does not start: {t} {d} overlaps another\n", .{ c.kind, c.n })));
                     return error.ParkDoesNotResolve;
                 },
                 .resolved => |n| started = .{ .board = .{ .resolved = n }, .kept = 0 },
