@@ -676,8 +676,8 @@ fn outFromUnder(sc: *Scene, i: usize) void {
 /// the leashed dog's own step.
 fn wishes(sc: *Scene, most: i32) void {
     // Out from under, in rank order; then the walk out from the leashed
-    // dog (physics.zig's `wishes`), written plainly: each visited dog's
-    // newly lined-up dogs sorted by distance from its new place, then rank.
+    // dog, shortest link first (physics.zig's `wishes`), written plainly:
+    // every waiting dog in one list, the least (key, rank) found by a scan.
     var root: ?usize = null;
     for (sc.awakeOnes()) |w16| {
         const s = sc.seen[w16];
@@ -686,42 +686,46 @@ fn wishes(sc: *Scene, most: i32) void {
     }
     const r = root orelse return;
     var lined = [_]bool{false} ** critter_count;
-    var queue: std.ArrayList(usize) = .empty;
-    var buf: [critter_count]usize = undefined;
-    queue = .initBuffer(&buf);
+    var buf: [critter_count]Wait = undefined;
+    var waiting: std.ArrayList(Wait) = .initBuffer(&buf);
     lined[r] = true;
-    lineUp(sc, r, &queue, &lined);
-    var head: usize = 0;
+    lineUp(sc, r, &waiting, &lined);
     var walked: usize = 0;
-    while (head < queue.items.len and walked < physics.walk_most) : (head += 1) {
-        const i = queue.items[head];
+    while (walked < physics.walk_most and waiting.items.len > 0) : (walked += 1) {
+        var best: usize = 0;
+        for (waiting.items, 0..) |w, k| {
+            const b = waiting.items[best];
+            if (w.key < b.key or (w.key == b.key and w.who < b.who)) best = k;
+        }
+        const i = waiting.swapRemove(best).who;
         stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
-        walked += 1;
-        lineUp(sc, i, &queue, &lined);
+        lineUp(sc, i, &waiting, &lined);
     }
 }
 
-fn lineUp(sc: *const Scene, from: usize, queue: *std.ArrayList(usize), lined: []bool) void {
+const Wait = struct { key: i64, who: usize };
+
+fn lineUp(sc: *const Scene, from: usize, waiting: *std.ArrayList(Wait), lined: []bool) void {
     const p = sc.pos(from);
-    const start = queue.items.len;
+    var cands: [critter_count]Wait = undefined;
+    var n: usize = 0;
     for (sc.awakeOnes()) |j16| {
         const j: usize = j16;
         const s = sc.seen[j];
         if (s.who.kind != .dog or s.rank == 0 or lined[j]) continue;
-        if (measure(delta(sc.pos(j), p)) > measureOf(physics.walk_reach)) continue;
-        lined[j] = true;
-        queue.appendAssumeCapacity(j);
+        cands[n] = .{ .key = measure(delta(sc.pos(j), p)), .who = j };
+        n += 1;
     }
-    const Ctx = struct {
-        sc: *const Scene,
-        p: Point,
-        fn less(c: @This(), a: usize, b: usize) bool {
-            const da = measure(delta(c.sc.pos(a), c.p));
-            const db = measure(delta(c.sc.pos(b), c.p));
-            return da < db or (da == db and a < b);
+    const less = struct {
+        fn f(_: void, a: Wait, b: Wait) bool {
+            return a.key < b.key or (a.key == b.key and a.who < b.who);
         }
-    };
-    std.sort.pdq(usize, queue.items[start..], Ctx{ .sc = sc, .p = p }, Ctx.less);
+    }.f;
+    std.sort.pdq(Wait, cands[0..n], {}, less);
+    for (cands[0..@min(n, physics.walk_fan)]) |c| {
+        lined[c.who] = true;
+        waiting.appendAssumeCapacity(c);
+    }
 }
 
 /// Which axis a straight step meets a square on: the face it presses into,

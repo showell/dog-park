@@ -278,7 +278,7 @@ test "a pack: exact under every symmetry" {
 }
 
 // **THE MINIMAL SCENE**: the leashed dog still, dog 4 (its breed) 200 px
-// off on the diagonal (within the walk's reach), closing on it at the speed, its step (−120, −120)
+// off on the diagonal, closing on it at the speed, its step (−120, −120)
 // in 256ths (the speed on both axes: distance is the larger axis); a cow
 // just off its path, 40 and 20 256ths beyond touching. As one move
 // (decision 18), the step overlaps the cow on y at 20/120 of the way and

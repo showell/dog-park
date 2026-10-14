@@ -1427,23 +1427,26 @@ noinline fn jumpOut(sc: *Scene, i: usize) void {
 /// **THE WALK'S SIZE**: the most dogs a wish step moves, the leashed dog
 /// aside (Steve, 2026-10-14: N = 30).
 pub const walk_most = 30;
-/// **THE WALK'S REACH**: a visited dog lines up the awake dogs within this
-/// of its new place. The dogs' own reach on one another, `wary`.
-pub const walk_reach: i32 = wary;
+/// **THE WALK'S FAN-OUT**: how many dogs each visited dog lines up, its
+/// nearest not yet lined up (Steve, 2026-10-14: 3).
+pub const walk_fan = 3;
 
 /// **THE DOGS' WISHES**, each step at most `most`: once a tick at the
 /// speed, and once per pixel-tick of the drag at the leashed dog's own
 /// step.
 ///
-/// **A WALK OUT FROM THE LEASHED DOG** (Steve, 2026-10-14; decision 20):
-/// every awake dog comes out from under first, in rank order; then the
-/// dogs move one at a time, breadth first from the leashed dog. A dog
-/// visited lines up the awake dogs within `walk_reach` of where it now
-/// stands, not yet lined up, nearest first (ties to the lower rank), behind
-/// those already waiting. Each, in its turn, wishes as the rules say,
-/// seeing the dogs visited before it where they moved to, and steps at
-/// once. The walk stops after `walk_most` dogs; a dog it doesn't reach
-/// stays put this step.
+/// **A WALK OUT FROM THE LEASHED DOG, SHORTEST LINK FIRST** (Steve,
+/// 2026-10-14; decision 20): every awake dog comes out from under first,
+/// in rank order; then the dogs move one at a time. The leashed dog lines
+/// up its `walk_fan` nearest awake dogs; each waits keyed by its distance
+/// from the dog that lined it up. The walk visits the waiting dog with the
+/// least key (ties to the lower rank): it wishes as the rules say, seeing
+/// the dogs visited before it where they moved to, steps at once, and lines
+/// up its own `walk_fan` nearest from where it now stands. So a pack of
+/// dogs close to one another is walked to its end before a dog farther
+/// from the dog that found it, however near the leashed dog that one is.
+/// The walk stops after `walk_most` dogs; a dog it doesn't reach stays put
+/// this step. Only awake dogs take part.
 fn wishes(sc: *Scene, most: i32) void {
     sc.refresh(most);
     var leashed: ?usize = null;
@@ -1457,46 +1460,71 @@ fn wishes(sc: *Scene, most: i32) void {
         outFromUnder(sc, w16);
     }
     const root = leashed orelse return;
-    var queue: [critter_count]u16 = undefined;
+    var waiting: Waiting = .{};
     var lined: std.StaticBitSet(critter_count) = .initEmpty();
     lined.set(root);
-    var head: usize = 0;
-    var tail: usize = lineUp(sc, root, &queue, 0, &lined);
+    lineUp(sc, root, &waiting, &lined);
     var walked: usize = 0;
-    while (head < tail and walked < walk_most) : (head += 1) {
-        const i: usize = queue[head];
+    while (walked < walk_most) : (walked += 1) {
+        const i: usize = waiting.pop() orelse break;
         stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
-        walked += 1;
-        tail = lineUp(sc, i, &queue, tail, &lined);
+        lineUp(sc, i, &waiting, &lined);
     }
 }
 
-/// The awake unleashed dogs within `walk_reach` of dog `from`'s place, not
-/// yet `lined`, appended to `queue` at `tail` nearest first (ties to the
-/// lower rank) and marked; the new tail.
-fn lineUp(sc: *const Scene, from: usize, queue: []u16, tail: usize, lined: *std.StaticBitSet(critter_count)) usize {
-    const p = sc.pos(from);
-    var end = tail;
-    for (sc.awakeOnes()) |j16| {
-        const j: usize = j16;
-        const s = sc.seen[j];
-        if (s.who.kind != .dog or s.rank == 0 or lined.isSet(j)) continue;
-        const d = measure(delta(sc.pos(j), p));
-        if (d > measureOf(walk_reach)) continue;
-        lined.set(j);
-        // Insertion, nearest first, ties to the lower rank (`seen` is in
-        // rank order, so the lower index).
-        var k = end;
-        while (k > tail) : (k -= 1) {
-            const o: usize = queue[k - 1];
-            const od = measure(delta(sc.pos(o), p));
-            if (od < d or (od == d and o < j)) break;
-            queue[k] = queue[k - 1];
+/// The walk's waiting dogs, each keyed by its distance from the dog that
+/// lined it up, held in order: the least key (then the lower rank) last,
+/// so it pops.
+const Waiting = struct {
+    key: [walk_most * walk_fan + walk_fan]i64 = undefined,
+    who: [walk_most * walk_fan + walk_fan]u16 = undefined,
+    len: usize = 0,
+
+    fn add(w: *Waiting, key: i64, who: u16) void {
+        var k = w.len;
+        while (k > 0 and (w.key[k - 1] < key or (w.key[k - 1] == key and w.who[k - 1] < who))) : (k -= 1) {
+            w.key[k] = w.key[k - 1];
+            w.who[k] = w.who[k - 1];
         }
-        queue[k] = j16;
-        end += 1;
+        w.key[k] = key;
+        w.who[k] = who;
+        w.len += 1;
     }
-    return end;
+
+    fn pop(w: *Waiting) ?u16 {
+        if (w.len == 0) return null;
+        w.len -= 1;
+        return w.who[w.len];
+    }
+};
+
+/// Dog `from`'s `walk_fan` nearest awake unleashed dogs not yet `lined`
+/// (ties to the lower rank), from where it stands now, marked and added to
+/// `waiting` keyed by their distance from it.
+fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, lined: *std.StaticBitSet(critter_count)) void {
+    const p = sc.pos(from);
+    var near_key: [walk_fan]i64 = undefined;
+    var near_who: [walk_fan]u16 = undefined;
+    var n: usize = 0;
+    for (sc.awakeOnes()) |j16| {
+        const s = sc.seen[j16];
+        if (s.who.kind != .dog or s.rank == 0 or lined.isSet(j16)) continue;
+        const d = measure(delta(sc.pos(j16), p));
+        // `awakeOnes` is in rank order, so a tie keeps the one already in.
+        if (n == walk_fan and d >= near_key[n - 1]) continue;
+        var k = if (n < walk_fan) n else n - 1;
+        while (k > 0 and near_key[k - 1] > d) : (k -= 1) {
+            near_key[k] = near_key[k - 1];
+            near_who[k] = near_who[k - 1];
+        }
+        near_key[k] = d;
+        near_who[k] = j16;
+        if (n < walk_fan) n += 1;
+    }
+    for (near_key[0..n], near_who[0..n]) |d, j| {
+        lined.set(j);
+        waiting.add(d, j);
+    }
 }
 
 /// Which axis a straight step meets a square on: the face it presses into,
