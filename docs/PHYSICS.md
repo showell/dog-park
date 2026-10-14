@@ -78,14 +78,18 @@ stand.
   the excess; inside the inner edge (60 px) to open the shortfall; in the
   band it is content.
 - **A cow** keeps `wary` from each moving dog, of any breed, and follows
-  no one.
+  the nearest moving cow within `cow_follow` (120 px), no breeds, in its
+  own band (70 to 90 px), the way a dog follows its anchor. A cow with no
+  moving cow that near follows no one (decision 23).
 
 Each wish is a step straight away from (or toward) the other, as long as
 the shortfall (or the excess); they add up. The step is the total, cut to
 the pixel-tick's move for a dog and half of it for a cow; a total under
 the **dead zone** (1 px) is no step. **The veto:** a critter takes its
-step whole, or, if its square there would overlap anyone the physics
-sees, not at all. Still critters are never pressed into, and never
+step whole, or not at all if its square there would overlap anyone the
+physics sees, or come within `cow_half` (30 px, the most a square pokes
+past its point) of the edge of the region's tiles: a critter just outside
+them is unseen but may poke in (decision 23). Still critters are never pressed into, and never
 attract or repel.
 
 ## The numbers
@@ -101,6 +105,8 @@ Tuned by playing; each is a constant in `physics.zig`.
 | wary | 225 px |
 | herd band | 60 to 100 px |
 | a dog's room from a cow | 90 px |
+| a cow follows a cow | within 120 px, band 70 to 90 px |
+| the edge | no step within 30 px of the seen tiles' edge |
 | dead zone | 1 px |
 | the region | `region_reach`, 1500 px each way |
 | the leash off | 320 ticks (20 s) after the drag ends |
@@ -569,5 +575,8 @@ snapshots alone are enough to start from.
    critters in motion** (decision 21), and **cows walk with the dogs**
    (decision 22, 2026-10-14): no scoot, no pushing, no jumps; every step
    is vetoed whole if it would overlap. Rank only breaks ties.
+9. **Cows follow cows, and the edge is vetoed** (decision 23,
+   2026-10-14): a cow anchors on the nearest moving cow within 120 px;
+   no step comes within 30 px of the seen tiles' edge.
 
 The history behind each is in git.

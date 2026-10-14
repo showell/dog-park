@@ -16,13 +16,14 @@
 //! which takes the short way round; every move wraps its result back into
 //! the world (`wrapped`).
 //!
-//! **A tick** (decisions 20-22): only while the leashed dog is dragged does
+//! **A tick** (decisions 20-23): only while the leashed dog is dragged does
 //! anything move. The drag is cut into pixel-ticks; in each, the leashed
 //! dog takes the step (stopping just short of pressing into anyone), then
 //! the walk moves up to `walk_most` critters, dogs and cows, one at a time,
 //! out from the leashed dog, shortest link first. A critter reacts only to
 //! critters in motion (the leashed dog and those the walk moved before it
-//! this step), and takes its step whole or not at all: never onto anyone.
+//! this step), and takes its step whole or not at all: never onto anyone,
+//! and never near the edge of what the physics sees.
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
@@ -73,6 +74,11 @@ pub const band_inner: i32 = px(60);
 pub const band_outer: i32 = px(100);
 /// A dog keeps this from a moving cow.
 pub const cow_room: i32 = px(90);
+/// A cow follows the nearest moving cow within this, keeping it in its
+/// own band (no breeds).
+pub const cow_follow: i32 = px(120);
+pub const cow_band_inner: i32 = px(70);
+pub const cow_band_outer: i32 = px(90);
 /// The region: the 3000 px square around the leashed dog; every critter in
 /// the tiles it meets is seen (and awake).
 pub const region_reach: i32 = px(1500);
@@ -604,6 +610,8 @@ pub const Scene = struct {
     /// then each the walk has visited.
     moving: [walk_most + 1]u16 = undefined,
     moving_len: usize = 0,
+    /// The region's tiles: everything the physics sees.
+    span: TileSpan = undefined,
 
     pub fn of(b: *Board) ?Scene {
         var s: Scene = undefined;
@@ -618,6 +626,7 @@ pub const Scene = struct {
         s.walk_len = 0;
         s.moving_len = 0;
         const span = TileSpan.of(region(b.dogs[l]));
+        s.span = span;
         s.add(.dog(l), l);
         for (0..cow_count) |i| s.consider(.cow(@intCast(i)), span, l);
         for (0..dog_count) |i| if (i != l) s.consider(.dog(@intCast(i)), span, l);
@@ -868,9 +877,11 @@ fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, visited: *const std.
     for (near_key[0..n], near_who[0..n]) |d, j| waiting.offer(d, j);
 }
 
-/// **WHAT A CRITTER WANTS** (decisions 21-22), from the critters in motion
+/// **WHAT A CRITTER WANTS** (decisions 21-23), from the critters in motion
 /// only, where they now stand:
-/// - a cow: room `wary` from every moving dog; it follows no one;
+/// - a cow: room `wary` from every moving dog, and its place against its
+///   anchor, the nearest moving cow within `cow_follow` (ties to the lower
+///   rank), in the cows' band;
 /// - a dog: room `cow_room` from every moving cow, `wary` from every
 ///   moving dog of another breed, and its place in the herd against its
 ///   anchor, the nearest moving dog of its breed (ties to the lower rank).
@@ -885,28 +896,42 @@ pub fn wishOf(sc: *const Scene, i: usize) Point {
         if (j == i) continue;
         const o = sc.seen[j].who;
         const q = sc.pos(j);
-        switch (me.kind) {
-            .cow => if (o.kind == .dog) addRoom(&total, q, p, wary),
-            .dog => switch (o.kind) {
-                .cow => addRoom(&total, q, p, cow_room),
-                .dog => if (o.n % breeds != me.n % breeds) {
+        const kin = switch (me.kind) {
+            .cow => switch (o.kind) {
+                .dog => blk: {
                     addRoom(&total, q, p, wary);
-                } else {
-                    const d = measure(delta(q, p));
-                    if (anchor == null or d < anchor_d or (d == anchor_d and j < anchor.?)) {
-                        anchor = j;
-                        anchor_d = d;
-                    }
+                    break :blk false;
                 },
+                .cow => measure(delta(q, p)) <= cow_follow,
             },
+            .dog => switch (o.kind) {
+                .cow => blk: {
+                    addRoom(&total, q, p, cow_room);
+                    break :blk false;
+                },
+                .dog => if (o.n % breeds != me.n % breeds) blk: {
+                    addRoom(&total, q, p, wary);
+                    break :blk false;
+                } else true,
+            },
+        };
+        if (!kin) continue;
+        const d = measure(delta(q, p));
+        if (anchor == null or d < anchor_d or (d == anchor_d and j < anchor.?)) {
+            anchor = j;
+            anchor_d = d;
         }
     }
     if (anchor) |j| {
+        const inner, const outer = switch (me.kind) {
+            .dog => .{ band_inner, band_outer },
+            .cow => .{ cow_band_inner, cow_band_outer },
+        };
         const q = sc.pos(j);
-        if (anchor_d > band_outer) {
-            add(&total, wishAlong(delta(p, q), @as(i32, @intCast(anchor_d)) - band_outer));
-        } else if (anchor_d < band_inner) {
-            add(&total, away(q, p, band_inner - @as(i32, @intCast(anchor_d))));
+        if (anchor_d > outer) {
+            add(&total, wishAlong(delta(p, q), @as(i32, @intCast(anchor_d)) - outer));
+        } else if (anchor_d < inner) {
+            add(&total, away(q, p, inner - @as(i32, @intCast(anchor_d))));
         }
     }
     return total;
@@ -934,16 +959,32 @@ pub fn stepAtMost(total: Point, most: i32) Point {
 }
 
 /// **THE VETO** (Steve, 2026-10-14): seen critter `i` takes `step` whole,
-/// or, if its square there would overlap anyone seen, not at all. No two
-/// critters overlap, by induction.
+/// or not at all if its square there would overlap anyone seen, or come
+/// within `cow_half` of the seen tiles' edge, where a critter the physics
+/// doesn't see may poke in (decision 23). No two critters overlap, by
+/// induction.
 fn stepVetoed(sc: *Scene, i: usize, step: Point) void {
     if (step.x == 0 and step.y == 0) return;
     const to = wrapped(.{ .x = sc.pos(i).x + step.x, .y = sc.pos(i).y + step.y });
     const me = sc.seen[i];
+    if (!clearOfTheEdge(sc.span, to, me.half)) return;
     for (sc.list(), 0..) |o, j| {
         if (j != i and squaresOverlap(to, me.half, sc.pos(j), o.half)) return;
     }
     sc.put(i, to);
+}
+
+/// Whether the square of half `h` at `p` keeps `cow_half` (the most any
+/// square pokes past its point) inside the span's tiles on both axes, so
+/// no critter whose point is outside them can overlap it.
+pub fn clearOfTheEdge(span: TileSpan, p: Point, h: i32) bool {
+    return clearOn(p.x, h, span.col_lo, span.col_hi) and clearOn(p.y, h, span.row_lo, span.row_hi);
+}
+
+fn clearOn(v: i32, h: i32, lo: i32, hi: i32) bool {
+    const off = @mod(@as(i64, v) - @as(i64, lo) * tile, world);
+    const room: i64 = h + cow_half;
+    return off >= room and off + room <= (@as(i64, hi) - lo + 1) * tile;
 }
 
 fn add(total: *Point, w: Point) void {

@@ -598,3 +598,35 @@ test "the invariant: seeded drags through the laid-out park, and no two critters
         try testing.expectEqual(@as(usize, 0), physics.overlaps(&b, &found));
     }
 }
+
+test "the edge (decision 23): a walked critter never steps within cow_half of the seen tiles' edge, so an unseen one poking in is never overlapped" {
+    // The leashed dog at 16250 sees x in [14500, 18000). Dog 4 (its breed)
+    // walks west toward it; dog 5 (another breed), 55 px east of dog 4, is
+    // pushed east, toward dog 9, unseen at 18004, touching it.
+    const at = px(16250, 16250);
+    var b = leashedAt(at);
+    b.place(.dog(4), px(17909, 16250));
+    b.place(.dog(5), px(17964, 16250));
+    b.place(.dog(9), px(18004, 16250));
+    const lines = ticked(&b, 1, &.{}, &.{d(1, 0)});
+    try testing.expectEqualSlices(u16, &.{ 4, 5 }, lines.walk[0..lines.walk_len]);
+    try testing.expectEqual(physics.px(17908), b.dogs[4].x);
+    try testing.expect(!physics.squaresOverlap(b.dogs[5], physics.dog_half, b.dogs[9], physics.dog_half));
+    try testing.expectEqual(px(17964, 16250), b.dogs[5]);
+}
+
+test "a cow follows the nearest moving cow within cow_follow, into the cows' band; one farther off stays (decision 23)" {
+    // The leashed dog, dragged west, scares cow 0 (200 px off) west. Cow 1,
+    // 100 px west of cow 0 and out of the dog's reach, follows it: east, at
+    // half a dog's step. Cow 2 is 125 px from both: out of cow_follow.
+    const at = px(16250, 16250);
+    var b = leashedAt(at);
+    b.place(.cow(0), px(16050, 16250));
+    b.place(.cow(1), px(15950, 16250));
+    b.place(.cow(2), px(15925, 16375));
+    const lines = ticked(&b, 1, &.{}, &.{d(-1, 0)});
+    try testing.expectEqualSlices(u16, &.{ physics.dog_count, physics.dog_count + 1, physics.dog_count + 2 }, lines.walk[0..lines.walk_len]);
+    try testing.expectEqual(physics.px(16050) - 128, b.cows[0].x);
+    try testing.expectEqual(physics.px(15950) + 128, b.cows[1].x);
+    try testing.expectEqual(px(15925, 16375), b.cows[2]);
+}
