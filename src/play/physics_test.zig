@@ -1122,6 +1122,22 @@ test "isqrt is the root rounded down, either side of every square up to 2^26 squ
     }
 }
 
+test "divTruncPos is @divTrunc, either side of 2^32 and over a seeded fuzz of the i64 range (202)" {
+    const big = [_]i64{ 1, 2, 3, 255, 256, (1 << 32) - 1, 1 << 32, (1 << 32) + 1, std.math.maxInt(i64) };
+    for (big) |b| for (big) |m| for ([_]i64{ -1, 0, 1 }) |off| {
+        const a = m - 1 + off;
+        try testing.expectEqual(@divTrunc(a, b), physics.divTruncPos(a, b));
+        try testing.expectEqual(@divTrunc(-a, b), physics.divTruncPos(-a, b));
+    };
+    var prng: std.Random.DefaultPrng = .init(2027);
+    const r = prng.random();
+    for (0..fuzzed(100_000)) |_| {
+        const b = r.intRangeAtMost(i64, 1, if (r.boolean()) 1 << 33 else std.math.maxInt(i64));
+        const a = r.intRangeAtMost(i64, -std.math.maxInt(i64), std.math.maxInt(i64)) >> r.int(u6);
+        try testing.expectEqual(@divTrunc(a, b), physics.divTruncPos(a, b));
+    }
+}
+
 test "the room lists give the wishes the scan gives, while they serve and after (202): crowds past wish_scan_most, the lists built, then the critters drifting a little and a lot" {
     var prng: std.Random.DefaultPrng = .init(2023);
     const r = prng.random();
