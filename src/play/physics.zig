@@ -238,7 +238,7 @@ pub fn len2(v: Point) i64 {
 
 /// The integer square root, rounded down: a float's guess, then corrected
 /// in integers until r² ≤ v < (r + 1)², so the float only makes it fast.
-pub fn isqrt(v: i64) i64 {
+pub inline fn isqrt(v: i64) i64 {
     std.debug.assert(v >= 0);
     const u: u64 = @intCast(v);
     var r: u64 = @intFromFloat(@sqrt(@as(f64, @floatFromInt(u))));
