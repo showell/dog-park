@@ -1845,9 +1845,40 @@ pub fn stepAtMost(total: Point, most: i32) Point {
 /// The two give the same wishes; the sum is of integers, so its order is
 /// free.
 pub fn wishTotal(sc: *const Scene, i: usize) Point {
+    return wishTotalWalk(sc, i);
+}
+
+/// **A DOG REACTS ONLY TO DOGS IN MOTION** (Steve, 2026-10-14): its room
+/// from the other breeds and its anchor come from the dogs the walk visited
+/// before it this step (the leashed dog first), where they now stand; its
+/// room from the cows from every awake cow. Still dogs it only never
+/// presses into (the sweep).
+pub fn wishTotalWalk(sc: *const Scene, i: usize) Point {
     const me = sc.seen[i];
-    if (sc.awake_len <= wish_scan_most or me.who.kind != .dog or me.rank == 0 or me.awake != .awake) return wishTotalScanned(sc, i);
-    return wishTotalGridded(sc, i);
+    const p = sc.pos(i);
+    const breed = me.who.n % breeds;
+    var total: Point = .{ .x = 0, .y = 0 };
+    for (sc.awakeOnes()) |j16| {
+        if (sc.seen[j16].who.kind != .cow) continue;
+        const v = delta(sc.pos(j16), p);
+        const d2 = measure(v);
+        if (d2 <= measureOf(cow_room)) {
+            const l = lengthOf(d2);
+            add(&total, awayRooted(v, l, cow_room - @as(i32, @intCast(l))));
+        }
+    }
+    for (sc.walk_seen[0..sc.walk_seen_len]) |j16| {
+        const j: usize = j16;
+        if (j == i or sc.seen[j].who.n % breeds == breed) continue;
+        const v = delta(sc.pos(j), p);
+        const d2 = measure(v);
+        if (d2 <= measureOf(wary)) {
+            const l = lengthOf(d2);
+            add(&total, awayRooted(v, l, wary - @as(i32, @intCast(l))));
+        }
+    }
+    if (walkAnchor(sc, i, p, breed)) |a| addAnchor(&total, p, sc.pos(a.j), a.d2);
+    return total;
 }
 
 /// The most awake critters whose wishes are cheaper scanned than read from
