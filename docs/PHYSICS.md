@@ -9,10 +9,10 @@ as `physics.wasm` (`physics_page.zig`'s exports, in the physics hash,
 named by `index.html`); `solo/engine.js` keeps the record and the protocol
 (one report in flight, the spacing, byte-identical tries on the backoff,
 every answer form, the rewind and replay, the subscription and its
-`held`, the stops). **Tested:** 92 Zig tests (`physics_test.zig` 42,
-`physics_server_test.zig` 26, `physics_judge_test.zig` 12,
-`physics_wire_test.zig` 8, `layout.zig` 2, `physics_identity_test.zig` 2);
-all but the server's and the identity test also run compiled to wasm32
+`held`, the stops). **Tested:** the Zig tests (`physics_test.zig`,
+`physics_server_test.zig`, `physics_judge_test.zig`,
+`physics_wire_test.zig`, `layout.zig`); all but the server's also run
+compiled to wasm32
 (`zig build physics-wasm`, some skipped there); `zig build test`, `check`
 and `slow` are the tiers (the README). Page side: `tools/test_engine.mjs`
 against a scripted world, and `tools/test_page_physics.mjs` and
@@ -1487,3 +1487,9 @@ and the request numbering.
     page labels each dog with its number and its place in the last walk.
     Tests of the old wish rules (bands, wariness, rank anchors, the idle
     speed, the shift of the laid-out herd) went; the properties stayed.
+    **The identity test went too** (Steve: "a 9-minute test should be 500x
+    more insightful than a 1-second test"): `physics_reference.zig` was
+    the plain second version that proved the optimised wish paths exact.
+    With the walk, the physics' wishes are as plain as the reference's, so
+    six minutes of comparing two near-identical scans in Debug proved
+    nothing new. Both files are gone.
