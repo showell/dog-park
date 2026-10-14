@@ -49,20 +49,31 @@ test("the two frames are each other's inverse", () => {
   assert.deepEqual(scene.parkFromViewport(viewport, 50, 30), { parkX: 1250, parkY: 830 });
 });
 
-test("a held dog is kept on screen and in the world", () => {
+test("a held dog is kept on screen; a park point is named in the world, round the torus", () => {
   const viewport = { parkX: 1000, parkY: 1000, width: 400, height: 300 };
   assert.deepEqual(scene.keptOnScreen(viewport, 900, 1500), { parkX: 1020, parkY: 1280 });
-  assert.deepEqual(scene.keptInWorld(-5, 99999), { parkX: 0, parkY: scene.world_px - 1 });
-  // A pan stops with the viewport's centre on the world's edge.
-  assert.deepEqual(scene.viewportKeptOnWorld(viewport, -1000, 0), { parkX: -200, parkY: 0 });
+  const W = scene.world_px;
+  assert.deepEqual(scene.wrappedPoint(-5, 99999), { parkX: W - 5, parkY: 99999 - 3 * W });
+  assert.deepEqual(scene.wrappedPoint(-1000, 0), { parkX: W - 1000, parkY: 0 });
+  assert.ok(Object.is(scene.wrapped(-W), 0) && Object.is(scene.wrapped(-0), 0));
+  assert.equal(scene.wrapped(3550.4), 3550.4);
+  // The short way round, and the nearest copy.
+  assert.equal(scene.offset(W - 1, 0), 1);
+  assert.equal(scene.offset(0, W - 1), -1);
+  assert.equal(scene.offset(100, 300), 200);
+  assert.equal(scene.nearest(W - 10, 20), -10);
+  assert.equal(scene.nearest(10, W - 20), W + 10);
+  assert.equal(scene.nearest(3550.4, 750), 3550.4);
+  assert.deepEqual(scene.wrapTile({ col: -1, row: 64 }), { col: 63, row: 0 });
 });
 
 test("tiles: a point's tile, its key, and those meeting a rectangle", () => {
   assert.deepEqual(scene.tileOf(499, 500), { col: 0, row: 1 });
   assert.equal(scene.tileKey({ col: 3, row: 7 }), "3,7");
   assert.deepEqual(scene.tilesMeeting(499, 0, 2, 1), [{ col: 0, row: 0 }, { col: 1, row: 0 }]);
-  // Tiles past the world's edge are left out.
-  assert.deepEqual(scene.tilesMeeting(-10, -10, 20, 20), [{ col: 0, row: 0 }]);
+  // Across the seam, the tiles wrap: row by row as they lie, each once.
+  assert.deepEqual(scene.tilesMeeting(-10, -10, 20, 20), [{ col: 63, row: 63 }, { col: 0, row: 63 }, { col: 63, row: 0 }, { col: 0, row: 0 }]);
+  assert.deepEqual(scene.tileCopiesMeeting(-10, -10, 20, 20), [{ col: -1, row: -1 }, { col: 0, row: -1 }, { col: -1, row: 0 }, { col: 0, row: 0 }]);
 });
 
 test("the tiles wanted: the widest margin within the cap", () => {
@@ -95,11 +106,11 @@ test("the world is 64 x 64 tiles, the server's; its middle is the populated park
   assert.equal(scene.world_px, 32000);
   // The park: 10 x 10 tiles from 13,500 px (tiles.zig's park_offset_px).
   assert.equal(scene.world_px / 2, 13500 + 10 * scene.tile_px / 2);
-  assert.deepEqual(scene.keptInWorld(31999.5, 32000), { parkX: 31999, parkY: 31999 });
-  assert.deepEqual(scene.tilesMeeting(31990, 31990, 50, 50), [{ col: 63, row: 63 }]);
+  assert.deepEqual(scene.wrappedPoint(31999.5, 32000), { parkX: 31999.5, parkY: 0 });
+  assert.deepEqual(scene.tilesMeeting(31990, 31990, 50, 50), [{ col: 63, row: 63 }, { col: 0, row: 63 }, { col: 63, row: 0 }, { col: 0, row: 0 }]);
 });
 
-test("the overview frame: a window 10 tiles across its shorter side, at its top-left, kept in the world", () => {
+test("the overview frame: a window 10 tiles across its shorter side, at its top-left, named in the world", () => {
   // 1040 x 700: the window is 1000 x 660 on screen, 660 px for 5000 park px
   // (the scale the whole 10 x 10 world had): 7576 x 5000 of the world.
   const o = scene.overviewFrame(1040, 700, { parkX: 0, parkY: 0 });
@@ -112,22 +123,29 @@ test("the overview frame: a window 10 tiles across its shorter side, at its top-
   // The window's top-left at (13500, 14000): that point is the window's corner.
   const mid = scene.overviewFrame(1040, 700, { parkX: 13500, parkY: 14000 });
   assert.deepEqual(scene.overviewFromPark(mid, 13500, 14000), { viewportX: 20, viewportY: 20 });
-  // Past the world's far corner, or before its near one, the window is kept in it.
-  assert.deepEqual(scene.overviewFrame(1040, 700, { parkX: 99999, parkY: 99999 }).at, { parkX: 32000 - 1000 / 0.132, parkY: 27000 });
-  assert.deepEqual(scene.overviewFrame(1040, 700, { parkX: -5, parkY: -5 }).at, { parkX: 0, parkY: 0 });
+  // Past the world's far corner, or before its near one, the window wraps round.
+  assert.deepEqual(scene.overviewFrame(1040, 700, { parkX: 99999, parkY: 99999 }).at, { parkX: 99999 - 3 * 32000, parkY: 99999 - 3 * 32000 });
+  assert.deepEqual(scene.overviewFrame(1040, 700, { parkX: -5, parkY: -5 }).at, { parkX: 32000 - 5, parkY: 32000 - 5 });
   // The scrollbars in the margins, the window's length; each thumb as long,
   // and as far along, as the window is in the world.
   assert.deepEqual(o.tracks, { x: { x: 20, y: 684, w: 1000, h: 12 }, y: { x: 1024, y: 20, w: 12, h: 660 } });
-  assert.deepEqual(scene.overviewThumb(o, "x"), { x: 20, y: 684, w: (1000 / 0.132 / 32000) * 1000, h: 12 });
-  assert.deepEqual(scene.overviewThumb(mid, "y"), { x: 1024, y: 20 + (14000 / 32000) * 660, w: 12, h: (5000 / 32000) * 660 });
+  assert.deepEqual(scene.overviewThumb(o, "x"), [{ x: 20, y: 684, w: (1000 / 0.132 / 32000) * 1000, h: 12 }]);
+  assert.deepEqual(scene.overviewThumb(mid, "y"), [{ x: 1024, y: 20 + (14000 / 32000) * 660, w: 12, h: ((14000 + 5000) / 32000) * 660 - (14000 / 32000) * 660 }]);
+  // Across the seam the thumb wraps: its part past the track's end drawn from its start.
+  const seam = scene.overviewFrame(1040, 700, { parkX: 0, parkY: 30000 });
+  assert.deepEqual(scene.overviewThumb(seam, "y"), [
+    { x: 1024, y: 20 + (30000 / 32000) * 660, w: 12, h: 660 - (30000 / 32000) * 660 },
+    { x: 1024, y: 20, w: 12, h: (35000 / 32000) * 660 - 660 },
+  ]);
 });
 
 test("the overview opens centred on the view, the park's middle on a first visit's", () => {
   // 800 x 600: 560 px for 5000 park px; the window 760 / 0.112 park px wide.
   const at = scene.overviewCentredOn({ parkX: 15600, parkY: 15700, width: 800, height: 600 });
   assert.deepEqual(at, { parkX: 16000 - 760 / 0.112 / 2, parkY: 13500 });
-  // Near the world's corner: kept in the world.
-  assert.deepEqual(scene.overviewCentredOn({ parkX: 0, parkY: 0, width: 800, height: 600 }), { parkX: 0, parkY: 0 });
+  // At the world's corner: centred across the seam.
+  assert.deepEqual(scene.overviewCentredOn({ parkX: 0, parkY: 0, width: 800, height: 600 }),
+    { parkX: 32000 + 400 - 760 / 0.112 / 2, parkY: 32000 + 300 - 2500 });
 });
 
 test("the overview's window moves: by a thumb's drag, a track's jump, and to show the view", () => {
@@ -135,7 +153,8 @@ test("the overview's window moves: by a thumb's drag, a track's jump, and to sho
   // A thumb dragged 10 px along its 1000 px track: 320 park px.
   assert.deepEqual(scene.overviewScrolled(o, "x", 10), { parkX: 10320, parkY: 10000 });
   assert.deepEqual(scene.overviewScrolled(o, "y", -66), { parkX: 10000, parkY: 10000 - 3200 });
-  assert.deepEqual(scene.overviewScrolled(o, "x", -5000), { parkX: 0, parkY: 10000 });
+  // ... on round the torus.
+  assert.deepEqual(scene.overviewScrolled(o, "x", -500), { parkX: 32000 + 10000 - 16000, parkY: 10000 });
   // A press at the track's middle centres the thumb there: the window's middle at the world's.
   assert.deepEqual(scene.overviewJumped(o, "x", 520, 690), { parkX: 16000 - 1000 / 0.132 / 2, parkY: 10000 });
   assert.deepEqual(scene.overviewMoved(o, 100, -200), { parkX: 10100, parkY: 9800 });
@@ -143,6 +162,15 @@ test("the overview's window moves: by a thumb's drag, a track's jump, and to sho
   const view = { width: 1040, height: 700 };
   assert.deepEqual(scene.overviewShowing(o, { ...view, parkX: 12000, parkY: 12000 }), o.at);
   assert.deepEqual(scene.overviewShowing(o, { ...view, parkX: 9000, parkY: 14800 }), { parkX: 9000, parkY: 14800 + 700 - 5000 });
+  // Across the seam: a window at the world's bottom-right corner shows a view
+  // just past it, at its copy nearest the window, and carries the window over.
+  const corner = scene.overviewFrame(1040, 700, { parkX: 32000 - 7000, parkY: 32000 - 4000 });
+  assert.deepEqual(scene.overviewShowing(corner, { ...view, parkX: 31000, parkY: 31000 }), corner.at);
+  assert.deepEqual(scene.overviewShowing(corner, { ...view, parkX: 31000, parkY: 400 }),
+    { parkX: 32000 - 7000, parkY: 32000 + 400 + 700 - 5000 });
+  // A view straddling the seam west of a window just east of it: the window's top-left wraps.
+  const east = scene.overviewFrame(1040, 700, { parkX: 100, parkY: 10000 });
+  assert.deepEqual(scene.overviewShowing(east, { ...view, parkX: 31800, parkY: 12000 }), { parkX: 31800, parkY: 10000 });
 });
 
 test("the edge bands: nothing in the middle, faster deeper in, a tick's speeds", () => {
@@ -407,10 +435,11 @@ test("a press on empty ground pans: the viewport against the pointer", () => {
   ], { viewport: near });
 });
 
-test("a pan stops with the viewport's centre on the world's edge", () => {
+test("a pan goes on across the seam, the viewport named in the world", () => {
   play([
     { event: { type: "down", x: 0, y: 0, dogAt: "none" }, hand: { kind: "panning", lastX: 0, lastY: 0 }, intents: [] },
-    { event: { type: "move", x: 5000, y: 0 }, hand: { kind: "panning", lastX: 5000, lastY: 0 }, intents: [{ kind: "pan", parkX: -400, parkY: 1000 }] },
+    { event: { type: "move", x: 5000, y: 0 }, hand: { kind: "panning", lastX: 5000, lastY: 0 }, intents: [{ kind: "pan", parkX: 32000 - 4000, parkY: 1000 }] },
+    { event: { type: "move", x: 5000, y: 3000 }, hand: { kind: "panning", lastX: 5000, lastY: 3000 }, intents: [{ kind: "pan", parkX: 1000, parkY: 32000 - 2000 }] },
   ], { viewport: near });
 });
 
@@ -421,7 +450,7 @@ test("in the overview, a press on the view's rectangle drags it, scaled; one off
     { event: { type: "down", x: 300, y: 200, dogAt: "none" }, hit: scene.view_target,
       hand: { kind: "panning", lastX: 300, lastY: 200 }, intents: [] },
     { event: { type: "move", x: 300 + 13.2, y: 200 - 6.6 },
-      hand: { kind: "panning", lastX: 313.2, lastY: 193.4 }, intents: [{ kind: "pan", parkX: 500 + 13.2 / 0.132, parkY: 1000 - 6.6 / 0.132 }] },
+      hand: { kind: "panning", lastX: 313.2, lastY: 193.4 }, intents: [{ kind: "pan", parkX: 500 + (313.2 - 300) / 0.132, parkY: 1000 + (193.4 - 200) / 0.132 }] },
     { event: { type: "up" }, hand: pointer.resting, intents: [] },
     // Off the rectangle: on nothing, so resting, and a move means nothing.
     { event: { type: "down", x: 5, y: 5, dogAt: "none" }, hit: null, hand: pointer.resting, intents: [] },
@@ -463,7 +492,7 @@ test("in the overview, a scrollbar: the thumb held where pressed, the track jump
     { event: { type: "wheel", dx: 0, dy: 0 }, hand: pointer.resting, intents: [] },
   ], { mode: "overview", viewport, overviewAt });
   play([
-    { event: { type: "wheel", dx: 0, dy: -9999 }, hand: pointer.resting, intents: [{ kind: "scroll", parkX: 10000, parkY: 0 }] },
+    { event: { type: "wheel", dx: 0, dy: -1650 }, hand: pointer.resting, intents: [{ kind: "scroll", parkX: 10000, parkY: 32000 + 10000 - 12500 }] },
   ], { mode: "overview", viewport, overviewAt });
   // Near, a wheel means nothing.
   play([{ event: { type: "wheel", dx: 10, dy: 10 }, hand: pointer.resting, intents: [] }], { viewport });
@@ -505,17 +534,20 @@ test("the edge bands each tick: a pan keeps going, a held dog carries the viewpo
   // A pan held on the right edge: the park goes toward it, so the viewport away.
   assert.deepEqual(pointer.edgeScroll({ kind: "pan", x: 800, y: 300 }, near),
     [{ kind: "pan", parkX: 1000 - f, parkY: 1000 }]);
-  // ... and with the viewport's centre on the world's edge, it stops.
-  const east = { parkX: scene.world_px - 1 - 400, parkY: 1000, width: 800, height: 600 };
-  assert.deepEqual(pointer.edgeScroll({ kind: "pan", x: 0, y: 300 }, east), []);
+  // ... and on across the seam.
+  const west = { parkX: 5, parkY: 1000, width: 800, height: 600 };
+  assert.deepEqual(pointer.edgeScroll({ kind: "pan", x: 800, y: 300 }, west), [{ kind: "pan", parkX: 32000 + 5 - f, parkY: 1000 }]);
   // A dog held at the bottom edge: it and the viewport go south together.
   assert.deepEqual(pointer.edgeScroll(held(1400, 1580), near), [
     { kind: "drag", dogId: 9, parkX: 1400, parkY: 1580 + f },
     { kind: "pan", parkX: 1000, parkY: 1000 + f },
   ]);
-  // A dog at the world's edge goes no further, and the viewport with it.
-  const top = { parkX: 1000, parkY: -20, width: 800, height: 600 };
-  assert.deepEqual(pointer.edgeScroll(held(1400, 0), top), []);
+  // A dog at the world's top edge goes on north across the seam, and the viewport with it.
+  const top = { parkX: 1000, parkY: 32000 - 20, width: 800, height: 600 };
+  assert.deepEqual(pointer.edgeScroll(held(1400, 0), top), [
+    { kind: "drag", dogId: 9, parkX: 1400, parkY: 32000 - f },
+    { kind: "pan", parkX: 1000, parkY: 32000 - 20 - f },
+  ]);
 });
 
 test("where a hand holds a pan: the pointer, or none", () => {
@@ -534,4 +566,103 @@ test("a press is on what was drawn in the mode it is made in", () => {
   // Pressed after "z", before a frame drew the new mode: on nothing.
   assert.equal(pointer.pressedOn({ mode: "near", objects: nearList }, "overview", 100, 100), null);
   assert.equal(pointer.pressedOn({ mode: "overview", objects: overList }, "near", view.x, view.y), null);
+});
+
+// ── across the seam (the torus, docs/PHYSICS.md decision 14) ───────────────
+
+const W = scene.world_px;
+
+test("across the seam, the near scene: a viewport straddling x = 0, y = 0 and the corner draws the tiles there, the critters at their copies on screen", () => {
+  // 800 x 600 at (-300, -200) named in the world: its top-left at (31700, 31800).
+  const viewport = { parkX: W - 300, parkY: W - 200, width: 800, height: 600 };
+  const dogs = [{ id: 1, emoji: "🐕", parkX: W - 10, parkY: 100 }, { id: 2, emoji: "🐕", parkX: 10, parkY: 100 }];
+  const cows = [{ id: 5, parkX: 200, parkY: W - 50 }];
+  const near = scene.nearScene(viewport, dogs, cows, { kind: "kept", dogId: 2 });
+  const byId = new Map(near.map((o) => [o.id, o]));
+  // The tiles: (63, 63) and (0, 63) above the seam, (63, 0) and (0, 0) below it, where they lie.
+  assert.deepEqual(ids(near).filter((i) => /^tile:[^:]*$/.test(i)), ["tile:63,63", "tile:0,63", "tile:63,0", "tile:0,0"]);
+  assert.deepEqual([byId.get("tile:63,63").x, byId.get("tile:63,63").y], [-200, -300]);
+  assert.deepEqual([byId.get("tile:0,0").x, byId.get("tile:0,0").y], [300, 200]);
+  assert.equal(byId.get("tile:63,0:label").text, "(63, 0)");
+  // The checkerboard runs on across the seam: (63, 63) and (0, 0) alike, (0, 63) the other shade.
+  assert.equal(byId.get("tile:63,63").fill, byId.get("tile:0,0").fill);
+  assert.notEqual(byId.get("tile:0,63").fill, byId.get("tile:0,0").fill);
+  // Two dogs 20 px apart across the seam are drawn 20 px apart; the ring on the one past it.
+  assert.deepEqual([byId.get("dog:1").x, byId.get("dog:1").y], [290, 300]);
+  assert.deepEqual([byId.get("dog:2").x, byId.get("dog:2").y], [310, 300]);
+  assert.deepEqual([byId.get("dog:2:ring").x, byId.get("dog:2:ring").y], [310, 300]);
+  assert.deepEqual([byId.get("cow:5").x, byId.get("cow:5").y], [500, 150]);
+  // Their places are named in the world.
+  assert.equal(byId.get("dog:1:label").text, `(${W - 10}, 100)`);
+});
+
+test("across the seam: a viewport a whole world away, or a critter's copy, draws the same", () => {
+  const dogs = [{ id: 1, emoji: "🐕", parkX: W - 10, parkY: 5 }, { id: 2, emoji: "🐕", parkX: 10, parkY: W - 5 }];
+  const cows = [{ id: 5, parkX: 200, parkY: 31990 }];
+  for (const at of [{ parkX: W - 300, parkY: W - 200 }, { parkX: 100, parkY: 7000 }, { parkX: 15000, parkY: W - 400 }]) {
+    const viewport = { ...at, width: 800, height: 600 };
+    const base = scene.nearScene(viewport, dogs, cows, { kind: "none" });
+    for (const [kx, ky] of [[1, 0], [0, -1], [-2, 3]]) {
+      const moved = { ...viewport, parkX: at.parkX + kx * W, parkY: at.parkY + ky * W };
+      assert.deepEqual(scene.nearScene(moved, dogs, cows, { kind: "none" }), base);
+      const copies = (cs) => cs.map((c) => ({ ...c, parkX: c.parkX - kx * W, parkY: c.parkY + ky * W }));
+      const drawn = scene.nearScene(viewport, copies(dogs), copies(cows), { kind: "none" });
+      assert.deepEqual(drawn.filter((o) => !o.id.endsWith(":label")), base.filter((o) => !o.id.endsWith(":label")));
+    }
+  }
+});
+
+test("across the seam, between ticks: a critter that wraps from x = world - 1 to x = 0 glides 1 px, not across the world", () => {
+  assert.deepEqual(scene.between({ parkX: W - 1, parkY: 100 }, { parkX: 0, parkY: 100 }, 0.5), { parkX: W - 0.5, parkY: 100 });
+  assert.deepEqual(scene.between({ parkX: 0.5, parkY: 0 }, { parkX: W - 0.5, parkY: W - 1 }, 0.5), { parkX: 0, parkY: W - 0.5 });
+  assert.deepEqual(scene.between({ parkX: W - 1, parkY: 100 }, { parkX: 0, parkY: 100 }, 1), { parkX: 0, parkY: 100 });
+  // Drawn: half way, it is half a px from where it was on screen, the viewport too gliding across.
+  const viewport = { parkX: 10, parkY: 0, width: 800, height: 600 };
+  const motion = { alpha: 0.25, was: { viewport: { parkX: W - 30, parkY: 0 }, dogs: new Map([[1, { parkX: W - 1, parkY: 100 }]]), cows: new Map() } };
+  const dog = scene.nearScene(viewport, [{ id: 1, emoji: "🐕", parkX: 3, parkY: 100 }], [], { kind: "none" }, motion).find((o) => o.id === "dog:1");
+  // The viewport at W - 30 + 40 * 0.25 = W - 20; the dog at W - 1 + 4 * 0.25 = 0.
+  assert.deepEqual([dog.x, dog.y], [20, 100]);
+});
+
+test("across the seam, the subscription: the display's tiles wrap; the region's come in either naming; a whole world's translation changes nothing", () => {
+  // 1000 x 700 centred on the corner: the 250 px margin meets cols -2..1, rows -2..1, wrapped.
+  const v = { parkX: W - 500, parkY: W - 350, width: 1000, height: 700 };
+  const display = scene.subscription([], v);
+  assert.equal(display.length, 16);
+  assert.ok(display.every((t) => t.col >= 0 && t.col < 64 && t.row >= 0 && t.row < 64));
+  assert.deepEqual(new Set(display.map(scene.tileKey)),
+    new Set([62, 63, 0, 1].flatMap((r) => [62, 63, 0, 1].map((c) => `${c},${r}`))));
+  // Nearest first; ties by row, then column, as they lie round the centre: north and west first.
+  assert.deepEqual(display.slice(0, 4), [{ col: 63, row: 63 }, { col: 0, row: 63 }, { col: 63, row: 0 }, { col: 0, row: 0 }]);
+  // The same order in a copy of the world away from the seam.
+  const plain = scene.subscription([], { ...v, parkX: 20 * 500 - 500, parkY: 30 * 500 - 350 });
+  assert.deepEqual(display.map((t) => [(t.col + 20) % 64, (t.row + 30) % 64]), plain.map((t) => [t.col, t.row]));
+  // A region across the seam, in either naming: the same tiles, wrapped, once each.
+  const raw = [{ col: 63, row: 0 }, { col: 64, row: 0 }, { col: -1, row: 1 }, { col: 0, row: 1 }];
+  const both = scene.subscription(raw, v);
+  assert.deepEqual(both.slice(0, 4), [{ col: 63, row: 0 }, { col: 0, row: 0 }, { col: 63, row: 1 }, { col: 0, row: 1 }]);
+  assert.equal(both.length, 16); // all four in the display too
+  for (const [kx, ky] of [[1, 0], [0, 1], [-1, -1], [3, -2]]) {
+    assert.deepEqual(scene.subscription(raw, { ...v, parkX: v.parkX + kx * W, parkY: v.parkY + ky * W }), both);
+  }
+});
+
+test("across the seam, the overview: dots and the view at their copies in the window, the thumb in two pieces", () => {
+  // 1040 x 700, the window's top-left at (W - 1000, W - 500): it straddles the corner.
+  const viewport = { parkX: W - 100, parkY: 100, width: 1040, height: 700 };
+  const over = scene.overviewScene(viewport, [{ id: 1, parkX: 50, parkY: 50 }, { id: 2, parkX: W - 50, parkY: W - 50 }], [], new Map(), { kind: "none" },
+    { parkX: W - 1000, parkY: W - 500 });
+  const byId = new Map(over.map((o) => [o.id, o]));
+  const s = 0.132;
+  const at = (x, y) => [x, y].map((p) => Math.round(p * 1e6) / 1e6);
+  assert.deepEqual(at(byId.get("dog:1").x, byId.get("dog:1").y), at(20 + 1050 * s, 20 + 550 * s));
+  assert.deepEqual(at(byId.get("dog:2").x, byId.get("dog:2").y), at(20 + 950 * s, 20 + 450 * s));
+  assert.deepEqual(at(byId.get("view").x, byId.get("view").y), at(20 + 900 * s, 20 + 600 * s));
+  assert.ok(byId.has("tile:63,63") && byId.has("tile:0,0"));
+  assert.deepEqual(at(byId.get("tile:0,0").x, byId.get("tile:0,0").y), at(20 + 1000 * s, 20 + 500 * s));
+  // Two thumb pieces on the x track, both pressable.
+  const thumbs = over.filter((o) => o.id === scene.thumbTarget("x"));
+  assert.equal(thumbs.length, 2);
+  assert.equal(blit.hit(over, thumbs[1].x + 1, thumbs[1].y + 1), scene.thumbTarget("x"));
+  assert.equal(blit.hit(over, thumbs[0].x + 1, thumbs[0].y + 1), scene.thumbTarget("x"));
 });

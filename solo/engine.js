@@ -46,7 +46,7 @@
 //   engine.debug()        the protocol's state, for tests and the console
 
 import { LIVE, KEPT, SCRATCH, flag } from "./physics.js";
-import { tileKey, subscription, world_px, most_tiles, viewportKeptOnWorld, dog_looks } from "./scene.js";
+import { tileKey, subscription, world_px, most_tiles, wrappedPoint, offset, dog_looks } from "./scene.js";
 import { edgeScroll } from "./pointer.js";
 
 // A stall catches up at most this many ticks; the rest are dropped, never owed.
@@ -324,7 +324,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     let band = { x: 0, y: 0 };
     if (holding && dragOn && before) {
       const e = edgeScroll({ kind: "dog", dogId: leashedDog, parkX: before.parkX, parkY: before.parkY }, viewport);
-      if (e.length) band = { x: e[0].parkX - before.parkX, y: e[0].parkY - before.parkY };
+      if (e.length) band = { x: offset(before.parkX, e[0].parkX), y: offset(before.parkY, e[0].parkY) };
       if (band.x !== 0 || band.y !== 0) drag.push([Math.round(band.x * 256), Math.round(band.y * 256), 0]);
     }
     const r = physics.tick(LIVE, t, drag);
@@ -338,7 +338,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     if (before && (band.x !== 0 || band.y !== 0)) {
       const after = dogs.get(leashedDog);
       const follow = (b, moved) => (b === 0 || Math.sign(moved) !== Math.sign(b) ? 0 : Math.sign(b) * Math.min(Math.abs(b), Math.abs(moved)));
-      moveViewport(viewport.parkX + follow(band.x, after.parkX - before.parkX), viewport.parkY + follow(band.y, after.parkY - before.parkY));
+      moveViewport(viewport.parkX + follow(band.x, offset(before.parkX, after.parkX)), viewport.parkY + follow(band.y, offset(before.parkY, after.parkY)));
     }
   }
 
@@ -435,9 +435,9 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     }
   }
 
+  // The viewport's top-left, named in the world: it scrolls on across the seam.
   function moveViewport(parkX, parkY) {
-    viewport.parkX = parkX;
-    viewport.parkY = parkY;
+    Object.assign(viewport, wrappedPoint(parkX, parkY));
   }
 
   // ── the wire ──────────────────────────────────────────────────────────────
@@ -695,9 +695,9 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     if (leashedDog !== "none") {
       const d = dogs.get(leashedDog);
       lastLeashed = { kind: "dog", dogId: leashedDog };
-      Object.assign(viewport, viewportKeptOnWorld(viewport, d.parkX - viewport.width / 2, d.parkY - viewport.height / 2));
+      moveViewport(d.parkX - viewport.width / 2, d.parkY - viewport.height / 2);
     } else if (at !== "none") {
-      Object.assign(viewport, viewportKeptOnWorld(viewport, at.parkX, at.parkY));
+      moveViewport(at.parkX, at.parkY);
     } else {
       viewport.parkX = Math.round(world_px / 2 - viewport.width / 2);
       viewport.parkY = Math.round(world_px / 2 - viewport.height / 2);
@@ -764,8 +764,8 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
           break;
         case "pan":
           // The viewport moves now, and what the frames slide from with it.
-          wasViewport.parkX += i.parkX - viewport.parkX;
-          wasViewport.parkY += i.parkY - viewport.parkY;
+          wasViewport.parkX += offset(viewport.parkX, i.parkX);
+          wasViewport.parkY += offset(viewport.parkY, i.parkY);
           moveViewport(i.parkX, i.parkY);
           break;
         default: throw new Error(`no intent ${i.kind}`);

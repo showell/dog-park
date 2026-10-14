@@ -4,7 +4,7 @@
 // engine runs the edge bands each tick.
 
 import {
-  dog_px, viewportFromPark, keptInWorld, viewportKeptOnWorld,
+  dog_px, viewportFromPark, wrappedPoint, nearest,
   overviewFrame, overviewCentredOn, overviewShowing, overviewMoved, overviewScrolled, overviewJumped,
   view_target, dogOfTarget, scrollOfTarget,
 } from "./scene.js";
@@ -116,7 +116,7 @@ export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX
         const want = mode === "near"
           ? { parkX: viewport.parkX - dx, parkY: viewport.parkY - dy }
           : { parkX: viewport.parkX + dx / o.scale, parkY: viewport.parkY + dy / o.scale };
-        const to = viewportKeptOnWorld(viewport, want.parkX, want.parkY);
+        const to = wrappedPoint(want.parkX, want.parkY);
         // In the overview, the window follows the view's rectangle past its edge.
         const follow = mode === "near" ? [] : scrollTo(overviewShowing(o, { ...viewport, ...to }));
         return {
@@ -171,7 +171,8 @@ export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX
 //                                          with it, the dog staying put on screen
 //                                          while it travels through the park
 //
-// both stopping at the world's edge. Intents (a drag, then a pan, or a pan)
+// both going on across the seam, the viewport and the dog wrapped into the
+// world. Intents (a drag, then a pan, or a pan)
 // only when something moves.
 export function edgeScroll(band, viewport) {
   if (band === "none") return [];
@@ -180,20 +181,20 @@ export function edgeScroll(band, viewport) {
       parkX: viewport.parkX - axisScroll(band.x, viewport.width, 0),
       parkY: viewport.parkY - axisScroll(band.y, viewport.height, 0),
     };
-    const kept = viewportKeptOnWorld(viewport, want.parkX, want.parkY);
+    const kept = wrappedPoint(want.parkX, want.parkY);
     if (kept.parkX === viewport.parkX && kept.parkY === viewport.parkY) return [];
     return [{ kind: "pan", parkX: kept.parkX, parkY: kept.parkY }];
   }
-  const at = viewportFromPark(viewport, band.parkX, band.parkY);
+  const at = viewportFromPark(viewport,
+    nearest(band.parkX, viewport.parkX + viewport.width / 2), nearest(band.parkY, viewport.parkY + viewport.height / 2));
   const eastward = axisScroll(at.viewportX, viewport.width, dog_px / 2);
   const southward = axisScroll(at.viewportY, viewport.height, dog_px / 2);
-  const to = keptInWorld(band.parkX + eastward, band.parkY + southward);
-  const movedX = to.parkX - band.parkX;
-  const movedY = to.parkY - band.parkY;
-  if (movedX === 0 && movedY === 0) return [];
+  if (eastward === 0 && southward === 0) return [];
+  const to = wrappedPoint(band.parkX + eastward, band.parkY + southward);
+  const pan = wrappedPoint(viewport.parkX + eastward, viewport.parkY + southward);
   return [
     { kind: "drag", dogId: band.dogId, parkX: to.parkX, parkY: to.parkY },
-    { kind: "pan", parkX: viewport.parkX + movedX, parkY: viewport.parkY + movedY },
+    { kind: "pan", parkX: pan.parkX, parkY: pan.parkY },
   ];
 }
 

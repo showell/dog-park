@@ -11,6 +11,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pageRig, reports, held, regionAround } from "./lib/page_rig.mjs";
 import { LIVE, KEPT } from "../solo/physics.js";
+import { offset } from "../solo/scene.js";
 
 // A position on the wire, from whole px.
 const hex = (px) => `${px.toString(16)}.00`;
@@ -515,4 +516,25 @@ test("7: a replay held back at the byte budget while the human acts: the new inp
   assert.equal(done.cursor, done.record.length);
   assert.match(reports(rig).join(""), new RegExp(`\\nletgo ${lastRecorded + 1}\\n`));
   assert.ok(reports(rig).every((r) => r.length < 1000 + 600), "no report much past the budget");
+});
+
+test("across the seam: a pan past the world's corner names the viewport in the world, glides the short way, and subscribes the tiles there, wrapped", async () => {
+  const s = script();
+  const rig = await loadedPage(s);
+  await s.answer(rig, "/report", `req 1\nkept 10\n`);
+  await rig.ticks(2);
+  rig.engine.intent({ kind: "pan", parkX: -600, parkY: 32000 + 100 });
+  const v = rig.engine.view();
+  assert.deepEqual([v.viewport.parkX, v.viewport.parkY], [32000 - 600, 100]);
+  // What the frames slide from moved with it: no glide across the world.
+  // (Named either side of the seam: the frames' `between` takes the short way.)
+  assert.deepEqual([offset(v.was.viewport.parkX, v.viewport.parkX), offset(v.was.viewport.parkY, v.viewport.parkY)], [0, 0]);
+  await rig.ticks(5);
+  await rig.settle();
+  const views = reports(rig).join("").split("\n").filter((l) => l.startsWith("view "));
+  const last = views.at(-1).split(" ").slice(3);
+  // 1280 x 800 at (-600, 100), its 250 px margin: columns -2..1 and rows -1..2, wrapped.
+  assert.equal(last.length, 16);
+  for (const k of ["63,0", "0,0", "62,63", "1,2"]) assert.ok(last.includes(k), `${k} in ${last}`);
+  assert.ok(last.every((k) => k.split(",").every((n) => Number(n) >= 0 && Number(n) < 64)));
 });
