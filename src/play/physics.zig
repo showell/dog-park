@@ -238,10 +238,18 @@ pub fn len2(v: Point) i64 {
 
 /// The integer square root, rounded down: a float's guess, then corrected
 /// in integers until r² ≤ v < (r + 1)², so the float only makes it fast.
+///
+/// **BELOW 2⁵² THE GUESS IS EXACT** (202), and the correction is skipped:
+/// `v` converts exactly and the root is rounded correctly, so the guess is
+/// at least r (r is a double, and rounding keeps order). And √v ≤
+/// √((r + 1)² − 1), more than 1 / (2(r + 1)) short of r + 1, while near r +
+/// 1 ≤ 2²⁶ half a double's spacing is at most 2⁻²⁸ below a power of two
+/// and 2⁻²⁷ elsewhere: the root never rounds up to r + 1.
 pub inline fn isqrt(v: i64) i64 {
     std.debug.assert(v >= 0);
     const u: u64 = @intCast(v);
     var r: u64 = @intFromFloat(@sqrt(@as(f64, @floatFromInt(u))));
+    if (u < 1 << 52) return @intCast(r);
     while (r * r > u) r -= 1;
     while ((r + 1) * (r + 1) <= u) r += 1;
     return @intCast(r);

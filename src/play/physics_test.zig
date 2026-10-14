@@ -1091,6 +1091,37 @@ test "shortWay is the @mod formula, at every edge and over a seeded fuzz of the 
     }
 }
 
+test "isqrt is the root rounded down, either side of every square up to 2^26 squared and over a seeded fuzz of the i64 range (202)" {
+    const plain = struct {
+        fn f(v: i64) i64 {
+            var r: i64 = 0;
+            var bit: i64 = 1 << 31;
+            while (bit != 0) : (bit >>= 1) {
+                const t = r + bit;
+                if (t <= @divTrunc(v, t)) r = t;
+            }
+            return r;
+        }
+    }.f;
+    var k: i64 = 1;
+    while (k <= 1 << 26) : (k += if (k < 1 << 16) 1 else 4093) {
+        try testing.expectEqual(k - 1, physics.isqrt(k * k - 1));
+        try testing.expectEqual(k, physics.isqrt(k * k));
+        try testing.expectEqual(k, physics.isqrt(k * k + 1));
+    }
+    for ([_]i64{ (1 << 26) - 1, 1 << 26, (1 << 26) + 1 }) |m| {
+        try testing.expectEqual(m - 1, physics.isqrt(m * m - 1));
+        try testing.expectEqual(m, physics.isqrt(m * m));
+    }
+    for ([_]i64{ 0, (1 << 52) - 1, 1 << 52, (1 << 52) + 1, std.math.maxInt(i64) }) |v| try testing.expectEqual(plain(v), physics.isqrt(v));
+    var prng: std.Random.DefaultPrng = .init(2026);
+    const r = prng.random();
+    for (0..fuzzed(100_000)) |_| {
+        const v = r.intRangeAtMost(i64, 0, if (r.boolean()) 1 << 53 else std.math.maxInt(i64));
+        try testing.expectEqual(plain(v), physics.isqrt(v));
+    }
+}
+
 test "the room lists give the wishes the scan gives, while they serve and after (202): crowds past wish_scan_most, the lists built, then the critters drifting a little and a lot" {
     var prng: std.Random.DefaultPrng = .init(2023);
     const r = prng.random();
