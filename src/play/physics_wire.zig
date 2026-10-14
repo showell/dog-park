@@ -332,6 +332,14 @@ fn sortedTiles(l: Line) Line {
 
 pub const ParseError = error{Malformed};
 
+/// The first `c` in `s`, byte by byte (202): a report's words and lines
+/// are a few bytes to a few dozen, where `std.mem.indexOfScalar`'s vector
+/// set-up costs more than the scan.
+fn find(s: []const u8, c: u8) ?usize {
+    for (s, 0..) |b, i| if (b == c) return i;
+    return null;
+}
+
 /// The words of a line, split on single spaces: an empty word (two spaces,
 /// a leading or trailing one) is malformed.
 const Words = struct {
@@ -340,7 +348,7 @@ const Words = struct {
 
     fn next(self: *Words) ParseError![]const u8 {
         if (self.done) return error.Malformed;
-        const at = std.mem.indexOfScalar(u8, self.rest, ' ');
+        const at = find(self.rest, ' ');
         const word = if (at) |i| self.rest[0..i] else self.rest;
         if (at) |i| self.rest = self.rest[i + 1 ..] else self.done = true;
         if (word.len == 0) return error.Malformed;
@@ -381,7 +389,7 @@ fn hexDigit(c: u8) ParseError!u32 {
 
 /// A canonical hex point: `d80.40`, at most `most` 256ths.
 pub fn parseHexPoint(s: []const u8, most: u32) ParseError!u32 {
-    const dot = std.mem.indexOfScalar(u8, s, '.') orelse return error.Malformed;
+    const dot = find(s, '.') orelse return error.Malformed;
     const whole = s[0..dot];
     const frac = s[dot + 1 ..];
     if (whole.len == 0 or whole.len > 6 or frac.len != 2) return error.Malformed;
@@ -395,7 +403,7 @@ pub fn parseHexPoint(s: []const u8, most: u32) ParseError!u32 {
 
 /// A position in the world: `x,y`, each 0 to the world's side, less 1/256.
 pub fn parsePos(s: []const u8) ParseError!Point {
-    const comma = std.mem.indexOfScalar(u8, s, ',') orelse return error.Malformed;
+    const comma = find(s, ',') orelse return error.Malformed;
     const most: u32 = physics.world - 1;
     return .{ .x = @intCast(try parseHexPoint(s[0..comma], most)), .y = @intCast(try parseHexPoint(s[comma + 1 ..], most)) };
 }
@@ -431,7 +439,7 @@ fn parseCritter(kind: []const u8, n: []const u8) ParseError!Critter {
 }
 
 fn parseTile(s: []const u8) ParseError!tiles.Tile {
-    const comma = std.mem.indexOfScalar(u8, s, ',') orelse return error.Malformed;
+    const comma = find(s, ',') orelse return error.Malformed;
     const top = tiles.world_tiles - 1;
     return .{ .col = @intCast(try parseDec(s[0..comma], top)), .row = @intCast(try parseDec(s[comma + 1 ..], top)) };
 }
@@ -467,7 +475,7 @@ pub fn parse(text: []const u8) ParseError!Line {
         const hash = try parseHash(try w.next());
         try w.expect("page");
         const page = try w.next();
-        const dot = std.mem.indexOfScalar(u8, page, '.') orelse return error.Malformed;
+        const dot = find(page, '.') orelse return error.Malformed;
         const epoch: Epoch = .{ .ms = try parseDec(page[0..dot], std.math.maxInt(u63)), .count = try parseDec(page[dot + 1 ..], std.math.maxInt(u32)) };
         try w.expect("req");
         const req = try parseDec(try w.next(), std.math.maxInt(u32));
@@ -506,7 +514,7 @@ pub fn parse(text: []const u8) ParseError!Line {
     if (std.mem.eql(u8, word, "view")) {
         const t = try parseTick(try w.next());
         const size = try w.next();
-        const x = std.mem.indexOfScalar(u8, size, 'x') orelse return error.Malformed;
+        const x = find(size, 'x') orelse return error.Malformed;
         const wide = try parseDec(size[0..x], 1 << 16);
         const high = try parseDec(size[x + 1 ..], 1 << 16);
         return .{ .view = .{ .tick = t, .w = wide, .h = high, .tiles = try parseTiles(&w) } };
@@ -538,8 +546,8 @@ pub fn parse(text: []const u8) ParseError!Line {
 
 /// `dx,dy@ms`.
 fn parseDispWord(s: []const u8) ParseError!Disp {
-    const comma = std.mem.indexOfScalar(u8, s, ',') orelse return error.Malformed;
-    const at = std.mem.indexOfScalar(u8, s, '@') orelse return error.Malformed;
+    const comma = find(s, ',') orelse return error.Malformed;
+    const at = find(s, '@') orelse return error.Malformed;
     if (at < comma) return error.Malformed;
     return .{
         .dx = try parseDisp(s[0..comma]),
@@ -556,7 +564,7 @@ pub const Lines = struct {
 
     pub fn next(self: *Lines) ?[]const u8 {
         if (self.rest.len == 0) return null;
-        const at = std.mem.indexOfScalar(u8, self.rest, '\n');
+        const at = find(self.rest, '\n');
         const line = if (at) |i| self.rest[0..i] else self.rest;
         self.rest = if (at) |i| self.rest[i + 1 ..] else self.rest[self.rest.len..];
         return line;
