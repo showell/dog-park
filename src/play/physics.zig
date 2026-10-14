@@ -443,6 +443,18 @@ pub const TileSpan = struct {
         return @mod(t.col - self.col_lo, tiles.world_tiles) <= self.col_hi - self.col_lo and
             @mod(t.row - self.row_lo, tiles.world_tiles) <= self.row_hi - self.row_lo;
     }
+    /// `holds(tileOf(p))`, from the point (202): a tile divides the world,
+    /// so the point's offset from the span's first tile, round the world,
+    /// is its tile's offset in tiles times `tile` plus its place in the
+    /// tile, and the tile's offset is at most `hi - lo` exactly when the
+    /// point's is less than `hi - lo + 1` tiles.
+    pub fn holdsPoint(self: TileSpan, p: Point) bool {
+        return holdsOn(p.x, self.col_lo, self.col_hi) and holdsOn(p.y, self.row_lo, self.row_hi);
+    }
+    fn holdsOn(v: i32, lo: i32, hi: i32) bool {
+        const off = @mod(@as(i64, v) - @as(i64, lo) * tile, world);
+        return off < (@as(i64, hi) - lo + 1) * tile;
+    }
     /// The tile at `col`, `row` of the range, named in the world.
     pub fn at(col: i32, row: i32) tiles.Tile {
         return (tiles.Tile{ .col = col, .row = row }).wrapped();
@@ -858,7 +870,7 @@ pub const Scene = struct {
     fn consider(s: *Scene, c: Critter, span: TileSpan, center: Point, sphere: i64) void {
         if (s.board.known(c) != .present) return;
         const p = s.board.at(c);
-        if (!span.holds(tileOf(p))) return;
+        if (!span.holdsPoint(p)) return;
         s.add(c, if (len2(delta(center, p)) <= sphere) .awake else .asleep);
     }
 

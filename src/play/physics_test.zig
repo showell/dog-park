@@ -1181,6 +1181,32 @@ test "overlaps from the grid finds every overlapping pair the all-pairs scan fin
     }
 }
 
+test "holdsPoint is holds(tileOf(p)): spans that wrap, cover the world or more, and points anywhere in i32 (202)" {
+    var prng: std.Random.DefaultPrng = .init(2029);
+    const r = prng.random();
+    const wt: i32 = tiles.world_tiles;
+    for (0..fuzzed(20_000)) |_| {
+        const lo = r.intRangeLessThan(i32, 0, wt);
+        const span: physics.TileSpan = .{
+            .col_lo = lo,
+            .col_hi = lo + r.intRangeAtMost(i32, -1, wt + 2),
+            .row_lo = r.intRangeLessThan(i32, 0, wt),
+            .row_hi = 0,
+        };
+        var sp = span;
+        sp.row_hi = sp.row_lo + r.intRangeAtMost(i32, -1, wt + 2);
+        for (0..8) |k| {
+            const p: physics.Point = switch (k % 3) {
+                0 => .{ .x = r.int(i32), .y = r.int(i32) },
+                1 => .{ .x = r.intRangeLessThan(i32, 0, physics.world), .y = r.intRangeLessThan(i32, 0, physics.world) },
+                // A tile's edge, each side.
+                else => .{ .x = (lo + r.intRangeAtMost(i32, -2, 3)) * physics.tile + r.intRangeAtMost(i32, -1, 0), .y = sp.row_hi * physics.tile + r.intRangeAtMost(i32, -1, physics.tile) },
+            };
+            try testing.expectEqual(sp.holds(physics.tileOf(p)), sp.holdsPoint(p));
+        }
+    }
+}
+
 test "the room lists give the wishes the scan gives, while they serve and after (202): crowds past wish_scan_most, the lists built, then the critters drifting a little and a lot" {
     var prng: std.Random.DefaultPrng = .init(2023);
     const r = prng.random();
