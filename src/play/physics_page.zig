@@ -145,8 +145,8 @@ export fn dragOf(b: u32) f64 {
 }
 
 /// The tiles meeting the region around the board's leashed dog, as it
-/// stands (after any inputs begun), into `ints` as col, row pairs; their
-/// count, 0 with nothing leashed.
+/// stands (after any inputs begun), into `ints` as col, row pairs named in
+/// the world (wrapped across the seam); their count, 0 with nothing leashed.
 export fn regionTiles(b: u32) u32 {
     const l = board(b).leashedDog() orelse return 0;
     const span = physics.TileSpan.of(physics.region(board(b).dogs[l]));
@@ -155,8 +155,9 @@ export fn regionTiles(b: u32) u32 {
     while (row <= span.row_hi) : (row += 1) {
         var col = span.col_lo;
         while (col <= span.col_hi) : (col += 1) {
-            ints_buf[2 * n] = col;
-            ints_buf[2 * n + 1] = row;
+            const t = physics.TileSpan.at(col, row);
+            ints_buf[2 * n] = t.col;
+            ints_buf[2 * n + 1] = t.row;
             n += 1;
         }
     }
@@ -544,6 +545,21 @@ fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
         try report.appendSlice(testing.allocator, outText(writeT(@floatFromInt(t), @floatFromInt(63 * (t - 1)), cappedLen())));
         try report.appendSlice(testing.allocator, copy);
     }
+}
+
+test "regionTiles across the world's corner: the region's 7 x 7 tiles, each named in the world" {
+    reset();
+    boards[live] = physics.Board.laidOut();
+    boards[live].place(.dog(the_dog), .{ .x = physics.px(200), .y = physics.px(200) });
+    _ = human(live, @intFromEnum(HumanKind.leash), 1, the_dog);
+    const n = regionTiles(live);
+    try testing.expectEqual(@as(u32, 49), n);
+    var named: wire.TileSet = .{};
+    for (0..n) |i| try named.add(.{ .col = ints_buf[2 * i], .row = ints_buf[2 * i + 1] });
+    for ([_][2]i32{ .{ 61, 61 }, .{ 63, 0 }, .{ 0, 0 }, .{ 0, 63 }, .{ 3, 3 } }) |cr| try testing.expect(named.holds(.{ .col = cr[0], .row = cr[1] }));
+    for (named.slice()) |t| try testing.expect(t.col >= 0 and t.col < tiles.world_tiles and t.row >= 0 and t.row < tiles.world_tiles);
+    // And the page's view of them is a line the wire reads.
+    try testing.expect(writeView(1, 1280, 800, n) > 0);
 }
 
 test "the page's exports write a report the judge keeps" {

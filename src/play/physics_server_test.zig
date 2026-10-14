@@ -209,7 +209,7 @@ fn tileSetOf(cols: [2]i32, rows: [2]i32) wire.TileSet {
     var r = rows[0];
     while (r <= rows[1]) : (r += 1) {
         var c = cols[0];
-        while (c <= cols[1]) : (c += 1) s.add(.{ .col = c, .row = r }) catch unreachable;
+        while (c <= cols[1]) : (c += 1) s.add(physics.TileSpan.at(c, r)) catch unreachable;
     }
     return s;
 }
@@ -686,6 +686,45 @@ test "23. a tile sent again after a differ, its held never kept: the page's boar
     const a = try rig.report(page.body());
     try testing.expect(std.mem.indexOf(u8, a, "\ndiffer ") != null);
     try testing.expect(std.mem.indexOf(u8, a, "\ntile 40,40\n") != null);
+}
+
+test "the torus' seam (decision 14): an unleashed view of the world's four corner tiles, named in the world, gets them, and its held is kept" {
+    var rig: Rig = undefined;
+    try rig.init(t0);
+    defer rig.deinit();
+    var page = try Page.loaded(&rig, try rig.load("1280x800"));
+    // An unleashed view of the four corner tiles, named in the world.
+    const edge = tiles.world_tiles - 1;
+    var seam: wire.TileSet = .{};
+    for ([_][2]i32{ .{ edge, 0 }, .{ 0, 0 }, .{ edge, edge }, .{ 0, edge } }) |cr| try seam.add(.{ .col = cr[0], .row = cr[1] });
+    try page.begin();
+    try page.write(.{ .view = .{ .tick = page.last + 1, .w = 1280, .h = 800, .tiles = seam } });
+    const a = try rig.report(page.body());
+    try testing.expectEqual(@as(usize, 4), count(a, "tile "));
+    var buf: [32]u8 = undefined;
+    try testing.expect(std.mem.indexOf(u8, a, try std.fmt.bufPrint(&buf, "\ntile {d},0\n", .{edge})) != null);
+    try page.begin();
+    try page.write(.{ .held = .{ .tick = page.last + 1, .tiles = seam } });
+    try expectKept(try rig.report(page.body()), 2, 0);
+}
+
+test "the torus' seam (decision 14): a leash at the world's corner views and holds the wrapped region, and its ticks are kept" {
+    var rig: Rig = undefined;
+    try rig.init(t0);
+    defer rig.deinit();
+    var page = try Page.loaded(&rig, try rig.load("1280x800"));
+    const edge = tiles.world_tiles - 1;
+    // The dog moved to the corner, a cow across the seam from it, on both
+    // boards (as a restart from such a log would have them).
+    const near = physics.px(200);
+    const far = physics.world - near;
+    for ([_]*Board{ &rig.server.kept.board, &page.board }) |b| {
+        b.place(.dog(the_dog), .{ .x = near, .y = near });
+        b.place(.cow(0), .{ .x = far, .y = near });
+    }
+    try leashUp(&rig, &page, the_dog);
+    try testing.expect(regionOf(&page.board, the_dog).holds(.{ .col = edge, .row = 0 }));
+    try dragTicks(&rig, &page, 4);
 }
 
 test "25. the park in the world: the first layout's counts; the empty world reads as empty" {

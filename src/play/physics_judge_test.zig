@@ -77,7 +77,7 @@ fn tileSet(cols: [2]i32, rows: [2]i32) wire.TileSet {
     var r = rows[0];
     while (r <= rows[1]) : (r += 1) {
         var c = cols[0];
-        while (c <= cols[1]) : (c += 1) s.add(.{ .col = c, .row = r }) catch unreachable;
+        while (c <= cols[1]) : (c += 1) s.add(physics.TileSpan.at(c, r)) catch unreachable;
     }
     return s;
 }

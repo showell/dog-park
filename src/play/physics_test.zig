@@ -815,6 +815,40 @@ test "a critter whose point stands in a tile not meeting the region is unseen, t
     try testing.expectEqual(physics.Seen.Awake.asleep, sc.list()[1].awake);
 }
 
+test "the torus' tiles (decision 14): a region across x = 0, y = 0 and the corner spans the wrapped tiles; tileOf wraps a point" {
+    const w = tiles.world_tiles;
+    const edge_in = physics.px(200);
+    const mid = physics.world / 2;
+    // Across x = 0: columns 61 to 63 and 0 to 3, named 61 to 67.
+    const west = physics.TileSpan.of(physics.region(.{ .x = edge_in, .y = mid }));
+    try testing.expectEqual(physics.TileSpan{ .col_lo = w - 3, .col_hi = w + 3, .row_lo = 29, .row_hi = 34 }, west);
+    for ([_]i32{ w - 3, w - 1, 0, 3 }) |c| try testing.expect(west.holds(.{ .col = c, .row = 32 }));
+    for ([_]i32{ w - 4, 4 }) |c| try testing.expect(!west.holds(.{ .col = c, .row = 32 }));
+    try testing.expect(!west.holds(.{ .col = 0, .row = 35 }));
+    // Across y = 0, the mirror.
+    const north = physics.TileSpan.of(physics.region(.{ .x = mid, .y = edge_in }));
+    try testing.expectEqual(physics.TileSpan{ .col_lo = 29, .col_hi = 34, .row_lo = w - 3, .row_hi = w + 3 }, north);
+    // Across the corner from the far side: 60 to 63 and 0 to 2 both ways.
+    const corner = physics.TileSpan.of(physics.region(.{ .x = physics.world - edge_in, .y = physics.world - edge_in }));
+    try testing.expectEqual(physics.TileSpan{ .col_lo = 60, .col_hi = 66, .row_lo = 60, .row_hi = 66 }, corner);
+    for ([_][2]i32{ .{ 63, 63 }, .{ 0, 0 }, .{ 63, 0 }, .{ 0, 63 }, .{ 2, 60 } }) |cr| try testing.expect(corner.holds(.{ .col = cr[0], .row = cr[1] }));
+    try testing.expect(!corner.holds(.{ .col = 3, .row = 0 }));
+    try testing.expectEqual(tiles.Tile{ .col = 2, .row = 0 }, physics.TileSpan.at(w + 2, w));
+    // tileOf: a point wrapped first.
+    try testing.expectEqual(tiles.Tile{ .col = w - 1, .row = 0 }, physics.tileOf(.{ .x = -1, .y = physics.world }));
+    try testing.expectEqual(tiles.Tile{ .col = 0, .row = w - 1 }, physics.tileOf(.{ .x = physics.world + physics.tile - 1, .y = -physics.tile }));
+}
+
+test "a critter across the seam from the leashed dog, in the region's wrapped tiles, is seen" {
+    const edge_in = physics.px(200);
+    var b = leashedAt(.{ .x = edge_in, .y = edge_in });
+    b.place(.cow(0), .{ .x = physics.world - edge_in, .y = physics.world - edge_in });
+    b.place(.cow(1), .{ .x = physics.world / 2, .y = edge_in });
+    const sc = physics.Scene.of(&b).?;
+    try testing.expectEqual(@as(usize, 2), sc.len);
+    try testing.expect(sc.list()[1].who.eql(.cow(0)));
+}
+
 /// A page's board for test 12: the critters of the tiles it has.
 const PageBoard = struct {
     board: Board,
@@ -836,10 +870,11 @@ const PageBoard = struct {
         while (row <= span.row_hi) : (row += 1) {
             var col = span.col_lo;
             while (col <= span.col_hi) : (col += 1) {
-                if (p.held[@intCast(row)][@intCast(col)] == .held) continue;
-                p.held[@intCast(row)][@intCast(col)] = .held;
-                for (server.dogs, 0..) |at, i| if (physics.tileOf(at).col == col and physics.tileOf(at).row == row) p.board.place(.dog(@intCast(i)), at);
-                for (server.cows, 0..) |at, i| if (physics.tileOf(at).col == col and physics.tileOf(at).row == row) p.board.place(.cow(@intCast(i)), at);
+                const t = physics.TileSpan.at(col, row);
+                if (p.held[@intCast(t.row)][@intCast(t.col)] == .held) continue;
+                p.held[@intCast(t.row)][@intCast(t.col)] = .held;
+                for (server.dogs, 0..) |at, i| if (std.meta.eql(physics.tileOf(at), t)) p.board.place(.dog(@intCast(i)), at);
+                for (server.cows, 0..) |at, i| if (std.meta.eql(physics.tileOf(at), t)) p.board.place(.cow(@intCast(i)), at);
             }
         }
     }

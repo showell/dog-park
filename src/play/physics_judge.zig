@@ -419,7 +419,7 @@ const Run = struct {
         while (row <= span.row_hi) : (row += 1) {
             var col = span.col_lo;
             while (col <= span.col_hi) : (col += 1) {
-                if (!k.held.holds(.{ .col = col, .row = row })) return false;
+                if (!k.held.holds(physics.TileSpan.at(col, row))) return false;
             }
         }
         return true;

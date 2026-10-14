@@ -139,6 +139,13 @@ comptime {
     if (cow_room <= dog_half + cow_half) @compileError("cow_room must exceed a dog's half and a cow's half");
     if (region_needs > region_reach)
         @compileError(std.fmt.comptimePrint("the region ({d}/256 px each way) is short of the {d}/256 px the knobs' reaches need", .{ region_reach, region_needs }));
+    // **THE WORLD IS WIDER THAN THE REGION PLUS ITS REACHES** (decision 14):
+    // the region's tiles (its side, and a tile more each way where it ends
+    // inside one) and what a tick reaches past them, each way, short of the
+    // world, so the region's span never wraps onto itself and no critter
+    // is ever seen twice.
+    if (2 * region_reach + 2 * tile + 2 * region_needs >= world)
+        @compileError("the world must be wider than the region plus its reaches (decision 14)");
 }
 
 pub const Tick = u64;
@@ -340,7 +347,11 @@ pub fn region(center: Point) Rect {
 }
 
 /// The tiles a rectangle meets, half-open: sharing some of a tile's
-/// interior; clipped to the world.
+/// interior. On the torus (decision 14): `col_lo` and `row_lo` are named in
+/// the world, [0, `world_tiles`), and `col_hi` and `row_hi` count on past
+/// its last tile across the seam (64 is tile 0), so `lo..hi` always counts
+/// up; `at` names a tile of the range in the world. A span is never wider
+/// than the world (the region's comptime check).
 pub const TileSpan = struct {
     col_lo: i32,
     col_hi: i32,
@@ -348,15 +359,25 @@ pub const TileSpan = struct {
     row_hi: i32,
 
     pub fn of(r: Rect) TileSpan {
+        const col = @divFloor(r.lo.x, tile);
+        const row = @divFloor(r.lo.y, tile);
+        const col_lo = @mod(col, tiles.world_tiles);
+        const row_lo = @mod(row, tiles.world_tiles);
         return .{
-            .col_lo = @max(0, @divFloor(r.lo.x, tile)),
-            .col_hi = @min(tiles.world_tiles - 1, ceilDiv(r.hi.x, tile) - 1),
-            .row_lo = @max(0, @divFloor(r.lo.y, tile)),
-            .row_hi = @min(tiles.world_tiles - 1, ceilDiv(r.hi.y, tile) - 1),
+            .col_lo = col_lo,
+            .col_hi = col_lo + (ceilDiv(r.hi.x, tile) - 1 - col),
+            .row_lo = row_lo,
+            .row_hi = row_lo + (ceilDiv(r.hi.y, tile) - 1 - row),
         };
     }
+    /// Whether `t` (named in the world) lies in the wrapped range.
     pub fn holds(self: TileSpan, t: tiles.Tile) bool {
-        return t.col >= self.col_lo and t.col <= self.col_hi and t.row >= self.row_lo and t.row <= self.row_hi;
+        return @mod(t.col - self.col_lo, tiles.world_tiles) <= self.col_hi - self.col_lo and
+            @mod(t.row - self.row_lo, tiles.world_tiles) <= self.row_hi - self.row_lo;
+    }
+    /// The tile at `col`, `row` of the range, named in the world.
+    pub fn at(col: i32, row: i32) tiles.Tile {
+        return (tiles.Tile{ .col = col, .row = row }).wrapped();
     }
 };
 
@@ -364,9 +385,9 @@ fn ceilDiv(a: i32, b: i32) i32 {
     return -@divFloor(-a, b);
 }
 
-/// The tile a point stands in.
+/// The tile a point stands in, named in the world: the point wrapped first.
 pub fn tileOf(p: Point) tiles.Tile {
-    return .{ .col = @divFloor(p.x, tile), .row = @divFloor(p.y, tile) };
+    return .{ .col = @divFloor(@mod(p.x, world), tile), .row = @divFloor(@mod(p.y, world), tile) };
 }
 
 /// A drag displacement, in 256ths, and when the pointer was there (`@ms`,

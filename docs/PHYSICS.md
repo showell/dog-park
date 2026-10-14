@@ -1365,11 +1365,18 @@ and the request numbering.
       obstacles and its candidate squares. Near the seam they must be
       taken relative to one point (the leashed dog's, or the pushed
       critter's) before comparing.
-    - **`TileSpan.of`** clips to the world (`@max(0, …)`, `@min(world_tiles
-      − 1, …)`): a region across the seam must instead wrap its columns
-      and rows mod 64, and `holds` must test a tile in a wrapped range.
-      `tileOf` must wrap a point first. The page's subscription and its
-      ties by row, then column, follow.
+    - **The tiles wrap (done, 2026-10-14).** `TileSpan.of` names its
+      first column and row in the world and counts on past the last tile
+      across the seam (64 is tile 0), so a region across the seam spans
+      the wrapped tiles; `holds` tests a tile in that wrapped range;
+      `TileSpan.at` names a tile of it in the world; `tileOf` wraps a
+      point first. The page's `regionTiles`, the server's load region and
+      the judge's "region held" name every tile in the world, and the
+      wire's tiles stay canonical, [0, 64): the page sends them so. A
+      comptime check: the world is wider than the region, a tile each
+      way, and `region_needs` each way, so a span never wraps onto itself.
+      Until the critters wrap, a critter across the seam from the leashed
+      dog is seen (its tile is the region's) but far away by `delta`.
     - **The jump** (`physics_jump.zig`): `gapOn` subtracts absolute
       sides, `wayOut` sets absolute coordinates, the candidate box is
       built from absolute corners, and `offer` checks `world_rect`. Each

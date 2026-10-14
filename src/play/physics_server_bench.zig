@@ -67,7 +67,7 @@ pub fn main(init: std.process.Init) !void {
         var r = span.row_lo;
         while (r <= span.row_hi) : (r += 1) {
             var c = span.col_lo;
-            while (c <= span.col_hi) : (c += 1) try region.add(.{ .col = c, .row = r });
+            while (c <= span.col_hi) : (c += 1) try region.add(physics.TileSpan.at(c, r));
         }
         const t = s.kept.tick + 1 + i;
         const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(12), .dy = physics.px(3) }});

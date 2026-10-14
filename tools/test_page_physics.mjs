@@ -302,6 +302,31 @@ test("21: thirty unleashed pans: no refusal, and one view and one held a tick in
   }
 });
 
+test("the torus' seam (decision 14): a pan to the world's corner subscribes the tiles either side, named in the world; the server sends them, the page holds them, every answer kept", async () => {
+  const server = await scratchServer();
+  try {
+    const wire = recording(server);
+    const rig = await pageRig({ post: wire.post });
+    await rig.load();
+    await rig.ticks(4);
+    rig.engine.intent({ kind: "pan", parkX: -600, parkY: -400 });
+    await rig.ticks(10);
+    assert.deepEqual(rig.warnings(), []);
+    const views = reports(rig).join("").split("\n").filter((l) => l.startsWith("view "));
+    const last = views.at(-1).split(" ").slice(3);
+    for (const k of ["63,63", "0,63", "63,0", "0,0"]) assert.ok(last.includes(k), `${k} in ${last}`);
+    // The server answered the seam's tiles: a tile line each, empty ground.
+    const sent = wire.answers.filter((a) => a.path === "/report").flatMap((a) => a.text.split("\n").filter((l) => l.startsWith("tile ")));
+    for (const k of ["63,63", "0,63", "63,0", "0,0"]) assert.ok(sent.includes(`tile ${k}`), `tile ${k} in ${sent}`);
+    assert.ok(wire.answers.filter((a) => a.path === "/report").every((a) => /^req \d+\nkept 0\n/.test(a.text)), "every report kept");
+    const d = rig.engine.debug();
+    assert.deepEqual(d.held, d.view, "every subscribed tile held");
+    assert.equal(rig.engine.view().status.kind, "playing");
+  } finally {
+    await server.stop();
+  }
+});
+
 test("6: frozen at the 32-tick window, a letgo takes from + 33, and the server keeps it", async () => {
   const server = await scratchServer();
   try {

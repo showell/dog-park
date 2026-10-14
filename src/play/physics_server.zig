@@ -423,10 +423,10 @@ pub const Server = struct {
             for (self.kept.pendingSlice()) |h| _ = physics.input(&b, &begun, h);
             if (b.leashedDog()) |l| {
                 const span = physics.TileSpan.of(physics.region(b.dogs[l]));
-                var row = @max(span.row_lo, 0);
-                while (row <= @min(span.row_hi, tiles.world_tiles - 1)) : (row += 1) {
-                    var col = @max(span.col_lo, 0);
-                    while (col <= @min(span.col_hi, tiles.world_tiles - 1)) : (col += 1) region.add(.{ .col = col, .row = row }) catch unreachable;
+                var row = span.row_lo;
+                while (row <= span.row_hi) : (row += 1) {
+                    var col = span.col_lo;
+                    while (col <= span.col_hi) : (col += 1) region.add(physics.TileSpan.at(col, row)) catch unreachable;
                 }
             }
         }
