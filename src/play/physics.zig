@@ -88,6 +88,24 @@ pub const knobs: Knobs = @import("physics_options").knobs;
 pub const Metric = @TypeOf(@import("physics_options").metric);
 pub const metric: Metric = @import("physics_options").metric;
 
+/// **HOW THE DOGS THINK** (metal-vmm QUEUE 205(c), the essay's step 3,
+/// `zig build -Dthink`):
+/// - `ranked` (the played one): in rank order, each dog's wish from the
+///   board as those above it left it, heeding only the strangers above it;
+/// - `together`: every awake dog's wish from the same positions, the
+///   pixel-tick's (`wishesTogether`), heeding every stranger within
+///   `wary`, above or below. The anchor is still the nearest dog of its
+///   breed above it (the essay's step 4 changes that), and the steps are
+///   swept in rank order, so rank decides only who yields on contact.
+pub const Think = @TypeOf(@import("physics_options").think);
+pub const think: Think = @import("physics_options").think;
+
+/// Whether dog `i` heeds stranger `j` (another breed's dog): one above it
+/// (`j < i`, `seen` being in rank order), or any under `together`.
+inline fn heedsStranger(i: usize, j: usize) bool {
+    return think == .together or j < i;
+}
+
 fn tuned(comptime played: anytype, comptime alt: @TypeOf(played)) @TypeOf(played) {
     return switch (knobs) {
         .played => played,
@@ -1136,7 +1154,7 @@ pub const Scene = struct {
                     var cx = wishCellOf(p.x - reach);
                     while (cx <= wishCellOf(p.x + reach)) : (cx += 1) {
                         var j = s.wg_head[wishBucket(@intCast(class), cx, cy)];
-                        while (j != wish_none and j < i) : (j = s.wg_next[j]) {
+                        while (j != wish_none and (if (class == breeds) j < i else heedsStranger(i, j))) : (j = s.wg_next[j]) {
                             if (measure(delta(s.pos(j), p)) > reach2) continue;
                             if (n == rooms_most) return;
                             s.rl[n] = j;
@@ -1463,12 +1481,35 @@ noinline fn jumpOut(sc: *Scene, i: usize) void {
 /// the leashed dog's own step.
 fn wishes(sc: *Scene, most: i32) void {
     sc.refresh(most);
+    if (think == .together) return wishesTogether(sc, most);
     for (sc.awakeOnes()) |w16| {
         const i: usize = w16;
         const s = sc.seen[i];
         if (s.who.kind != .dog or s.rank == 0) continue;
         outFromUnder(sc, i);
         stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
+    }
+}
+
+/// **EVERYONE AT ONCE** (`think` = `together`): every awake dog out from
+/// under first, in rank order; then every wish, from the same positions;
+/// then the steps, swept in rank order.
+fn wishesTogether(sc: *Scene, most: i32) void {
+    for (sc.awakeOnes()) |w16| {
+        const s = sc.seen[w16];
+        if (s.who.kind != .dog or s.rank == 0) continue;
+        outFromUnder(sc, w16);
+    }
+    var steps: [critter_count]Point = undefined;
+    for (sc.awakeOnes()) |w16| {
+        const s = sc.seen[w16];
+        if (s.who.kind != .dog or s.rank == 0) continue;
+        steps[w16] = stepAtMost(wishTotal(sc, w16), most);
+    }
+    for (sc.awakeOnes()) |w16| {
+        const s = sc.seen[w16];
+        if (s.who.kind != .dog or s.rank == 0) continue;
+        stepSwept(sc, w16, steps[w16]);
     }
 }
 
@@ -1784,9 +1825,10 @@ fn addRoom(sc: *const Scene, total: *Point, i: usize, p: Point, class: u16, reac
     while (cy <= wishCellOf(p.y + reach)) : (cy += 1) {
         var cx = wishCellOf(p.x - reach);
         while (cx <= wishCellOf(p.x + reach)) : (cx += 1) {
-            // In rank order: past the first not above dog `i`, none count.
+            // In rank order: past the first not above dog `i`, none count
+            // (under `together`, every stranger does).
             var j = sc.wg_head[wishBucket(class, cx, cy)];
-            while (j != wish_none and j < i) : (j = sc.wg_next[j]) {
+            while (j != wish_none and (if (class == breeds) j < i else heedsStranger(i, j))) : (j = sc.wg_next[j]) {
                 const v = delta(sc.pos(j), p);
                 const d2 = measure(v);
                 if (d2 > reach2) continue;
@@ -1946,7 +1988,7 @@ pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
     var anchor_d2: i64 = 0;
     // In rank order: past an unleashed dog, every awake one is a dog below
     // it, and none of those count.
-    const past_me_none_count = me.who.kind == .dog and me.rank != 0;
+    const past_me_none_count = think == .ranked and me.who.kind == .dog and me.rank != 0;
     for (sc.awakeOnes()) |j16| {
         const j: usize = j16;
         const o = sc.seen[j];
@@ -1961,13 +2003,13 @@ pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
                 add(&total, awayRooted(v, l, cow_room - @as(i32, @intCast(l))));
             },
             .dog => {
-                if (o.rank >= me.rank) continue;
+                const above = o.rank < me.rank;
                 if (o.who.n % breeds != breed) {
-                    if (d2 <= measureOf(wary)) {
+                    if ((above or think == .together) and d2 <= measureOf(wary)) {
                         const l = lengthOf(d2);
                         add(&total, awayRooted(v, l, wary - @as(i32, @intCast(l))));
                     }
-                } else if (d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
+                } else if (above and d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
                     anchor = j;
                     anchor_d2 = d2;
                 }

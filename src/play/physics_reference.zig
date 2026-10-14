@@ -690,6 +690,24 @@ fn outFromUnder(sc: *Scene, i: usize) void {
 /// `most`: once a tick at the speed, and once per pixel-tick of the drag at
 /// the leashed dog's own step.
 fn wishes(sc: *Scene, most: i32) void {
+    if (physics.think == .together) {
+        // Everyone at once (205(c)): out from under, then every wish from
+        // the same positions, then the steps, each pass in rank order.
+        for (sc.awakeOnes()) |w16| {
+            const s = sc.seen[w16];
+            if (s.who.kind == .dog and s.rank != 0) outFromUnder(sc, w16);
+        }
+        var steps: [critter_count]Point = undefined;
+        for (sc.awakeOnes()) |w16| {
+            const s = sc.seen[w16];
+            if (s.who.kind == .dog and s.rank != 0) steps[w16] = stepAtMost(wishTotal(sc, w16), most);
+        }
+        for (sc.awakeOnes()) |w16| {
+            const s = sc.seen[w16];
+            if (s.who.kind == .dog and s.rank != 0) stepSwept(sc, w16, steps[w16]);
+        }
+        return;
+    }
     for (sc.awakeOnes()) |w16| {
         const i: usize = w16;
         const s = sc.seen[i];
@@ -892,10 +910,12 @@ pub fn wishTotal(sc: *const Scene, i: usize) Point {
                 add(&total, away(q, p, cow_room - @as(i32, @intCast(lengthOf(d2)))));
             },
             .dog => {
-                if (o.rank >= me.rank) continue;
+                // Strangers above it, or every one under `together`; its
+                // anchor above it either way.
+                const above = o.rank < me.rank;
                 if (o.who.n % breeds != breed) {
-                    if (d2 <= measureOf(wary)) add(&total, away(q, p, wary - @as(i32, @intCast(lengthOf(d2)))));
-                } else if (d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
+                    if ((above or physics.think == .together) and d2 <= measureOf(wary)) add(&total, away(q, p, wary - @as(i32, @intCast(lengthOf(d2)))));
+                } else if (above and d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
                     anchor = j;
                     anchor_d2 = d2;
                 }

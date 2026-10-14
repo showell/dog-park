@@ -351,6 +351,21 @@ test under each other metric; the worked example's tests are euclid's and
 skip under the others. `zig build herds` (herd_bench.zig) prints the
 herds' census on fixed play under the build's metric.
 
+**How the dogs think** (metal-vmm QUEUE 205(c), the essay's step 3).
+`zig build -Dthink=` picks it:
+- `ranked` (the default, the played one): the cascade above, each dog's
+  wish from the board as the dogs above it left it, wary only of the
+  strangers above it.
+- `together`: at each pixel-tick (and the tick's own step) every awake
+  dog comes out from under first, then every wish is worked out from the
+  same positions, then the steps are swept, in rank order. A dog is wary
+  of every stranger within `wary`, above it or below. Its anchor is still
+  the nearest dog of its breed above it. Rank decides only who yields
+  when two steps meet, which is invisible.
+
+Its name joins the physics hash too, and `zig build slow` runs the
+physics' tests and the identity test under the other one.
+
 **Arithmetic.** Every critter's position is an integer count of 256ths of
 a pixel, the cows' too, with an integer square root for distances. **Every product is `i64`:** squared distances
 (in 256ths, about 7·10^13 along one axis of the 64 × 64 world and

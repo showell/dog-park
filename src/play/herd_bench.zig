@@ -1,5 +1,5 @@
 //! **THE HERD NUMBERS ON FIXED PLAY** (metal-vmm QUEUE 205(a)): `zig build
-//! herds` (with `-Dmetric`, `-Dknobs`). A few recorded drags, the same for
+//! herds` (with `-Dmetric`, `-Dthink`, `-Dknobs`). A few recorded drags, the same for
 //! every variant of the rules, each played from the laid-out park, and the
 //! herds' census (herds.zig) at the let-go and after it, so a rule change
 //! is judged on the same play every time. Steve's eye stays the judge.
@@ -185,7 +185,7 @@ fn row(name: []const u8, when: []const u8, both: *const Both, first: *const Both
 }
 
 pub fn main() void {
-    std.debug.print("herds: metric {t}, knobs {t}; a link is {d} px (the band's {d} + {d}), a herd {d} dogs or more\n", .{ physics.metric, physics.knobs, @divTrunc(herds.link, 256), @divTrunc(physics.band_outer, 256), @divTrunc(herds.slack, 256), herds.least });
+    std.debug.print("herds: metric {t}, think {t}, knobs {t}; a link is {d} px (the band's {d} + {d}), a herd {d} dogs or more\n", .{ physics.metric, physics.think, physics.knobs, @divTrunc(herds.link, 256), @divTrunc(physics.band_outer, 256), @divTrunc(herds.slack, 256), herds.least });
     std.debug.print("{s:<8} {s:<7} {s:>5} {s:>4}  {s:>2} {s:>2} {s:>2} {s:>2}   {s:>4} {s:>4} {s:>5}  {s:>5}  {s:<7}  {s:<7}  {s:<7}  {s:<7}   {s:>4} {s:>4} {s:>4}  {s:>5}\n", .{ "script", "when", "herds", "in", "b0", "b1", "b2", "b3", "lead", "len", "links", "kept", "big b0", "big b1", "big b2", "big b3", "eye", "lead", "len", "kept" });
     for (scripts) |s| {
         const p = play(s);

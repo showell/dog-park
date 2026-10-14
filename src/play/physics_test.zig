@@ -721,10 +721,16 @@ test "a dog keeps its wary distance from other breeds above it, and its room fro
     sc = physics.Scene.of(&b).?;
     const both: Point = .{ .x = wary_wish.x, .y = -(physics.cow_room - cow_at) };
     try testing.expectEqual(both, physics.wishTotal(&sc, 2));
-    // Dogs below never count: dog 1 is not wary of dog 2 (another breed).
+    // Ranked, dogs below never count: dog 1 is not wary of dog 2 (another
+    // breed). Together (205(c)), every stranger does: dog 2, touching it
+    // east, pushes it west by the rest of `wary`.
     b.place(.dog(2), .{ .x = from.x + half_wary + 2 * physics.dog_half, .y = from.y });
     sc = physics.Scene.of(&b).?;
-    try testing.expectEqual(both, physics.wishTotal(&sc, 2));
+    const below: Point = switch (physics.think) {
+        .ranked => both,
+        .together => .{ .x = both.x - (physics.wary - 2 * physics.dog_half), .y = both.y },
+    };
+    try testing.expectEqual(below, physics.wishTotal(&sc, 2));
 }
 
 test "the anchor is the nearest more-alpha dog of its breed; ties go to the leashed dog, then the lower number" {
@@ -754,8 +760,10 @@ test "a dog's own step stops where it would press into anyone, awake or asleep, 
     const b0 = 16000;
     var b = leashedAt(px(b0, b0));
     b.place(.dog(4), px(b0 + 150, b0));
-    // Dog 9 touching dog 4's west side: dog 4 can't step toward its anchor.
-    b.place(.dog(9), px(b0 + 110, b0));
+    // Dog 8 (its breed, below it) touching dog 4's west side: dog 4 can't
+    // step toward its anchor. Not another breed's: under `together` dog 4
+    // would be wary of it and step away east (205(c)).
+    b.place(.dog(8), px(b0 + 110, b0));
     _ = ticked(&b, 1, &.{}, &.{});
     try testing.expectEqual(px(b0 + 150, b0), b.dogs[4]);
 }

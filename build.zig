@@ -14,12 +14,19 @@ const Knobs = enum { played, alt };
 /// the larger axis; `manhattan`, the axes added.
 const Metric = enum { euclid, chebyshev, manhattan };
 
+/// How the dogs think (physics.zig's `think`, metal-vmm QUEUE 205(c), the
+/// essay's step 3): `ranked`, in rank order, each heeding only those above
+/// it (the played one, the default); `together`, every wish from the same
+/// positions, every stranger heeded.
+const Think = enum { ranked, together };
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const fuzz = b.option(Fuzz, "fuzz", "the seeded fuzz loops' size: fast (a tenth, the default) or full") orelse .fast;
     const knobs = b.option(Knobs, "knobs", "the physics' tuning: played (Steve's, the default) or alt (every knob moved by about half)") orelse .played;
     const metric = b.option(Metric, "metric", "the physics' distance: euclid (the default), chebyshev (the larger axis) or manhattan (the axes added)") orelse .euclid;
+    const think = b.option(Think, "think", "how the dogs think: ranked (the default) or together (one snapshot, every stranger heeded)") orelse .ranked;
 
     // webbox is two modules: `webbox`, portable, what the application's code
     // imports; and `webbox_linux`, the Linux host, for a Linux `main` only.
@@ -33,7 +40,7 @@ pub fn build(b: *std.Build) void {
     // **THE PHYSICS HASH, ONCE** (physics_wire.zig): a CRC-32 over the
     // files src/play/physics_sources.zon lists, read here at configure
     // time and handed to every module that compiles the physics.
-    const physics_mod = physicsOptions(b, knobs, metric);
+    const physics_mod = physicsOptions(b, knobs, metric, think);
 
     const wasm32 = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const wasi = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
@@ -182,14 +189,14 @@ pub fn build(b: *std.Build) void {
     check.dependOn(physics_wasm);
     for (node_server) |f| check.dependOn(nodeTest(b, f));
 
-    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics against its reference, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, the physics' tests under -Dknobs=alt and under each other -Dmetric, every node test");
+    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics against its reference, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, the physics' tests under -Dknobs=alt, each other -Dmetric and the other -Dthink, every node test");
     slow.dependOn(units.all(.full));
     slow.dependOn(units.identity());
     // The physics' tests under the other tuning, so a test that pins a
     // played value instead of a property fails here.
     if (knobs != .alt) {
         var alt = units;
-        alt.physics_mod = physicsOptions(b, .alt, metric);
+        alt.physics_mod = physicsOptions(b, .alt, metric, think);
         slow.dependOn(alt.physics(.full));
     }
     // The physics' tests, and its reference, under the other metrics
@@ -197,7 +204,14 @@ pub fn build(b: *std.Build) void {
     for ([_]Metric{ .euclid, .chebyshev, .manhattan }) |m| {
         if (m == metric) continue;
         var other = units;
-        other.physics_mod = physicsOptions(b, knobs, m);
+        other.physics_mod = physicsOptions(b, knobs, m, think);
+        slow.dependOn(other.physics(.full));
+        slow.dependOn(other.identity());
+    }
+    // And under the other way of thinking (205(c)).
+    {
+        var other = units;
+        other.physics_mod = physicsOptions(b, knobs, metric, if (think == .ranked) .together else .ranked);
         slow.dependOn(other.physics(.full));
         slow.dependOn(other.identity());
     }
@@ -283,19 +297,21 @@ fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.built
 
 /// The physics' build options, `physics_options`: its hash, its tuning and
 /// its metric.
-fn physicsOptions(b: *std.Build, knobs: Knobs, metric: Metric) *std.Build.Module {
+fn physicsOptions(b: *std.Build, knobs: Knobs, metric: Metric, think: Think) *std.Build.Module {
     const options = b.addOptions();
-    options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play"), knobs, metric));
+    options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play"), knobs, metric, think));
     options.addOption(Knobs, "knobs", knobs);
     options.addOption(Metric, "metric", metric);
+    options.addOption(Think, "think", think);
     return options.createModule();
 }
 
 /// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
 /// lists, in its order; under a tuning other than `played`, its name too,
-/// and under a metric other than `euclid`, its name: a page and a server
+/// and under a metric other than `euclid` or a way of thinking other than
+/// `ranked`, its name: a page and a server
 /// built with different physics never agree on the hash.
-fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs, metric: Metric) u32 {
+fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs, metric: Metric, think: Think) u32 {
     const io = b.graph.io;
     const list_path = b.fmt("{s}/physics_sources.zon", .{dir});
     const list = std.Io.Dir.cwd().readFileAlloc(io, list_path, b.allocator, .limited(1 << 16)) catch |e|
@@ -310,5 +326,6 @@ fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs, metric: Metric) u32
     }
     if (knobs != .played) crc.update(@tagName(knobs));
     if (metric != .euclid) crc.update(@tagName(metric));
+    if (think != .ranked) crc.update(@tagName(think));
     return crc.final();
 }
