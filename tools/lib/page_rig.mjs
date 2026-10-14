@@ -9,7 +9,9 @@ import { createEngine } from "../../solo/engine.js";
 import { instantiatePhysics, SCRATCH, flag } from "../../solo/physics.js";
 import { root } from "./scratch_server.mjs";
 
-export const wasmBytes = () => readFileSync(join(root, "zig-out/web/physics.wasm"));
+// The served build, unless DOGPARK_WASM names another (the fast tier's
+// Debug build, zig-out/web-debug/physics.wasm).
+export const wasmBytes = () => readFileSync(join(root, process.env.DOGPARK_WASM ?? "zig-out/web/physics.wasm"));
 
 /**
  * A page: `post(path, text)` -> Promise of { status, text }. Every request

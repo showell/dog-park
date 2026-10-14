@@ -39,17 +39,14 @@ pub fn build(b: *std.Build) void {
     // `.embedded` names it for a kernel's build, and compiled into this
     // build's play server by the same name, which serves it as
     // /physics-<hash>.wasm.
-    const physics_page_wasm = b.addExecutable(.{ .name = "physics", .root_module = b.createModule(.{
-        .root_source_file = b.path("src/play/physics_page.zig"),
-        .target = wasm32,
-        .optimize = .ReleaseSafe,
-        .strip = true,
-        .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
-    }) });
-    physics_page_wasm.entry = .disabled;
-    physics_page_wasm.rdynamic = true;
+    const physics_page_wasm = pageWasm(b, wasm32, .ReleaseSafe, physics_mod);
     b.getInstallStep().dependOn(&b.addInstallArtifact(physics_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
     const page_wasm = physics_page_wasm.getEmittedBin();
+    // The same in Debug, for the fast tier alone: nothing there needs the
+    // served build's speed, and it compiles in about a third of the time.
+    // zig-out/web-debug/physics.wasm; `check` and `slow` test the served one.
+    const debug_page_wasm = pageWasm(b, wasm32, .Debug, physics_mod);
+    const debug_wasm_install = b.addInstallArtifact(debug_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web-debug" } } });
 
     // The play server, for solo/: zig build play, from the checkout.
     const play_main = b.createModule(.{
@@ -148,16 +145,24 @@ pub fn build(b: *std.Build) void {
 
     // **NODE AGAINST A FRESH BUILD**: each node test file after the install
     // (zig-out/web/physics.wasm, zig-out/bin/dog-park-play), each its own
-    // process, its exit code the verdict.
+    // process, its exit code the verdict; the fast tier's after the Debug
+    // wasm alone (DOGPARK_WASM names it to tools/lib/page_rig.mjs).
     const node_fast = [_][]const u8{ "tools/test_page_modules.mjs", "tools/test_engine.mjs" };
     const node_server = [_][]const u8{ "tools/test_page_physics.mjs", "tools/test_physics_server.mjs" };
     const check_node = b.step("check-node", "The node tests that need no server (page modules, engine), after zig build's install");
-    for (node_fast) |f| check_node.dependOn(nodeTest(b, f));
+    for (node_fast) |f| {
+        const run = nodeRun(b, f);
+        run.setEnvironmentVariable("DOGPARK_WASM", "zig-out/web-debug/physics.wasm");
+        run.step.dependOn(&debug_wasm_install.step);
+        check_node.dependOn(&run.step);
+    }
 
     // **THE TIERS** (README): `test` after every edit; `check` before a
     // commit; `slow` for the full fuzz and the wasm as it is served.
     const test_step = b.step("test", "Fast tier: every Zig unit test natively (the fuzz a tenth) and the node tests that need no server");
-    test_step.dependOn(units.all(fuzz));
+    var debug_units = units;
+    debug_units.page_wasm = debug_page_wasm.getEmittedBin();
+    test_step.dependOn(debug_units.all(fuzz));
     test_step.dependOn(check_node);
 
     const physics_test = b.step("physics-test", "The physics' tests alone, natively (no webbox, no page wasm)");
@@ -215,13 +220,34 @@ pub fn build(b: *std.Build) void {
 
 /// One node test file, run after the install, its exit code the verdict.
 fn nodeTest(b: *std.Build, file: []const u8) *std.Build.Step {
+    const run = nodeRun(b, file);
+    run.step.dependOn(b.getInstallStep());
+    return &run.step;
+}
+
+/// A node test file, its exit code the verdict; what it needs built first
+/// is the caller's to add.
+fn nodeRun(b: *std.Build, file: []const u8) *std.Build.Step.Run {
     const run = b.addSystemCommand(&.{ "node", "--no-warnings" });
     run.addFileArg(b.path(file));
     run.setCwd(b.path("."));
     run.expectExitCode(0);
     run.has_side_effects = true;
-    run.step.dependOn(b.getInstallStep());
-    return &run.step;
+    return run;
+}
+
+/// The physics for the page (physics_page.zig's exports), compiled to wasm32.
+fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, physics_mod: *std.Build.Module) *std.Build.Step.Compile {
+    const exe = b.addExecutable(.{ .name = "physics", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_page.zig"),
+        .target = wasm32,
+        .optimize = optimize,
+        .strip = true,
+        .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
+    }) });
+    exe.entry = .disabled;
+    exe.rdynamic = true;
+    return exe;
 }
 
 /// The physics' build options, `physics_options`: its hash and its tuning.
