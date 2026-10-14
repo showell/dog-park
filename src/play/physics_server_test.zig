@@ -924,12 +924,21 @@ test "a park with a critter that has nowhere to go does not start, and the log s
     rig.data = try std.fs.path.join(rig.arena.allocator(), &.{ ".zig-cache", "tmp", &rig.tmp.sub_path, "data" });
     rig.server = try testing.allocator.create(Server);
     defer rig.deinit();
-    // Dog 0 in the world's corner, sticking out of it, with no neighbour to
-    // make a way out.
-    var base = Board.laidOut();
-    base.dogs[0] = .{ .x = physics.px(5), .y = physics.px(5) };
+    // On the torus nothing sticks out (decision 14): nowhere to go is a
+    // dog on top of another in a solid block. Dogs 0 to 168 tile a 13 by 13
+    // square edge to edge, past the jump's reach every way from its middle,
+    // so every candidate square overlaps one of them; dog 169 sits on the
+    // middle one, below it in rank, and is the one that clashes.
+    var base = Board.empty();
+    const at = physics.px(16000);
+    const side = 2 * physics.dog_half;
+    for (0..13) |r| for (0..13) |c| {
+        base.place(.dog(@intCast(r * 13 + c)), .{ .x = at + @as(i32, @intCast(c)) * side - 6 * side, .y = at + @as(i32, @intCast(r)) * side - 6 * side });
+    };
+    try testing.expect(6 * side > physics.jump_reach + 2 * side);
+    base.place(.dog(169), .{ .x = at, .y = at });
     try testing.expectError(error.ParkDoesNotResolve, rig.server.start(rig.io(), rig.arena.allocator(), rig.data, &base, t0));
-    try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "the park does not resolve: dog 0 has nowhere to go") != null);
+    try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "the park does not resolve: dog 169 has nowhere to go") != null);
 }
 
 test "a snapshot reads back what it wrote" {

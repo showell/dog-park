@@ -114,15 +114,12 @@ its y part (a street, then an avenue), in internal steps of at most 1 px
 (`step_most`). An axis part d is cut into n = ceil(|d| / 1 px) steps:
 step i ends at d·i/n, truncated toward zero, in 256ths: 2.5 px is 640,
 cut 213, 213, 214. In each step:
-1. **the step is shaped first** (item 13): at the world's edge
-   (provisional, decision 14), that axis's part is clamped so the dog's
-   square stays in the world (the drag carries on);
-2. **the cows react,** by the grid rule (`scoot`), to the step as shaped
-   (a step the edge clamped to nothing gives them no turn);
-3. **then the leashed dog takes it,** swept against where everyone now is,
+1. **the cows react,** by the grid rule (`scoot`), to the step (on the
+   torus there is no edge to shape it, decision 14);
+2. **then the leashed dog takes it,** swept against where everyone now is,
    stopping **just short** of pressing into anyone (one axis at a time, so
    contact is an exact integer: no rounding);
-4. **then every awake dog, by number, takes a wish step** of at most the
+3. **then every awake dog, by number, takes a wish step** of at most the
    length the leashed dog actually moved in this step (none if it moved
    nothing): the pixel-tick (decision 15).
 
@@ -140,8 +137,8 @@ into a critter, the drag ends at that step:
 - **the dogs still take their step** at the end of the tick, as in any
   tick.
 
-The world's edge clamps the dog without ending the drag (provisional:
-decision 14).
+Across the world's edge the dog goes on: it leaves one side and enters
+the opposite one (the torus, decision 14), and so does everyone.
 
 Within a tick, in this order:
 
@@ -252,10 +249,8 @@ It's a little jump, and that's fine (Steve's call).
 3. Otherwise D moves along the total, by the total's length or the
    step's limit (the speed, or a pixel-tick's move), whichever is less, and **stops where it would press into any
    critter the physics sees** (above or below it, awake or asleep): a dog's own step
-   never lands it on anyone. Only the cows ever push.
-4. **At the world's edge** (provisional, decision 14), each axis's part
-   is clamped so D's square stays in the world; clamped to nothing counts
-   as not moving.
+   never lands it on anyone. Only the cows ever push. Across the world's
+   edge it goes on round (decision 14).
 
 The dead zone is there because opposing wishes (an anchor on one side, a
 stranger on the other) can overshoot each other: without it, a dog at
@@ -413,7 +408,8 @@ overlap with it, if one happens, is a finding (below), not a `differ`.
   (below) checks that.
 
 **Rank** is the cascade's order: the leashed dog, then cows by number,
-then dogs by number. Sleepers and the world's edge never move.
+then dogs by number. Sleepers never move (and on the torus there is no
+edge to press against, decision 14).
 
 **The rules, one per kind of mover:**
 - **The leashed dog** stops just short of pressing into any critter it sees, swept
@@ -497,17 +493,19 @@ stays in the world, chosen from a finite list of candidates:
   moves one coordinate and keeps the pushed critter's other.
 - **The corners** where two ways out meet, from one square or two: the x
   of one, the y of the other.
-- **Only spots whose square lies wholly in the region** (and, until the
-  wrap, in the world: decision 14). The region is sized so that ordinary
-  play never meets this limit (below); it is a guard.
+- **Only spots whose square lies wholly in the region.** The region is
+  sized so that ordinary play never meets this limit (below); it is a
+  guard. On the torus a spot may lie across the world's edge (decision
+  14): every square here is taken as its copy nearest the leashed dog,
+  and the spot is wrapped back into the world when the critter jumps.
 
 **Neighbours are always taken in rank order,** whatever order they arrived
 in (the page's tiles fill in arrival order; the server's don't). Every
 candidate is checked against **every critter the physics sees whose
 square overlaps it** (found through the tiles around the candidate, not the pushed
 critter's reach: a spot pressed against a neighbour's far side can
-overlap a critter the reach never saw) and the world's edge, and the
-nearest valid one wins. A jump can therefore go as far as the pushed
+overlap a critter the reach never saw), and the nearest valid one
+wins. A jump can therefore go as far as the pushed
 critter's side, plus the 100 px gap, plus the neighbour's side: about
 200 px for a dog pressed past a cow, 220 px for a cow. **Ties** are broken
 by the rank of the square that made the candidate (for a corner, the
@@ -539,12 +537,13 @@ the first layout, with no snapshot behind it (a `dogs.json` or
 `cows.json` an older server left in the data dir is ignored, and the
 start report says so). A board from a snapshot or the log was resolved
 already and is never resolved again; an overlap a live page holds is
-handled by the graceful rule above. First the leashed dog,
-if any, has its square clamped into the world (provisional, decision 14);
-nothing outranks it. Then in rank order (cows, then dogs, by number), each
-critter that overlaps one above it, or sticks out of the world, jumps to
-the nearest spot clear of everyone, every critter seen and every tile
-held. It
+handled by the graceful rule above. The leashed dog, if any, stays where
+it is: nothing outranks it, and on the torus nothing sticks out of the
+world (decision 14). Then in rank order (the leashed dog, cows, then
+dogs, by number), each critter that overlaps one above it jumps to the
+nearest spot clear of everyone, every critter seen and every tile held,
+taken around the critter itself (every square as its copy nearest it),
+the spot wrapped into the world. It
 logs what moved, as the log's first entry, and keeps the result (the
 first snapshot). If some critter has nowhere to go, the server does not
 start, and says which (fail, never warn).
@@ -720,9 +719,9 @@ the scare box: a cow moves only while at most 280 px ahead of the dog
 after the step and at most 280 px off its line, and only away from the
 line: by half the dog's step (half a pixel) or out of the lane (to 70 px
 off). So it ends at most 280.5 px off the dog's line and 280 px ahead of
-the dog, and the dog is within 100 px of its start on each axis: 380.5.
-(At the world's edge the lane's side switch carries a cow to 70 px off
-the other side: inside the same bound; provisional, decision 14.)
+the dog, and the dog is within 100 px of its start on each axis: 380.5. (On the torus
+a cow is never short of room, so it always clears the lane on its own
+side, decision 14.)
 
 **The verdict: 1500 px each way is enough,** the 3000 px square (three
 tiles each side of the leashed dog, at most 7 × 7 = 49 tiles). The
@@ -1082,9 +1081,9 @@ play says otherwise:
    step halved and truncated; the lane is 70 px centre to centre (17920:
    a dog's half, a cow's half and the 20 px clearance); a cow is scared
    while at most 280 px ahead of the dog after the step and at most 280 px
-   off its line, and is awake only within the sphere. The edge rules
-   (`room()`, the step that is shortened and never turned, the lane's
-   switch to the other side) are provisional (decision 14).
+   off its line, and is awake only within the sphere. There are no edge
+   rules: the torus (decision 14) took away `room()`, the shortened step
+   and the lane's switch to the other side.
 2. **The 100 px cap and merging past 16 displacements a tick happen in
    the shared Zig,** not in JavaScript: the page's run merges and caps,
    and the report carries the displacements as merged and capped. The
@@ -1164,8 +1163,8 @@ play says otherwise:
 13. **"The area the cow swept"** is its sweep in that internal step, and
     "the first one it would have pressed into" is broken by rank. **Order
     within a drag:** the input is capped first (item 3), then split into
-    internal steps (above); each internal step is then shaped by the edge
-    clamp, the cows react to the step as shaped, and the dog takes it.
+    internal steps (above); in each internal step the cows react to the
+    step, and the dog takes it.
 14. **No tick runs until its region is held** ("What awake means"): the
     page freezes, as at the window, until every tile in the world meeting
     the tick's region is held, and the server answers `differ` at a tick
@@ -1180,8 +1179,8 @@ play says otherwise:
       the parse bounds every field (above), so a report can't reach one;
     - the page replays the recorded integers, never raw pointer events.
 16. **The world is 64 × 64 tiles** (32,000 px a side; Steve's call,
-    decision 14), so the region and the display stay far from any edge in
-    his first play. **The world and the populated park are two sizes:**
+    decision 14): a torus, every critter wrapping across its edges, wider
+    than the region plus its reaches so no critter is ever seen twice. **The world and the populated park are two sizes:**
     the 10 × 10-tile park (`tiles.zig`'s `park_tiles`) sits in the world's
     middle, `park_offset_px` (13,500 px) in from its edges on each axis,
     and the first layout (`layout.zig`) fills it: 400 dogs and 50 cows.
@@ -1193,7 +1192,7 @@ play says otherwise:
 - **Ending the drag on any press-in** may drop the dog on pointer jitter
   or a clipped corner. Ending it only past a few px of press-in, or just
   clamping without ending, would be stricter-but-calmer drag rules.
-- **The pointer drifts from the dog:** edge clamps, the 100 px cap and a
+- **The pointer drifts from the dog:** a bump, the 100 px cap and a
   freeze waiting for tiles all separate them, since drags are
   displacements.
 - **A pushed dog jumps,** up to about 200 px in a tick; the page snaps it
@@ -1286,7 +1285,7 @@ and the request numbering.
     dog 223's step at 1042 a 256th off,
     byte for byte.
 27. **The cows' grid rule in 256ths** (item 1): the lane, the half step,
-    the scare box's edges and the side switch.
+    the scare box's edges and the on-line cow's side (its right).
 28. **A worst-case push at the region's reach:** a scared cow at its
     farthest from the dog's start, pushing a critter whose jump goes
     outward; it lands inside the region or the cow stops short, the same
@@ -1345,62 +1344,66 @@ and the request numbering.
     subscribing more tiles changes only what the page knows and draws.
     *(As drawn up: the physics sees the region's tiles, all held before a
     tick runs; awake = in them and within 800 px.)*
-14. **The park will be a torus** (Steve, 2026-10-13): a critter leaving one
-    edge enters the opposite one, pacman-style. For now the world is made
-    big enough (64 × 64 tiles, item 16) that the region and the display
-    never reach an edge in normal play, so every edge rule here is
-    provisional, to be replaced by the wrap: the clamps (`inWorld`, the
-    load's clamp), squares kept in the world (`world_rect`), the cows'
-    `room()`, shortened step and lane side switch, and the parse bounds
-    "positions and tiles in the world". The tile grid divides the world
-    evenly so the wrap is clean, and **the world must stay wider than the
-    region plus its reaches,** so no critter is ever seen twice.
-    **What the wrap has to change.** Every centre-to-centre difference
-    goes through `delta(a, b)`, so wishes, the scare box's ahead and off,
-    `squaresOverlap`, the sweeps and the jump's distances need only that
-    function to take the short way round. But absolute coordinates remain
-    elsewhere, and each needs its own change:
-    - **`Rect`** holds absolute corners, and `holds` and `overlaps`
-      compare them directly: the region, the swept area, the jump's
-      obstacles and its candidate squares. Near the seam they must be
-      taken relative to one point (the leashed dog's, or the pushed
-      critter's) before comparing.
-    - **The tiles wrap (done, 2026-10-14).** `TileSpan.of` names its
-      first column and row in the world and counts on past the last tile
-      across the seam (64 is tile 0), so a region across the seam spans
-      the wrapped tiles; `holds` tests a tile in that wrapped range;
-      `TileSpan.at` names a tile of it in the world; `tileOf` wraps a
-      point first. The page's `regionTiles`, the server's load region and
-      the judge's "region held" name every tile in the world, and the
-      wire's tiles stay canonical, [0, 64): the page sends them so. A
-      comptime check: the world is wider than the region, a tile each
-      way, and `region_needs` each way, so a span never wraps onto itself.
-      Until the critters wrap, a critter across the seam from the leashed
-      dog is seen (its tile is the region's) but far away by `delta`.
-    - **The jump** (`physics_jump.zig`): `gapOn` subtracts absolute
-      sides, `wayOut` sets absolute coordinates, the candidate box is
-      built from absolute corners, and `offer` checks `world_rect`. Each
-      must work in coordinates relative to the pushed critter, and a
-      landing spot must be wrapped back into the world.
-    - **`inWorld`** and **`room()`** go: no axis is clamped, and every
-      move (`Scene.put`, `moved`) wraps its result into [0, world).
-    - **The grids are seam-ready (done, 2026-10-14).** Both spatial
-      grids pick their cell with `seamCell(need, fold)`: the smallest
-      side at least `need` that divides the world exactly into a number
-      of cells a side the fold divides, so the world's last cell and its
-      first are neighbours in the fold too; comptime checks refuse a
-      cell that breaks either. The neighbour grid (`gridCell`): cell
-      125 px (need: the neighbours' reach, 2 × `half_most` + `skin` =
-      108 px), 256 cells a side, fold 32. The wishes' grid: cell 250 px
-      played, 400 px alt (need: `wary`), 128 and 80 cells a side, fold
-      16. A coordinate maps to its cell by floor division (`cellOf`) and
-      a cell to its bucket by `@mod`, so a coordinate past either edge
-      folds next to the other side's. The cost: the packed herd's drag
-      went from 25.4 to 29.5 ms a tick (bigger cells hold more far
-      candidates). The wrap itself is still to come: positions stay in
-      [0, world).
-    - **The parse and the page:** positions stay in [0, world); the
-      page's drawing, viewport and overview scroll across the seam.
+14. **The park is a torus** (Steve, 2026-10-13; done, 2026-10-14, in
+    four chunks): a critter leaving one edge enters the opposite one,
+    pacman-style. The world is 64 × 64 tiles (item 16), **wider than the
+    region plus its reaches** (a comptime check), so no critter is ever
+    seen twice and every rectangle a tick builds stands within half a
+    world of the leashed dog. What it took:
+    - **`delta(a, b)` takes the short way round**, each axis in
+      [−world/2, world/2) (`shortWay`). Every centre-to-centre difference
+      already went through it: wishes, the scare box's ahead and off,
+      `squaresOverlap`, the sweeps, the step's contact, the jump's
+      distances.
+    - **Every move wraps into [0, world)** with `@mod` (`wrapped`):
+      `moved`, `Scene.put` (so every step, push and jump landing).
+      Positions are always in the world, as the page and the parse rely
+      on.
+    - **The rectangles are taken in one frame.** `Rect` holds corners that
+      may lie past the world's edges, and is compared only with rectangles
+      of the same frame: in a tick, each point's copy nearest the leashed
+      dog where the tick began (`nearestCopy`, `Scene.frame`). The region,
+      a cow's swept area and end square, the jump's obstacles and its
+      candidates are all built so, and a jump's spot comes back in the
+      frame and is wrapped as the critter takes it.
+    - **The jump** (`physics_jump.zig`) works in the caller's frame:
+      `gapOn`, `wayOut`, the candidate box and `offer` are unchanged, and
+      `offer` no longer checks the world (there is no edge to keep a
+      candidate inside); a spot must lie wholly in the region still.
+    - **The edge rules are gone:** `inWorld` (the drag's and a dog's step
+      clamped at the edge), `room()` (a cow's shortened step and the
+      lane's switch to the other side) and `world_rect`.
+    - **The load's resolve** clamps nothing: a critter that overlaps one
+      above it jumps around itself (its obstacles as their copies nearest
+      it, inside a square just short of half the world).
+    - **The tiles wrap (chunk 3a).** `TileSpan.of` names its first column
+      and row in the world and counts on past the last tile across the
+      seam (64 is tile 0); `holds` tests a tile in that wrapped range;
+      `TileSpan.at` names a tile in the world; `tileOf` wraps a point
+      first. The page's `regionTiles`, the server's load region and the
+      judge's "region held" name every tile in the world, and the wire's
+      tiles stay canonical, [0, 64).
+    - **The grids are seam-ready (chunk 1).** Both spatial grids pick
+      their cell with `seamCell(need, fold)`: the smallest side at least
+      `need` that divides the world into a number of cells a side the fold
+      divides, so the world's last cell and its first are neighbours in
+      the fold too. The neighbour grid: cell 125 px (need 108 px), 256
+      cells a side, fold 32. The wishes' grid: cell 250 px played, 400 px
+      alt (need: `wary`), fold 16. A coordinate maps to its cell by floor
+      division and a cell to its bucket by `@mod`. The cost: the packed
+      herd's drag went from 25.4 to 29.5 ms a tick.
+    - **The page (chunk 2)** draws, scrolls and subscribes across the
+      seam: it draws a critter at its copy nearest the viewport, and its
+      viewport and overview scroll round.
+    - **The signature property: translation invariance.** A whole scene
+      shifted by any vector, mod the world, plays out exactly shifted:
+      `physics_symmetry_test.zig` holds it over its scenes and seeded fuzz,
+      the action put across x = 0, y = 0 and the corner. Its one limit is
+      the tile grid: which critters a region's tiles hold depends on where
+      the tiles fall, so a critter at the far edge of the region's tiles
+      may be seen in one place and not in the other; the scenes keep
+      everything that matters inside the region. It found the one seam bug
+      on its first run (a cow's swept area built from a wrapped end).
 15. **Pixel-ticks** (Steve, 2026-10-13: the change that made it fun).
     Each 1 px step of the leashed dog's drag is a pixel-tick: after it,
     every awake dog takes a wish step of at most the length the leashed

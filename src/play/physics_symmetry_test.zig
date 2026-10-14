@@ -19,6 +19,14 @@
 //!   after the transpose. The same direction-broken ties apply: the
 //!   on-line cow's right is kept by a quarter turn, not by the transpose.
 //!
+//! - **A shift by any vector, mod the world (the torus' signature,
+//!   decision 14): exact**, over the same scenes and fuzz, the action put
+//!   across the seam and the corner too. Every difference is the short way
+//!   round and every rectangle is in the tick's own frame, so nothing
+//!   depends on where in the world the scene stands, beyond the tile grid
+//!   (which critters the region's tiles hold): these scenes keep everything
+//!   that matters far inside the region.
+//!
 //! The drag is given as single-axis displacements, so its own x-then-y
 //! order maps to itself under every symmetry here.
 
@@ -43,12 +51,12 @@ fn fuzzed(full: usize) usize {
 const Sym = enum { mirror_x, mirror_y, transpose, quarter_turn };
 
 fn mapPoint(s: Sym, p: Point) Point {
-    return switch (s) {
+    return physics.wrapped(switch (s) {
         .mirror_x => .{ .x = world - p.x, .y = p.y },
         .mirror_y => .{ .x = p.x, .y = world - p.y },
         .transpose => .{ .x = p.y, .y = p.x },
         .quarter_turn => .{ .x = world - p.y, .y = p.x },
-    };
+    });
 }
 
 fn mapDisp(s: Sym, d: Disp) Disp {
@@ -72,11 +80,18 @@ fn mapBoard(s: Sym, b: Board) Board {
 const most_steps = 8;
 const TickIn = struct { drag: [most_steps]Disp = undefined, n: usize = 0, letgo: bool = false };
 
-/// How far apart, per axis, the farthest critter is between two boards.
+/// How far apart, per axis, the farthest critter is between two boards,
+/// the short way round.
 fn apart(a: *const Board, b: *const Board) i32 {
     var w: i32 = 0;
-    for (a.dogs, b.dogs) |p, q| w = @max(w, @max(physics.mag(p.x - q.x), physics.mag(p.y - q.y)));
-    for (a.cows, b.cows) |p, q| w = @max(w, @max(physics.mag(p.x - q.x), physics.mag(p.y - q.y)));
+    for (a.dogs, b.dogs) |p, q| {
+        const d = physics.delta(p, q);
+        w = @max(w, @max(physics.mag(d.x), physics.mag(d.y)));
+    }
+    for (a.cows, b.cows) |p, q| {
+        const d = physics.delta(p, q);
+        w = @max(w, @max(physics.mag(d.x), physics.mag(d.y)));
+    }
     return w;
 }
 
@@ -157,6 +172,58 @@ fn expectExact(s: Sym, start: Board, leashed: u16, script: []const TickIn) !void
     try testing.expectEqual(@as(usize, 0), d.hold_differs);
 }
 
+// ---------------------------------------------- the shift (decision 14)
+
+/// Every critter moved by `v`, mod the world.
+fn shiftBoard(v: Point, b: Board) Board {
+    var m = b;
+    for (&m.dogs) |*p| p.* = physics.wrapped(.{ .x = p.x + v.x, .y = p.y + v.y });
+    for (&m.cows) |*p| p.* = physics.wrapped(.{ .x = p.x + v.x, .y = p.y + v.y });
+    return m;
+}
+
+/// The vectors a scene is shifted by: the scenes stand at the world's
+/// middle, so these put the action across x = 0, across y = 0, on the
+/// corner, a pixel off it either way, and at odd places in 256ths.
+const shifts = [_]Point{
+    .{ .x = -physics.px(16000), .y = 0 },
+    .{ .x = 0, .y = -physics.px(16000) },
+    .{ .x = -physics.px(16000), .y = -physics.px(16000) },
+    .{ .x = physics.px(16000) + physics.px(1), .y = physics.px(16000) - physics.px(1) },
+    .{ .x = physics.px(15800), .y = -physics.px(16200) },
+    .{ .x = 1, .y = 0 },
+    .{ .x = 12345 * 256 + 77, .y = -(9876 * 256 + 3) },
+    .{ .x = physics.world - 1, .y = 1 },
+};
+
+/// The scene and itself shifted by `v`, played side by side.
+fn shiftDrift(v: Point, start: Board, leashed: u16, script: []const TickIn) Drift {
+    var a = start;
+    var b = shiftBoard(v, start);
+    var d: Drift = .{};
+    for (script, 1..) |in, t| {
+        play(&a, null, t, leashed, in);
+        play(&b, null, t, leashed, in);
+        const ma = shiftBoard(v, a);
+        const w = apart(&ma, &b);
+        if (w != 0 and d.first == null) d.first = t;
+        d.worst = @max(d.worst, w);
+        if (!std.meta.eql(a.hold, b.hold)) d.hold_differs += 1;
+    }
+    return d;
+}
+
+fn expectShifted(start: Board, leashed: u16, script: []const TickIn) !void {
+    for (shifts) |v| {
+        const d = shiftDrift(v, start, leashed, script);
+        if (d.first) |t| {
+            std.debug.print("shifted by ({}, {}): the outcomes part after tick {}, {} 256ths apart at worst\n", .{ v.x, v.y, t, d.worst });
+            return error.NotShiftInvariant;
+        }
+        try testing.expectEqual(@as(usize, 0), d.hold_differs);
+    }
+}
+
 // ------------------------------------------------------- hand-made scenes
 
 test "a dog chasing the leashed dog, one of another breed keeping its distance: exact under every symmetry" {
@@ -166,6 +233,7 @@ test "a dog chasing the leashed dog, one of another breed keeping its distance: 
     var script: [200]TickIn = undefined;
     straight(&script, .{ .dx = physics.px(3), .dy = physics.px(1) });
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &script);
+    try expectShifted(b, 0, &script);
 }
 
 test "a cow scooted off the dog's line: exact under every symmetry" {
@@ -174,6 +242,7 @@ test "a cow scooted off the dog's line: exact under every symmetry" {
     var script: [60]TickIn = undefined;
     straight(&script, .{ .dx = physics.px(4), .dy = 0 });
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &script);
+    try expectShifted(b, 0, &script);
 }
 
 test "a leashed drag through the laid-out herd: exact under every symmetry" {
@@ -181,6 +250,7 @@ test "a leashed drag through the laid-out herd: exact under every symmetry" {
     var script: [200]TickIn = undefined;
     straight(&script, .{ .dx = physics.px(7), .dy = physics.px(3) });
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 112, &script);
+    try expectShifted(b, 112, &script);
 }
 
 test "a cow ON the dog's line goes to the dog's right: a quarter turn keeps that, a mirror makes it left, so the mirrors part at once" {
@@ -189,6 +259,8 @@ test "a cow ON the dog's line goes to the dog's right: a quarter turn keeps that
     var script: [60]TickIn = undefined;
     straight(&script, .{ .dx = physics.px(4), .dy = 0 });
     try expectExact(.quarter_turn, b, 0, &script);
+    // A shift keeps the dog's right too.
+    try expectShifted(b, 0, &script);
     for ([_]Sym{ .mirror_x, .mirror_y, .transpose }) |s| {
         try testing.expectEqual(@as(?physics.Tick, 1), drift(s, b, 0, &script).first);
     }
@@ -202,6 +274,7 @@ test "a pack: exact under every symmetry" {
     var script: [200]TickIn = undefined;
     straight(&script, .{ .dx = physics.px(2), .dy = physics.px(-1) });
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &script);
+    try expectShifted(b, 0, &script);
 }
 
 // **THE MINIMAL SCENE**: the leashed dog still, dog 4 (its breed) 400 px
@@ -226,6 +299,7 @@ test "the minimal scene: a dog's diagonal step meets a cow's face, not its corne
     play(&a, null, 1, 0, one[0]);
     try testing.expectEqual(Point{ .x = dog.x - 40, .y = dog.y - 84 }, a.dogs[4]);
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &one);
+    try expectShifted(b, 0, &one);
 }
 
 // --------------------------------------------------------- the seeded fuzz
@@ -268,5 +342,6 @@ test "random scenes (seeded): exact under every symmetry" {
         var b: Board = undefined;
         randomScene(r, &b, &script);
         for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &script);
+        try expectShifted(b, 0, &script);
     }
 }

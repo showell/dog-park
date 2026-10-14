@@ -1,9 +1,9 @@
 //! **THE NEAREST SPOT CLEAR OF EVERYONE, DETERMINISTICALLY**
 //! (docs/PHYSICS.md): where a pushed critter, or one getting out from under
 //! an overlap, jumps to. The closest position, by straight-line distance,
-//! that overlaps no obstacle and lies wholly in the region and the world,
-//! chosen from a finite list of candidates made by the obstacles within
-//! reach (a gap of at most 100 px on both axes):
+//! that overlaps no obstacle and lies wholly in the region, chosen from a
+//! finite list of candidates made by the obstacles within reach (a gap of
+//! at most 100 px on both axes):
 //! - **the ways out:** pressed against each side of each such square,
 //!   moving one coordinate and keeping the other;
 //! - **the corners:** the x of one way out and the y of another, from one
@@ -13,6 +13,12 @@
 //! the higher-ranked of its two, then the other's), then the direction (E,
 //! S, W, N, NE, SE, SW, NW), then, for two corners of the same two squares,
 //! the one whose x comes from the higher-ranked square.
+//!
+//! **ONE FRAME** (decision 14): the point, the obstacles and the region
+//! are given as the caller's copies nearest one anchor (physics'
+//! `nearestCopy`), so every gap, way out and candidate here is relative to
+//! it; the spot comes back in that frame, and the caller's move wraps it
+//! into the world. The torus has no edge to keep a candidate inside.
 
 const std = @import("std");
 const physics = @import("physics.zig");
@@ -83,8 +89,8 @@ fn cornerDir(x_side: Dir, y_side: Dir) Dir {
 }
 
 /// **THE NEAREST SPOT** for the square of half `half` at `p`, clear of
-/// every obstacle, wholly in `region` and the world; null for nowhere to
-/// go.
+/// every obstacle, wholly in `region` (all four in one frame); null for
+/// nowhere to go.
 pub fn nearestSpot(p: Point, half: i32, obstacles: []const Obstacle, region: Rect) ?Point {
     const me = Rect.square(p, half);
     var reach: [physics.critter_count + 2]usize = undefined;
@@ -161,7 +167,7 @@ const Ctx = struct {
         key.d2 = physics.len2(physics.delta(ctx.p, c));
         if (best.at != null and !key.less(best.key)) return;
         const sq = Rect.square(c, ctx.half);
-        if (!ctx.region.holds(sq) or !physics.world_rect.holds(sq)) return;
+        if (!ctx.region.holds(sq)) return;
         for (ctx.near) |i| if (Rect.overlaps(ctx.obstacles[i].rect, sq)) return;
         best.* = .{ .at = c, .key = key };
     }

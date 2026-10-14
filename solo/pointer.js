@@ -48,7 +48,7 @@ export function axisScroll(viewportAt, length, reachPx) {
 //       **A DRAG IS A DISPLACEMENT** (docs/PHYSICS.md), how far the pointer
 //       moved, which the next tick adds to where the dog actually is; the
 //       pointer never puts the dog anywhere, so the two may drift apart (a
-//       bump, the 100 px cap, the world's edge, a freeze)
+//       bump, the 100 px cap, a freeze: the torus has no edge, decision 14)
 //   { kind: "scrolling", axis, lastX, lastY }
 //       the overview's scrollbar on `axis` ("x" or "y") held, from the
 //       pointer's last viewport point

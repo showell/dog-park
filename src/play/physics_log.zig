@@ -222,23 +222,15 @@ pub const Resolution = union(enum) {
     nowhere: Critter,
 };
 
-/// **THE PARK ON LOAD**, once, on a board never resolved: the leashed dog
-/// (if any) clamped into the world, then in rank order each critter that
-/// overlaps one above it, or sticks out of the world, jumps to the nearest
-/// spot clear of everyone. The moves go to `out` as critter lines.
+/// **THE PARK ON LOAD**, once, on a board never resolved: in rank order
+/// each critter that overlaps one above it jumps to the nearest spot clear
+/// of everyone. The torus has no edge to stick out of (decision 14): the
+/// jump works around the critter itself (every obstacle as its copy
+/// nearest it, inside a square just short of half the world), and its
+/// landing wraps into the world. The moves go to `out` as critter lines.
 pub fn resolve(b: *Board, out: *std.ArrayList(u8), alloc: std.mem.Allocator) !Resolution {
     const leashed = b.leashedDog();
     var moved: usize = 0;
-    if (leashed) |l| {
-        const p = b.dogs[l];
-        const h = physics.dog_half;
-        const q: physics.Point = .{ .x = std.math.clamp(p.x, h, physics.world - h), .y = std.math.clamp(p.y, h, physics.world - h) };
-        if (q.x != p.x or q.y != p.y) {
-            try writeMove(out, alloc, .{ .who = .dog(l), .before = p, .after = q });
-            b.dogs[l] = q;
-            moved += 1;
-        }
-    }
     var order: [physics.critter_count]Critter = undefined;
     var n: usize = 0;
     for (0..physics.cow_count) |i| {
@@ -261,20 +253,21 @@ pub fn resolve(b: *Board, out: *std.ArrayList(u8), alloc: std.mem.Allocator) !Re
         if (b.known(c) != .present) continue;
         const p = b.at(c);
         const half = c.half();
-        var clash = !physics.world_rect.holds(physics.Rect.square(p, half));
-        if (!clash) for (order[0..i]) |o| {
+        var clash = false;
+        for (order[0..i]) |o| {
             if (b.known(o) == .present and physics.squaresOverlap(p, half, b.at(o), o.half())) {
                 clash = true;
                 break;
             }
-        };
+        }
         if (!clash) continue;
         var obs: jump.Obstacles = .{};
         for (order[0..n]) |o| {
             if (o.eql(c) or b.known(o) != .present) continue;
-            obs.add(physics.Rect.square(b.at(o), o.half()), 2 * physics.rank(leashed, o));
+            obs.add(physics.Rect.square(physics.nearestCopy(p, b.at(o)), o.half()), 2 * physics.rank(leashed, o));
         }
-        const spot = jump.nearestSpot(p, half, obs.slice(), physics.world_rect) orelse return .{ .nowhere = c };
+        const around = physics.Rect.square(p, physics.half_world - half);
+        const spot = physics.wrapped(jump.nearestSpot(p, half, obs.slice(), around) orelse return .{ .nowhere = c });
         try writeMove(out, alloc, .{ .who = c, .before = p, .after = spot });
         b.put(c, spot);
         moved += 1;

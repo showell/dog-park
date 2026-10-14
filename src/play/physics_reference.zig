@@ -13,8 +13,10 @@
 //! wasm32-freestanding.
 //!
 //! **Units:** every position is an `i32` count of 256ths of a pixel; every
-//! product is `i64`. Every centre-to-centre difference goes through
-//! `delta` (decision 14: the wrap will change that one function).
+//! product is `i64`. On the torus (decision 14) every centre-to-centre
+//! difference goes through `delta`, the short way round; every move wraps
+//! back into the world; the tick's rectangles are in the leashed dog's
+//! frame (`nearestCopy`).
 //!
 //! **The cascade:** the leashed dog, then the cows by number, then the
 //! other dogs by number (`rank`). Within a tick: for each internal step of
@@ -76,7 +78,24 @@ pub const Point = physics.Point;
 /// **THE ONE DIFFERENCE**: from `a` to `b`, per axis. Every centre-to-centre
 /// difference in the physics goes through here (decision 14).
 pub fn delta(a: Point, b: Point) Point {
-    return .{ .x = b.x - a.x, .y = b.y - a.y };
+    return .{ .x = shortWay(b.x - a.x), .y = shortWay(b.y - a.y) };
+}
+
+/// A difference on one axis, the short way round: in [−world/2, world/2).
+fn shortWay(d: i32) i32 {
+    const half = @divExact(world, 2);
+    return @mod(d + half, world) - half;
+}
+
+/// A point back in the world.
+pub fn wrapped(p: Point) Point {
+    return .{ .x = @mod(p.x, world), .y = @mod(p.y, world) };
+}
+
+/// The copy of `p` nearest `anchor`.
+pub fn nearestCopy(anchor: Point, p: Point) Point {
+    const d = delta(anchor, p);
+    return .{ .x = anchor.x + d.x, .y = anchor.y + d.y };
 }
 
 pub const Axis = physics.Axis;
@@ -96,10 +115,10 @@ pub fn across(axis: Axis) Axis {
 }
 
 pub fn moved(p: Point, axis: Axis, by: i32) Point {
-    return switch (axis) {
+    return wrapped(switch (axis) {
         .x => .{ .x = p.x + by, .y = p.y },
         .y => .{ .x = p.x, .y = p.y + by },
-    };
+    });
 }
 
 pub fn mag(v: i32) i32 {
@@ -155,8 +174,6 @@ pub fn rank(leashed: ?u16, c: Critter) u32 {
 
 /// A closed rectangle, in 256ths.
 pub const Rect = physics.Rect;
-
-pub const world_rect: Rect = .{ .lo = .{ .x = 0, .y = 0 }, .hi = .{ .x = world, .y = world } };
 
 /// Two squares overlap: |px − qx| < (a + b)/2 and |py − qy| < (a + b)/2.
 pub fn squaresOverlap(p: Point, ph: i32, q: Point, qh: i32) bool {
@@ -345,6 +362,8 @@ pub const Seen = struct {
 pub const Scene = struct {
     board: *Board,
     leashed: u16,
+    /// The leashed dog where the tick began: the frame's anchor.
+    center: Point,
     region: Rect,
     seen: [critter_count]Seen = undefined,
     /// Where each seen critter is now, kept here beside the board's copy so
@@ -358,7 +377,7 @@ pub const Scene = struct {
     pub fn of(b: *Board) ?Scene {
         const l = b.leashedDog() orelse return null;
         const center = b.dogs[l];
-        var s: Scene = .{ .board = b, .leashed = l, .region = region(center) };
+        var s: Scene = .{ .board = b, .leashed = l, .center = center, .region = region(center) };
         const span = TileSpan.of(s.region);
         const sphere: i64 = @as(i64, awake_reach) * awake_reach;
         s.add(.dog(l), .awake);
@@ -399,9 +418,14 @@ pub const Scene = struct {
         return s.at[i];
     }
 
-    pub fn put(s: *Scene, i: usize, p: Point) void {
+    pub fn put(s: *Scene, i: usize, to: Point) void {
+        const p = wrapped(to);
         s.at[i] = p;
         s.board.put(s.seen[i].who, p);
+    }
+
+    pub fn frame(s: *const Scene, p: Point) Point {
+        return nearestCopy(s.center, p);
     }
 };
 
@@ -456,23 +480,6 @@ fn blocksCow(cow: Seen, o: Seen) bool {
     return o.rank == 0 or o.awake == .asleep or (o.who.kind == .cow and o.rank < cow.rank);
 }
 
-/// The part of `s` along `axis` that keeps the square of half `h` at `p` in
-/// the world (provisional: decision 14).
-fn inWorld(p: Point, h: i32, axis: Axis, s: i32) i32 {
-    const to = on(p, axis) + s;
-    const lo = h;
-    const hi = world - h;
-    if (to < lo) return @min(0, lo - on(p, axis));
-    if (to > hi) return @max(0, hi - on(p, axis));
-    return s;
-}
-
-/// How far a cow can go along `axis`, to `side`, before its square leaves
-/// the world.
-fn room(cow: Point, axis: Axis, side: i32) i32 {
-    return @max(0, if (side > 0) world - cow_half - on(cow, axis) else on(cow, axis) - cow_half);
-}
-
 /// **THE COWS' GRID RULE, IN 256ths** (item 1): the
 /// dog, its centre at `dog` after the step, moved `step` (> 0) along `axis`,
 /// that way (`way`); how far the cow at `cow` moves across that axis
@@ -483,26 +490,18 @@ pub fn scoot(axis: Axis, way: i32, step: i32, dog: Point, cow: Point) i32 {
     const off = on(d, across(axis));
     if (ahead <= 0 or ahead > scare_box or mag(off) > scare_box) return 0;
     // Away from the dog's line; on it, to the dog's right.
-    var side: i32 = if (off != 0) sign(off) else switch (axis) {
+    const side: i32 = if (off != 0) sign(off) else switch (axis) {
         .x => way,
         .y => -way,
     };
     // Half as far as the dog: the step halved, truncated.
     var by: i32 = @divTrunc(step, 2);
     if (mag(off) < lane) {
-        var out = lane - mag(off);
-        if (room(cow, across(axis), side) < out) {
-            const other = lane + mag(off);
-            if (room(cow, across(axis), -side) >= other) {
-                side = -side;
-                out = other;
-            }
-        }
+        const out = lane - mag(off);
         const left_to_come = ahead - lane;
         const needed: i32 = if (left_to_come <= 0) out else @intCast(std.math.divCeil(i64, @as(i64, out) * step, left_to_come) catch unreachable);
         by = @max(by, @min(out, needed));
     }
-    by = @min(by, room(cow, across(axis), side));
     if (by <= 0) return 0;
     return side * by;
 }
@@ -572,12 +571,10 @@ fn playDrag(sc: *Scene, drag: []const Disp) ?Critter {
     return null;
 }
 
-/// One internal step of the drag: shaped by the world's edge, the cows
-/// react to it, then the leashed dog takes it, stopping just short of
-/// pressing into anyone.
-fn dragStep(sc: *Scene, axis: Axis, raw: i32) ?Critter {
+/// One internal step of the drag: the cows react to it, then the leashed
+/// dog takes it, stopping just short of pressing into anyone.
+fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Critter {
     const dog = sc.pos(0);
-    const inc = inWorld(dog, dog_half, axis, raw);
     if (inc == 0) return null;
     const dog_after = moved(dog, axis, inc);
     for (sc.list(), 0..) |s, i| {
@@ -602,6 +599,8 @@ fn cowStep(sc: *Scene, i: usize, axis: Axis, way: i32, step: i32, dog_after: Poi
     if (r.by == 0) return;
     const end = moved(start, crossing, r.by);
     sc.put(i, end);
+    const start_f = sc.frame(start);
+    const end_f = sc.frame(end);
     var pushed: [critter_count]usize = undefined;
     var count: usize = 0;
     for (sc.list(), 0..) |o, j| {
@@ -613,20 +612,20 @@ fn cowStep(sc: *Scene, i: usize, axis: Axis, way: i32, step: i32, dog_after: Poi
     }
     if (count == 0) return;
     const swept_area: Rect = .{
-        .lo = .{ .x = @min(start.x, end.x) - cow_half, .y = @min(start.y, end.y) - cow_half },
-        .hi = .{ .x = @max(start.x, end.x) + cow_half, .y = @max(start.y, end.y) + cow_half },
+        .lo = .{ .x = @min(start_f.x, end_f.x) - cow_half, .y = @min(start_f.y, end_f.y) - cow_half },
+        .hi = .{ .x = @max(start_f.x, end_f.x) + cow_half, .y = @max(start_f.y, end_f.y) + cow_half },
     };
     var spots: [critter_count]Point = undefined;
     for (pushed[0..count], 0..) |j, k| {
         var obs: jump.Obstacles = .{};
-        obs.add(Rect.square(end, cow_half), 2 * sc.seen[i].rank);
+        obs.add(Rect.square(end_f, cow_half), 2 * sc.seen[i].rank);
         obs.add(swept_area, 2 * sc.seen[i].rank + 1);
         for (pushed[0..k], spots[0..k]) |placed, spot| obs.add(Rect.square(spot, sc.seen[placed].half), 2 * sc.seen[placed].rank);
         for (sc.list(), 0..) |o, m| {
             if (m == i or std.mem.indexOfScalar(usize, pushed[0..count], m) != null) continue;
-            obs.add(Rect.square(sc.pos(m), o.half), 2 * o.rank);
+            obs.add(Rect.square(sc.frame(sc.pos(m)), o.half), 2 * o.rank);
         }
-        spots[k] = jump.nearestSpot(sc.pos(j), sc.seen[j].half, obs.slice(), sc.region) orelse {
+        spots[k] = jump.nearestSpot(sc.frame(sc.pos(j)), sc.seen[j].half, obs.slice(), sc.region) orelse {
             // Nowhere for one: the cow stops short of the first critter
             // along its sweep, and pushes no one.
             sc.put(i, start);
@@ -656,9 +655,9 @@ fn outFromUnder(sc: *Scene, i: usize) void {
     var obs: jump.Obstacles = .{};
     for (sc.list(), 0..) |o, j| {
         if (j == i) continue;
-        obs.add(Rect.square(sc.pos(j), o.half), 2 * o.rank);
+        obs.add(Rect.square(sc.frame(sc.pos(j)), o.half), 2 * o.rank);
     }
-    if (jump.nearestSpot(p, me.half, obs.slice(), sc.region)) |spot| sc.put(i, spot);
+    if (jump.nearestSpot(sc.frame(p), me.half, obs.slice(), sc.region)) |spot| sc.put(i, spot);
 }
 
 /// **THE DOGS' WISHES**, every awake dog by number, each step at most
@@ -670,9 +669,7 @@ fn wishes(sc: *Scene, most: i32) void {
         const s = sc.seen[i];
         if (s.who.kind != .dog or s.rank == 0) continue;
         outFromUnder(sc, i);
-        const step = stepAtMost(wishTotal(sc, i), most);
-        const at = sc.pos(i);
-        stepSwept(sc, i, .{ .x = inWorld(at, dog_half, .x, step.x), .y = inWorld(at, dog_half, .y, step.y) });
+        stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
     }
 }
 
