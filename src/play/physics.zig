@@ -1443,6 +1443,8 @@ fn stepSwept(sc: *Scene, i: usize, want: Point) void {
     }
     if (s.x == 0 and s.y == 0) return;
     var first: ?Contact = null;
+    // Each scanned critter a pair check, counted here for the scan.
+    sc.pair_checks += if (near_list) |list| list.len else sc.len - 1;
     if (near_list) |list| {
         for (list) |j| if (stepMeets(sc, i, j, s, may_overlap)) |c| {
             first = earliest(first, c);
@@ -1475,8 +1477,7 @@ fn stepAway(sc: *Scene, i: usize, j: usize, s: Point) Point {
 /// Seen critter `j` against `i`'s step `s`; one beyond the two halves plus
 /// the step's part on some axis is never met, and is passed over before
 /// the fractions.
-inline fn stepMeets(sc: *Scene, i: usize, j: usize, s: Point, may_overlap: bool) ?Contact {
-    sc.pair_checks += 1;
+inline fn stepMeets(sc: *const Scene, i: usize, j: usize, s: Point, may_overlap: bool) ?Contact {
     const p = sc.pos(i);
     const q = sc.pos(j);
     const hs = sc.seen[i].half + sc.seen[j].half;
