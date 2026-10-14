@@ -1258,6 +1258,31 @@ test "stepMeetsListed is stepMeets over the list, one by one: neighbours on the 
     try testing.expect(met > fuzzed(400) / 4);
 }
 
+test "Scene.init sets every field the struct literal gives a value, on memory that held anything (202)" {
+    var b = leashedAt(px(16000, 16000));
+    const lit: physics.Scene = .{ .board = &b, .leashed = 0, .center = b.dogs[0], .region = physics.region(b.dogs[0]) };
+    const sc = try testing.allocator.create(physics.Scene);
+    defer testing.allocator.destroy(sc);
+    @memset(std.mem.asBytes(sc), 0xaa);
+    try testing.expect(sc.init(&b));
+    // Built: the fields a build changes are compared as built, against a
+    // literal given the same critters.
+    var want = lit;
+    inline for (std.meta.fields(physics.Scene)) |f| {
+        const array = @typeInfo(f.type) == .array;
+        if (comptime !array or std.mem.eql(u8, f.name, "wg_head")) {
+            if (comptime std.mem.eql(u8, f.name, "wg_head") or std.mem.eql(u8, f.name, "len") or std.mem.eql(u8, f.name, "awake_len")) continue;
+            try testing.expectEqual(@field(want, f.name), @field(sc.*, f.name));
+        }
+    }
+    // The wishes' grid: the literal's empty heads, with the scene's one
+    // critter linked.
+    want.wg_head[sc.wg_bucket[0]] = 0;
+    try testing.expectEqual(want.wg_head, sc.wg_head);
+    try testing.expectEqual(@as(usize, 1), sc.len);
+    try testing.expectEqual(@as(usize, 1), sc.awake_len);
+}
+
 test "the room lists give the wishes the scan gives, while they serve and after (202): crowds past wish_scan_most, the lists built, then the critters drifting a little and a lot" {
     var prng: std.Random.DefaultPrng = .init(2023);
     const r = prng.random();

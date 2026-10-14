@@ -854,9 +854,32 @@ pub const Scene = struct {
     pub const Lists = enum { none, built };
 
     pub fn of(b: *Board) ?Scene {
-        const l = b.leashedDog() orelse return null;
+        var s: Scene = undefined;
+        if (!s.init(b)) return null;
+        return s;
+    }
+
+    /// `of`, built where it stands (202): a scene is big (its lists), and
+    /// one returned by value is copied whole, every tick. Each field with
+    /// a default is set here by name: a struct literal stored whole is
+    /// written whole, the big `undefined` arrays too. A test holds every
+    /// such field to the literal's.
+    pub fn init(s: *Scene, b: *Board) bool {
+        const l = b.leashedDog() orelse return false;
         const center = b.dogs[l];
-        var s: Scene = .{ .board = b, .leashed = l, .center = center, .region = region(center) };
+        s.board = b;
+        s.leashed = l;
+        s.center = center;
+        s.region = region(center);
+        s.len = 0;
+        s.in_world = true;
+        s.awake_len = 0;
+        s.lists = .none;
+        s.drift = 0;
+        s.jumped = .initEmpty();
+        s.pair_checks = 0;
+        s.wg_head = @splat(wish_none);
+        s.rooms = .none;
         const span = TileSpan.of(s.region);
         const sphere: i64 = @as(i64, awake_reach) * awake_reach;
         s.add(.dog(l), .awake);
@@ -873,7 +896,7 @@ pub const Scene = struct {
             const i = s.awake[k];
             s.wgLinkHead(i, s.wgBucketAt(i, s.at[i]));
         }
-        return s;
+        return true;
     }
 
     fn consider(s: *Scene, c: Critter, span: TileSpan, center: Point, sphere: i64) void {
@@ -1183,19 +1206,30 @@ pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) vo
     var bumped: ?Critter = null;
     out.jumped = .initEmpty();
     out.pair_checks = 0;
-    var sc_opt = Scene.of(b);
-    if (sc_opt) |*sc| {
-        defer {
-            out.jumped = sc.jumped;
-            out.pair_checks = sc.pair_checks;
-        }
-        const drag_on = b.hold.leashed.drag == .on;
-        if (drag_on) bumped = playDrag(sc, drag);
-        if (bumped != null or begun.letting_go == .after_drag) b.hold.leashed.drag = .{ .ended = t };
-        wishes(sc, speed);
-        for (sc.list()) |s| {
-            const now = b.at(s.who);
-            if (now.x != s.start.x or now.y != s.start.y) out.push(.{ .critter = .{ .who = s.who, .before = s.start, .after = now } });
+    {
+        // **NO FILL FOR THE SCENE** (202): a safe build writes 0xaa over
+        // memory declared `undefined`, and a scene is about 110 KB, every
+        // tick; `init` sets every field a scene reads before it reads it.
+        // Only the fill is off: the tick itself runs at the build's safety.
+        @setRuntimeSafety(false);
+        var scene: Scene = undefined;
+        {
+            @setRuntimeSafety(std.debug.runtime_safety);
+            if (scene.init(b)) {
+                const sc = &scene;
+                defer {
+                    out.jumped = sc.jumped;
+                    out.pair_checks = sc.pair_checks;
+                }
+                const drag_on = b.hold.leashed.drag == .on;
+                if (drag_on) bumped = playDrag(sc, drag);
+                if (bumped != null or begun.letting_go == .after_drag) b.hold.leashed.drag = .{ .ended = t };
+                wishes(sc, speed);
+                for (sc.list()) |s| {
+                    const now = b.at(s.who);
+                    if (now.x != s.start.x or now.y != s.start.y) out.push(.{ .critter = .{ .who = s.who, .before = s.start, .after = now } });
+                }
+            }
         }
     }
     if (bumped) |c| out.push(.{ .bump = c });
@@ -1920,8 +1954,15 @@ inline fn wishAlongRooted(v: Point, l: i64, length: i32) Point {
 /// sorted, so `found` is in the order of every pair in turn: by the first
 /// critter, then the second.
 pub fn overlaps(b: *Board, found: []([2]Critter)) usize {
-    const sc = Scene.of(b) orelse return 0;
-    const cells: Cells = .of(&sc);
+    // No fill for the scene, as in `run`.
+    @setRuntimeSafety(false);
+    var sc: Scene = undefined;
+    return overlapsIn(&sc, b, found);
+}
+
+fn overlapsIn(sc: *Scene, b: *Board, found: []([2]Critter)) usize {
+    if (!sc.init(b)) return 0;
+    const cells: Cells = .of(sc);
     var n: usize = 0;
     var hit: [critter_count]u16 = undefined;
     for (sc.list(), 0..) |a, i| {
