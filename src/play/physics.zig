@@ -772,7 +772,14 @@ pub const Scene = struct {
             if (i == l) continue;
             s.consider(.dog(@intCast(i)), span, center, sphere);
         }
-        for (s.awakeOnes()) |i| s.wgLink(i, s.wgBucketAt(i, s.at[i]));
+        // Linked from the last up, each at its bucket's head: every bucket
+        // in rank order, as `wgLink` keeps it.
+        var k = s.awake_len;
+        while (k > 0) {
+            k -= 1;
+            const i = s.awake[k];
+            s.wgLinkHead(i, s.wgBucketAt(i, s.at[i]));
+        }
         return s;
     }
 
@@ -798,12 +805,29 @@ pub const Scene = struct {
         return @intCast(wishBucket(wishClass(s.seen[i].who), wishCellOf(p.x), wishCellOf(p.y)));
     }
 
-    fn wgLink(s: *Scene, i: usize, k: u16) void {
+    /// `i` into bucket `k` at its head: only where every one there ranks
+    /// below it (the scene's build, last first).
+    fn wgLinkHead(s: *Scene, i: usize, k: u16) void {
         const h = s.wg_head[k];
         s.wg_next[i] = h;
         s.wg_prev[i] = wish_none;
         if (h != wish_none) s.wg_prev[h] = @intCast(i);
         s.wg_head[k] = @intCast(i);
+        s.wg_bucket[i] = k;
+    }
+
+    /// **EACH BUCKET IN RANK ORDER** (202): `i` into bucket `k` after every
+    /// one ranked above it, so a wish's read stops at the first critter not
+    /// above the dog (`addRoom`, `anchorOf`). A move into another bucket is
+    /// rare (a cell is `wish_cell` wide), so the walk to its place is cheap.
+    fn wgLink(s: *Scene, i: usize, k: u16) void {
+        var prev: u16 = wish_none;
+        var at = s.wg_head[k];
+        while (at != wish_none and at < i) : (at = s.wg_next[at]) prev = at;
+        s.wg_next[i] = at;
+        s.wg_prev[i] = prev;
+        if (at != wish_none) s.wg_prev[at] = @intCast(i);
+        if (prev == wish_none) s.wg_head[k] = @intCast(i) else s.wg_next[prev] = @intCast(i);
         s.wg_bucket[i] = k;
     }
 
@@ -1480,9 +1504,9 @@ fn addRoom(sc: *const Scene, total: *Point, i: usize, p: Point, class: u16, reac
     while (cy <= wishCellOf(p.y + reach)) : (cy += 1) {
         var cx = wishCellOf(p.x - reach);
         while (cx <= wishCellOf(p.x + reach)) : (cx += 1) {
+            // In rank order: past the first not above dog `i`, none count.
             var j = sc.wg_head[wishBucket(class, cx, cy)];
-            while (j != wish_none) : (j = sc.wg_next[j]) {
-                if (j >= i) continue;
+            while (j != wish_none and j < i) : (j = sc.wg_next[j]) {
                 const v = delta(sc.pos(j), p);
                 const d2 = len2(v);
                 if (d2 > reach2) continue;
@@ -1520,8 +1544,7 @@ fn anchorOf(sc: *const Scene, i: usize, p: Point, breed: u16) ?Anchor {
             var cx = pcx - k;
             while (cx <= pcx + k) : (cx += if (edge_row or cx == pcx + k) 1 else 2 * k) {
                 var j = sc.wg_head[wishBucket(breed, cx, cy)];
-                while (j != wish_none) : (j = sc.wg_next[j]) {
-                    if (j >= i) continue;
+                while (j != wish_none and j < i) : (j = sc.wg_next[j]) {
                     const d2 = len2(delta(sc.pos(j), p));
                     if (d2 > follow2) continue;
                     if (best) |b| if (d2 > b.d2 or (d2 == b.d2 and j > b.j)) continue;
