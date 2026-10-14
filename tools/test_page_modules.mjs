@@ -49,9 +49,7 @@ test("the two frames are each other's inverse", () => {
   assert.deepEqual(scene.parkFromViewport(viewport, 50, 30), { parkX: 1250, parkY: 830 });
 });
 
-test("a held dog is kept on screen; a park point is named in the world, round the torus", () => {
-  const viewport = { parkX: 1000, parkY: 1000, width: 400, height: 300 };
-  assert.deepEqual(scene.keptOnScreen(viewport, 900, 1500), { parkX: 1020, parkY: 1280 });
+test("a park point is named in the world, round the torus", () => {
   const W = scene.world_px;
   assert.deepEqual(scene.wrappedPoint(-5, 99999), { parkX: W - 5, parkY: 99999 - 3 * W });
   assert.deepEqual(scene.wrappedPoint(-1000, 0), { parkX: W - 1000, parkY: 0 });

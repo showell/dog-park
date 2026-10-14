@@ -24,16 +24,6 @@ export function parkFromViewport(viewport, viewportX, viewportY) {
 }
 
 
-// A park point kept on screen, a dog's half-size in from each edge: a held
-// dog never leaves the screen.
-export function keptOnScreen(viewport, parkX, parkY) {
-  const half = dog_px / 2;
-  return {
-    parkX: Math.min(Math.max(parkX, viewport.parkX + half), viewport.parkX + viewport.width - half),
-    parkY: Math.min(Math.max(parkY, viewport.parkY + half), viewport.parkY + viewport.height - half),
-  };
-}
-
 // ── tiles and the world ─────────────────────────────────────────────────────
 
 // The world: `world_tiles` by `world_tiles` tiles (the server's tiles.zig),
