@@ -1463,7 +1463,9 @@ pub const walk_fan = 3;
 /// from the dog that lined it up. The walk visits the waiting dog with the
 /// least key (ties to the lower rank): it wishes as the rules say, seeing
 /// the dogs visited before it where they moved to, steps at once, and lines
-/// up its own `walk_fan` nearest from where it now stands. So a pack of
+/// up its own `walk_fan` nearest not yet visited from where it now stands;
+/// a dog already waiting takes the nearer of its two keys (a nearer dog
+/// found it). So a pack of
 /// dogs close to one another is walked to its end before a dog farther
 /// from the dog that found it, however near the leashed dog that one is.
 /// The walk stops after `walk_most` dogs; a dog it doesn't reach stays put
@@ -1483,16 +1485,17 @@ fn wishes(sc: *Scene, most: i32) void {
     const root = leashed orelse return;
     sc.walk_len = 0;
     var waiting: Waiting = .{};
-    var lined: std.StaticBitSet(critter_count) = .initEmpty();
-    lined.set(root);
-    lineUp(sc, root, &waiting, &lined);
+    var visited: std.StaticBitSet(critter_count) = .initEmpty();
+    visited.set(root);
+    lineUp(sc, root, &waiting, &visited);
     var walked: usize = 0;
     while (walked < walk_most) : (walked += 1) {
         const i: usize = waiting.pop() orelse break;
+        visited.set(i);
         sc.walk[sc.walk_len] = sc.seen[i].who.n;
         sc.walk_len += 1;
         stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
-        lineUp(sc, i, &waiting, &lined);
+        lineUp(sc, i, &waiting, &visited);
     }
 }
 
@@ -1503,6 +1506,19 @@ const Waiting = struct {
     key: [walk_most * walk_fan + walk_fan]i64 = undefined,
     who: [walk_most * walk_fan + walk_fan]u16 = undefined,
     len: usize = 0,
+
+    /// `who` waits with `key`, or, already waiting with a larger key,
+    /// with this one instead (a nearer dog found it).
+    fn offer(w: *Waiting, key: i64, who: u16) void {
+        for (w.who[0..w.len], 0..) |o, k| if (o == who) {
+            if (w.key[k] <= key) return;
+            std.mem.copyForwards(i64, w.key[k .. w.len - 1], w.key[k + 1 .. w.len]);
+            std.mem.copyForwards(u16, w.who[k .. w.len - 1], w.who[k + 1 .. w.len]);
+            w.len -= 1;
+            break;
+        };
+        w.add(key, who);
+    }
 
     fn add(w: *Waiting, key: i64, who: u16) void {
         var k = w.len;
@@ -1522,17 +1538,18 @@ const Waiting = struct {
     }
 };
 
-/// Dog `from`'s `walk_fan` nearest awake unleashed dogs not yet `lined`
-/// (ties to the lower rank), from where it stands now, marked and added to
-/// `waiting` keyed by their distance from it.
-fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, lined: *std.StaticBitSet(critter_count)) void {
+/// Dog `from`'s `walk_fan` nearest awake unleashed dogs not yet `visited`
+/// (ties to the lower rank), from where it stands now, offered to
+/// `waiting` keyed by their distance from it: a dog already waiting keeps
+/// the lesser of its key and this one.
+fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, visited: *const std.StaticBitSet(critter_count)) void {
     const p = sc.pos(from);
     var near_key: [walk_fan]i64 = undefined;
     var near_who: [walk_fan]u16 = undefined;
     var n: usize = 0;
     for (sc.awakeOnes()) |j16| {
         const s = sc.seen[j16];
-        if (s.who.kind != .dog or s.rank == 0 or lined.isSet(j16)) continue;
+        if (s.who.kind != .dog or s.rank == 0 or visited.isSet(j16)) continue;
         const d = measure(delta(sc.pos(j16), p));
         // `awakeOnes` is in rank order, so a tie keeps the one already in.
         if (n == walk_fan and d >= near_key[n - 1]) continue;
@@ -1545,10 +1562,7 @@ fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, lined: *std.StaticBi
         near_who[k] = j16;
         if (n < walk_fan) n += 1;
     }
-    for (near_key[0..n], near_who[0..n]) |d, j| {
-        lined.set(j);
-        waiting.add(d, j);
-    }
+    for (near_key[0..n], near_who[0..n]) |d, j| waiting.offer(d, j);
 }
 
 /// Which axis a straight step meets a square on: the face it presses into,

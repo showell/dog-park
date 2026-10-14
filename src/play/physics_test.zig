@@ -1310,3 +1310,18 @@ test "the room lists give the wishes the scan gives, while they serve and after 
     }
     try testing.expect(listed > fuzzed(60));
 }
+
+test "the walk: a dog already waiting takes a nearer dog's key (Steve's 172, 176, 180, 174, 184 at 69927)" {
+    // From play: the leashed dog (172 there, 0 here), 176 (4) 55 px off,
+    // 180 (8) 139, 174 (2, another breed) 186, 184 (12) 240 but 101 from
+    // 180. 176 lines up 184 first, far (207); 180, visited next, is
+    // nearer it, so 184 comes before 174.
+    const at = px(16000, 16000);
+    var b = leashedAt(at);
+    b.place(.dog(4), .{ .x = at.x + physics.px(55), .y = at.y + physics.px(33) });
+    b.place(.dog(8), .{ .x = at.x + physics.px(62), .y = at.y + physics.px(139) });
+    b.place(.dog(2), .{ .x = at.x - physics.px(187), .y = at.y + physics.px(124) });
+    b.place(.dog(12), .{ .x = at.x + physics.px(83), .y = at.y + physics.px(240) });
+    const lines = ticked(&b, 1, &.{}, &.{d(1, 0)});
+    try testing.expectEqualSlices(u16, &.{ 4, 8, 12, 2 }, lines.walk[0..lines.walk_len]);
+}

@@ -702,6 +702,7 @@ fn wishes(sc: *Scene, most: i32) void {
             if (w.key < b.key or (w.key == b.key and w.who < b.who)) best = k;
         }
         const i = waiting.swapRemove(best).who;
+        lined[i] = true;
         stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
         lineUp(sc, i, &waiting, &lined);
     }
@@ -711,6 +712,7 @@ const Wait = struct { key: i64, who: usize };
 
 fn lineUp(sc: *const Scene, from: usize, waiting: *std.ArrayList(Wait), lined: []bool) void {
     const p = sc.pos(from);
+    // `lined` here is visited: a waiting dog can be offered a nearer key.
     var cands: [critter_count]Wait = undefined;
     var n: usize = 0;
     for (sc.awakeOnes()) |j16| {
@@ -727,8 +729,12 @@ fn lineUp(sc: *const Scene, from: usize, waiting: *std.ArrayList(Wait), lined: [
     }.f;
     std.sort.pdq(Wait, cands[0..n], {}, less);
     for (cands[0..@min(n, physics.walk_fan)]) |c| {
-        lined[c.who] = true;
-        waiting.appendAssumeCapacity(c);
+        for (waiting.items) |*w| {
+            if (w.who == c.who) {
+                w.key = @min(w.key, c.key);
+                break;
+            }
+        } else waiting.appendAssumeCapacity(c);
     }
 }
 
