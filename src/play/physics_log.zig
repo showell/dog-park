@@ -293,7 +293,7 @@ pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
     const w = &out.writer;
     var hash: [8]u8 = undefined;
     _ = std.fmt.bufPrint(&hash, "{x:0>8}", .{s.physics}) catch unreachable;
-    try w.print("dogpark snapshot 1\nphysics {s}\nstarted {d}\nlog {d} {d}\nkept {d}\n", .{ &hash, s.started, s.log_started, s.log_offset, s.kept.tick });
+    try w.print("dogpark snapshot 2\nphysics {s}\nstarted {d}\nlog {d} {d}\nkept {d}\n", .{ &hash, s.started, s.log_started, s.log_offset, s.kept.tick });
     switch (s.kept.board.hold) {
         .none => try w.writeAll("hold none\n"),
         .leashed => |l| switch (l.drag) {
@@ -346,7 +346,7 @@ pub fn readSnapshot(bytes: []const u8) SnapshotError!Snapshot {
 
 fn readSnapshotOr(bytes: []const u8) !Snapshot {
     var lines: wire.Lines = .{ .rest = bytes };
-    if (!std.mem.eql(u8, lines.next() orelse "", "dogpark snapshot 1")) return error.Bad;
+    if (!std.mem.eql(u8, lines.next() orelse "", "dogpark snapshot 2")) return error.Bad;
     var s: Snapshot = undefined;
     s.physics = try std.fmt.parseInt(u32, try after(lines.next(), "physics "), 16);
     s.started = try wire.parseDec(try after(lines.next(), "started "), std.math.maxInt(u63));
