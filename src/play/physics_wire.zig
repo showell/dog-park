@@ -99,6 +99,7 @@ pub const Text = struct {
         try self.str(switch (c.kind) {
             .dog => "dog ",
             .cow => "cow ",
+            .chicken => "chicken ",
         });
         try self.dec(c.n);
     }
@@ -166,6 +167,8 @@ pub const Line = union(enum) {
     view: View,
     t: TLine,
     critter: physics.CritterLine,
+    poop: physics.PoopLine,
+    eaten: u16,
     bump: struct { tick: Tick, who: Critter },
     rest: Tick,
 };
@@ -241,6 +244,14 @@ pub fn write(w: *Text, line: Line) Text.Error!void {
             try w.char(' ');
             try critterMove(w, c);
         },
+        .poop => |p| {
+            try w.char(' ');
+            try poopAt(w, p.n, p.at);
+        },
+        .eaten => |n| {
+            try w.str(" eaten ");
+            try w.dec(n);
+        },
         .bump => |b| {
             try tickOnly(w, "bump ", b.tick);
             try w.char(' ');
@@ -259,6 +270,28 @@ pub fn critterMove(w: *Text, c: physics.CritterLine) Text.Error!void {
     try w.pos(c.after);
 }
 
+/// `poop N x,y`, unindented: a line's, and an entry's on a `tile`,
+/// `board` or snapshot line.
+pub fn poopAt(w: *Text, n: u16, at: Point) Text.Error!void {
+    try w.str("poop ");
+    try w.dec(n);
+    try w.char(' ');
+    try w.pos(at);
+}
+
+/// A critter as a `tile`, `board` or snapshot entry, unindented: `kind N
+/// x,y`, and a dog's walk when it has walked (`walked H`, hex with a
+/// point).
+pub fn entry(w: *Text, b: *const physics.Board, c: Critter) Text.Error!void {
+    try w.critter(c);
+    try w.char(' ');
+    try w.pos(b.at(c));
+    if (c.kind == .dog and b.walked[c.n] != 0) {
+        try w.str(" walked ");
+        try w.hexPoint(b.walked[c.n]);
+    }
+}
+
 fn tickOnly(w: *Text, word: []const u8, t: Tick) Text.Error!void {
     try w.str(word);
     try w.dec(t);
@@ -274,6 +307,8 @@ fn tickAndDog(w: *Text, word: []const u8, t: Tick, dog: u16) Text.Error!void {
 pub fn checkedLine(t: Tick, c: physics.Checked) Line {
     return switch (c) {
         .critter => |l| .{ .critter = l },
+        .poop => |p| .{ .poop = p },
+        .eaten => |n| .{ .eaten = n },
         .bump => |who| .{ .bump = .{ .tick = t, .who = who } },
         .release => |d| .{ .release = .{ .tick = t, .dog = d } },
         .rest => .{ .rest = t },
@@ -289,6 +324,8 @@ pub fn same(a: Line, b: Line) bool {
     // Any other pair is written out and compared, as before.
     if (std.meta.activeTag(a) == std.meta.activeTag(b)) switch (a) {
         .critter => |l| if (std.meta.eql(l, b.critter)) return true,
+        .poop => |l| if (std.meta.eql(l, b.poop)) return true,
+        .eaten => |n| if (n == b.eaten) return true,
         .bump => |l| if (std.meta.eql(l, b.bump)) return true,
         .release => |l| if (std.meta.eql(l, b.release)) return true,
         .rest => |t| if (t == b.rest) return true,
@@ -435,7 +472,15 @@ fn parseTick(s: []const u8) ParseError!Tick {
 fn parseCritter(kind: []const u8, n: []const u8) ParseError!Critter {
     if (std.mem.eql(u8, kind, "dog")) return .dog(@intCast(try parseDec(n, physics.dog_count - 1)));
     if (std.mem.eql(u8, kind, "cow")) return .cow(@intCast(try parseDec(n, physics.cow_count - 1)));
+    if (std.mem.eql(u8, kind, "chicken")) return .chicken(@intCast(try parseDec(n, physics.chicken_count - 1)));
     return error.Malformed;
+}
+
+/// `parseCritter`, for the page and the snapshot's entries.
+pub const critterNamed = parseCritter;
+
+pub fn parsePoopNumber(n: []const u8) ParseError!u16 {
+    return @intCast(try parseDec(n, physics.poop_count - 1));
 }
 
 fn parseTile(s: []const u8) ParseError!tiles.Tile {
@@ -460,7 +505,19 @@ fn parseTiles(w: *Words) ParseError!TileSet {
 pub fn parse(text: []const u8) ParseError!Line {
     if (text.len > 0 and text[0] == ' ') {
         var w: Words = .{ .rest = text[1..] };
-        const who = try parseCritter(try w.next(), try w.next());
+        const kind = try w.next();
+        if (std.mem.eql(u8, kind, "poop")) {
+            const n = try parsePoopNumber(try w.next());
+            const at = try parsePos(try w.next());
+            try w.end();
+            return .{ .poop = .{ .n = n, .at = at } };
+        }
+        if (std.mem.eql(u8, kind, "eaten")) {
+            const n = try parsePoopNumber(try w.next());
+            try w.end();
+            return .{ .eaten = n };
+        }
+        const who = try parseCritter(kind, try w.next());
         const before = try parsePos(try w.next());
         try w.expect(">");
         const after = try parsePos(try w.next());
@@ -555,6 +612,38 @@ fn parseDispWord(s: []const u8) ParseError!Disp {
         .ms = @intCast(try parseDec(s[at + 1 ..], std.math.maxInt(u32))),
     };
 }
+
+/// An entry of a `tile`, `board` or snapshot line: a critter where it
+/// stands (and a dog's walk), or a poop.
+pub const Entry = union(enum) {
+    critter: struct { who: Critter, at: Point, walked: u32 },
+    poop: struct { n: u16, at: Point },
+};
+
+/// The entries on the rest of a line, as `entry` and `poopAt` write them,
+/// separated by single spaces.
+pub const Entries = struct {
+    w: Words,
+
+    pub fn of(rest: []const u8) Entries {
+        return .{ .w = .{ .rest = rest, .done = rest.len == 0 } };
+    }
+    pub fn next(self: *Entries) ParseError!?Entry {
+        if (!self.w.more()) return null;
+        const kind = try self.w.next();
+        const n = try self.w.next();
+        if (std.mem.eql(u8, kind, "poop")) return .{ .poop = .{ .n = try parsePoopNumber(n), .at = try parsePos(try self.w.next()) } };
+        const who = try parseCritter(kind, n);
+        const at = try parsePos(try self.w.next());
+        var walked: u32 = 0;
+        if (who.kind == .dog and self.w.more() and std.mem.startsWith(u8, self.w.rest, "walked ")) {
+            _ = try self.w.next();
+            walked = try parseHexPoint(try self.w.next(), std.math.maxInt(u32));
+            if (walked == 0) return error.Malformed;
+        }
+        return .{ .critter = .{ .who = who, .at = at, .walked = walked } };
+    }
+};
 
 /// The lines of a text, split on `\n`; a last line without one is still a
 /// line, an empty line is malformed (`next` returns it for the caller to

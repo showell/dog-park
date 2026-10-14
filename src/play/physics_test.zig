@@ -662,3 +662,50 @@ test "the nudge stops at a critter not kin: a cow pressed against a dog vetoes t
     try testing.expectEqual(px(16050, 16250), b.cows[0]);
     try testing.expectEqual(px(15990, 16250), b.cows[1]);
 }
+
+test "poop (decision 26): a dog poops at each 50 px it walks, in the nearest spot clear of every critter, its slots in turn" {
+    // The leashed dog alone, dragged east 100 px over 10 ticks: two
+    // poops, slots 1 and 2 (its first and second), each on the first ring
+    // clear of its square (28 px: 20 + 6 rounded up to the 4 px grid), at
+    // that ring's north-west corner.
+    var b = leashedAt(px(16250, 16250));
+    var t: physics.Tick = 1;
+    var laid: [4]physics.PoopLine = undefined;
+    var n: usize = 0;
+    while (t <= 10) : (t += 1) {
+        const lines = ticked(&b, t, &.{}, &.{d(10, 0)});
+        for (lines.slice()) |c| if (c == .poop) {
+            laid[n] = c.poop;
+            n += 1;
+        };
+    }
+    try testing.expectEqual(@as(usize, 2), n);
+    try testing.expectEqual(@as(u16, 1), laid[0].n);
+    try testing.expectEqual(px(16300 - 28, 16250 - 28), laid[0].at);
+    try testing.expectEqual(@as(u16, 2), laid[1].n);
+    try testing.expectEqual(px(16350 - 28, 16250 - 28), laid[1].at);
+    try testing.expectEqual(@as(u32, @intCast(physics.px(100))), b.walked[0]);
+}
+
+test "a chicken walks to the nearest poop it sees, as fast as the leashed dog, and eats it; poop past half a tile it doesn't see" {
+    var b = leashedAt(px(16250, 16250));
+    b.place(.chicken(0), px(17000, 16250));
+    b.poops[5] = px(17100, 16250);
+    b.poop_known[5] = .present;
+    b.poops[6] = px(17000, 16520);
+    b.poop_known[6] = .present;
+    var t: physics.Tick = 1;
+    var eaten: ?u16 = null;
+    while (t <= 10) : (t += 1) {
+        const lines = ticked(&b, t, &.{}, &.{d(0, 10)});
+        for (lines.slice()) |c| if (c == .eaten) {
+            eaten = c.eaten;
+        };
+    }
+    // 100 px of drag: the chicken goes 85 east (its square overlapping the
+    // poop's, 15 px off) and eats poop 5; poop 6, 270 px south, it never saw.
+    try testing.expectEqual(@as(?u16, 5), eaten);
+    try testing.expectEqual(physics.Known.absent, b.poop_known[5]);
+    try testing.expectEqual(physics.Known.present, b.poop_known[6]);
+    try testing.expectEqual(px(17085, 16250), b.chickens[0]);
+}

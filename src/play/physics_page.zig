@@ -15,7 +15,8 @@
 //! page), `outBuf` (a line or lines, written here; each writer starts it
 //! afresh and answers its length), `ints` (numbers both ways: a drag's
 //! displacements, tile lists, what an answer line said), and each board's
-//! critters (`dogsAt`, `dogKnown`, `cowsAt`, `cowKnown`: x, y pairs of
+//! critters and poops (`dogsAt`, `dogKnown`, `cowsAt`, `cowKnown`,
+//! `chickensAt`, `chickenKnown`, `poopsAt`, `poopKnown`: x, y pairs of
 //! `i32` in 256ths, and one byte each, 1 when the board has it).
 //!
 //! Ticks cross as `f64` (JavaScript's numbers; a tick fits in 2^53).
@@ -106,6 +107,24 @@ export fn cowsAt(b: u32) [*]i32 {
 }
 export fn cowKnown(b: u32) [*]u8 {
     return @ptrCast(&board(b).cow_known);
+}
+export fn chickenCount() u32 {
+    return physics.chicken_count;
+}
+export fn chickensAt(b: u32) [*]i32 {
+    return @ptrCast(&board(b).chickens);
+}
+export fn chickenKnown(b: u32) [*]u8 {
+    return @ptrCast(&board(b).chicken_known);
+}
+export fn poopCount() u32 {
+    return physics.poop_count;
+}
+export fn poopsAt(b: u32) [*]i32 {
+    return @ptrCast(&board(b).poops);
+}
+export fn poopKnown(b: u32) [*]u8 {
+    return @ptrCast(&board(b).poop_known);
 }
 
 // ── the boards ──────────────────────────────────────────────────────────────
@@ -272,19 +291,22 @@ fn disps(n: u32) physics.Capped {
 /// `ints` as the report carries them (`cappedLen` of them). Writes the
 /// tick's checked lines (not its `t` line: `writeT`, when the report goes)
 /// and answers their length; `tickFlags` says what happened.
+/// A tick's checked lines (kept here, not on the stack: they hold room for
+/// every poop slot).
+var tick_lines: physics.Lines = .{};
+
 export fn tick(b: u32, t: f64, n: u32) u32 {
     const drag = disps(n);
-    var lines: physics.Lines = .{};
     const tk = tickOf(t);
-    physics.run(board(b), tk, begun[b], drag.slice(), &lines);
+    physics.run(board(b), tk, begun[b], drag.slice(), &tick_lines);
     begun[b] = .{};
-    walk_len = @intCast(lines.walk_len);
-    @memcpy(walk[0..lines.walk_len], lines.walk[0..lines.walk_len]);
+    walk_len = @intCast(tick_lines.walk_len);
+    @memcpy(walk[0..tick_lines.walk_len], tick_lines.walk[0..tick_lines.walk_len]);
     flags = 0;
     var o = out();
-    for (lines.slice()) |c| {
+    for (tick_lines.slice()) |c| {
         switch (c) {
-            .critter => flags |= Flag.moved,
+            .critter, .poop, .eaten => flags |= Flag.moved,
             .bump => flags |= Flag.bump,
             .release => flags |= Flag.release,
             .rest => flags |= Flag.rest,
@@ -346,26 +368,19 @@ const Words = struct {
     }
 };
 
-fn critterOf(kind: []const u8, n: []const u8) error{Malformed}!physics.Critter {
-    if (std.mem.eql(u8, kind, "dog")) return .dog(@intCast(try wire.parseDec(n, physics.dog_count - 1)));
-    if (std.mem.eql(u8, kind, "cow")) return .cow(@intCast(try wire.parseDec(n, physics.cow_count - 1)));
-    return error.Malformed;
-}
-
 fn tileOf(s: []const u8) error{Malformed}!tiles.Tile {
     const comma = std.mem.indexOfScalar(u8, s, ',') orelse return error.Malformed;
     const top = tiles.world_tiles - 1;
     return .{ .col = @intCast(try wire.parseDec(s[0..comma], top)), .row = @intCast(try wire.parseDec(s[comma + 1 ..], top)) };
 }
 
-/// The critters on the rest of a line (`dog N a cow M b …`), each handed
-/// to `each`.
-fn critters(w: *Words, ctx: anytype, comptime each: fn (@TypeOf(ctx), physics.Critter, physics.Point) void) error{Malformed}!u32 {
+/// The entries on the rest of a line (`dog N a walked W cow M b poop P c
+/// …`), each handed to `each`.
+fn entries(w: *Words, ctx: anytype, comptime each: fn (@TypeOf(ctx), wire.Entry) void) error{Malformed}!u32 {
+    var e = wire.Entries.of(w.it.rest());
     var n: u32 = 0;
-    while (w.next()) |kind| {
-        const c = try critterOf(kind, w.next() orelse return error.Malformed);
-        const p = try wire.parsePos(w.next() orelse return error.Malformed);
-        each(ctx, c, p);
+    while (e.next() catch return error.Malformed) |one| {
+        each(ctx, one);
         n += 1;
     }
     return n;
@@ -391,19 +406,30 @@ fn readTileWords(w: *Words, mask: u32) error{Malformed}!i32 {
     ints_buf[1] = t.row;
     const Ctx = struct {
         mask: u32,
-        fn place(self: @This(), c: physics.Critter, p: physics.Point) void {
+        fn place(self: @This(), e: wire.Entry) void {
             for (&boards, 0..) |*b, i| {
                 if (self.mask & (@as(u32, 1) << @intCast(i)) == 0) continue;
-                if (b.known(c) != .present) b.place(c, p);
+                switch (e) {
+                    .critter => |c| if (b.known(c.who) != .present) {
+                        b.place(c.who, c.at);
+                        if (c.who.kind == .dog) b.walked[c.who.n] = c.walked;
+                    },
+                    .poop => |p| if (b.poop_known[p.n] != .present) {
+                        b.poops[p.n] = p.at;
+                        b.poop_known[p.n] = .present;
+                    },
+                }
             }
         }
     };
-    return @intCast(try critters(w, Ctx{ .mask = mask }, Ctx.place));
+    return @intCast(try entries(w, Ctx{ .mask = mask }, Ctx.place));
 }
 
-/// **A `board T` LINE** in `inBuf`, laid over board `b`: each critter it
-/// names takes the server's position. `lineTick` is T. Answers the
-/// critters it named, or -1.
+/// **A `board T` LINE** in `inBuf`, laid over board `b` (after its
+/// `state` line): each critter it names takes the server's position (and
+/// a dog its walk), and the poops it names are every poop in the region's
+/// tiles: the board's others there go. `lineTick` is T. Answers the
+/// entries it named, or -1.
 export fn readBoard(len: u32, b: u32) i32 {
     var w = Words.of(line(len));
     return readBoardWords(&w, b) catch -1;
@@ -414,11 +440,36 @@ fn readBoardWords(w: *Words, b: u32) error{Malformed}!i32 {
     line_tick = try wire.parseDec(w.next() orelse return error.Malformed, std.math.maxInt(u32));
     const Ctx = struct {
         b: *physics.Board,
-        fn place(self: @This(), c: physics.Critter, p: physics.Point) void {
-            self.b.place(c, p);
+        fn place(self: @This(), e: wire.Entry) void {
+            switch (e) {
+                .critter => |c| {
+                    self.b.place(c.who, c.at);
+                    if (c.who.kind == .dog) self.b.walked[c.who.n] = c.walked;
+                },
+                .poop => {},
+            }
+        }
+        fn poop(self: @This(), e: wire.Entry) void {
+            switch (e) {
+                .critter => {},
+                .poop => |p| {
+                    self.b.poops[p.n] = p.at;
+                    self.b.poop_known[p.n] = .present;
+                },
+            }
         }
     };
-    return @intCast(try critters(w, Ctx{ .b = board(b) }, Ctx.place));
+    const ctx = Ctx{ .b = board(b) };
+    var again = w.*;
+    const n = try entries(w, ctx, Ctx.place);
+    if (ctx.b.leashedDog()) |l| {
+        const span = physics.TileSpan.of(physics.region(ctx.b.dogs[l]));
+        for (&ctx.b.poops, &ctx.b.poop_known) |p, *k| {
+            if (k.* == .present and span.holdsPoint(p)) k.* = .absent;
+        }
+    }
+    _ = try entries(&again, ctx, Ctx.poop);
+    return @intCast(n);
 }
 
 export fn lineTick() f64 {

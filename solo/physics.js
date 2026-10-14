@@ -137,6 +137,8 @@ export function createPhysics(x) {
       return {
         dogs: listOf(x.dogsAt(b), x.dogKnown(b), x.dogCount()),
         cows: listOf(x.cowsAt(b), x.cowKnown(b), x.cowCount()),
+        chickens: listOf(x.chickensAt(b), x.chickenKnown(b), x.chickenCount()),
+        poops: listOf(x.poopsAt(b), x.poopKnown(b), x.poopCount()),
       };
     },
     readTile(line, boards) {

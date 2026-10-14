@@ -91,8 +91,11 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   // before (the frames draw between).
   let dogs = new Map();
   let cows = new Map();
+  let chickens = new Map();
+  let poops = [];
   let wasDogs = new Map();
   let wasCows = new Map();
+  let wasChickens = new Map();
   const wasViewport = { parkX: 0, parkY: 0 };
   let lastLeashed = { kind: "none" };
 
@@ -302,6 +305,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     wasViewport.parkY = viewport.parkY;
     wasDogs = dogs;
     wasCows = cows;
+    wasChickens = chickens;
     if (status.kind !== "playing") return;
     if (cursor < record.length) {
       resume();
@@ -424,9 +428,12 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     const c = physics.critters(LIVE);
     dogs = new Map(c.dogs.map((d) => [d.id, { id: d.id, emoji: dog_looks[d.id % dog_looks.length], parkX: px(d.x), parkY: px(d.y) }]));
     cows = new Map(c.cows.map((d) => [d.id, { id: d.id, parkX: px(d.x), parkY: px(d.y) }]));
+    chickens = new Map(c.chickens.map((d) => [d.id, { id: d.id, parkX: px(d.x), parkY: px(d.y) }]));
+    poops = c.poops.map((d) => ({ id: d.id, parkX: px(d.x), parkY: px(d.y) }));
     if (snap) {
       wasDogs = dogs;
       wasCows = cows;
+      wasChickens = chickens;
     }
   }
 
@@ -786,12 +793,14 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
         viewport: { ...viewport },
         dogs: new Map([...dogs].map(([id, d]) => [id, { ...d }])),
         cows: [...cows.values()].map((c) => ({ ...c })),
+        chickens: [...chickens.values()].map((c) => ({ ...c })),
+        poops: poops.map((p) => ({ ...p })),
         subscribed: new Set(view.tiles.keys()),
         leashed,
         lastLeashed: { ...lastLeashed },
         tick: lastTick(),
         alpha,
-        was: { viewport: { ...wasViewport }, dogs: points(wasDogs), cows: points(wasCows) },
+        was: { viewport: { ...wasViewport }, dogs: points(wasDogs), cows: points(wasCows), chickens: points(wasChickens) },
         status: { ...status },
         holding,
         visits: new Map(visits),

@@ -96,6 +96,32 @@ own kin in turn, up to `nudge_most` (8) in all; if any of them is
 blocked, none moves. Nobody is ever pressed into, and still critters
 never attract or repel.
 
+## Poop and chickens (decision 26)
+
+**A dog poops** each time its walk (every step it takes, counted by the
+step's larger axis, the leashed dog's own included) passes another 50 px.
+The poop lands at the nearest spot where its 12 px square overlaps no
+critter and no poop the physics sees: rings 4 px apart out from the dog,
+each walked clockwise from its north-west corner, out to 200 px (none
+fits: no poop). Each dog has 4 poop slots, used in turn, so its fifth
+poop takes its first one's slot. No critter treats poop as an obstacle.
+
+**A chicken** (two to each blue tile, a 20 px square) moves after the
+walk in each pixel-tick, in number order: it steps toward the nearest
+poop it sees within half a tile (250 px), as far as the leashed dog
+stepped, whole or not at all (the veto; a chicken has no kin, so it
+neither nudges nor is nudged). Then it eats every poop its square
+overlaps. It heeds no critter and plans nothing: three chickens chase the
+same poop until it's gone. Every other critter treats a chicken as an
+obstacle; the walk never visits one.
+
+**On the wire:** a tick's checked lines add ` poop N x,y` (slot N holds a
+new poop) and ` eaten N` (a poop the region's tiles held is gone), by
+slot, after the critter lines. `tile`, `board` and snapshot entries add
+`chicken N x,y` and `poop N x,y`, and a dog that has walked carries
+`walked H` (hex with a point) after its position. A `board` line names
+every poop in the region's tiles; the page drops its others there.
+
 ## The numbers
 
 Tuned by playing; each is a constant in `physics.zig`.
@@ -115,8 +141,10 @@ Tuned by playing; each is a constant in `physics.zig`.
 | dead zone | 1 px |
 | the region | `region_reach`, 1500 px each way |
 | the leash off | 320 ticks (20 s) after the drag ends |
-| the squares | dogs 40 px, cows 60 px |
-| the first layout | `layout.zig`: 400 dogs, four to a tile, one breed per corner; 50 cows in the white tiles |
+| the squares | dogs 40 px, cows 60 px, chickens 20 px, poop 12 px |
+| poop | every 50 px walked; 4 slots a dog; within 200 px of it |
+| a chicken's sight | 250 px (half a tile) |
+| the first layout | `layout.zig`: 400 dogs, four to a tile, one breed per corner; 50 cows in the white tiles; 100 chickens, two side by side in the middle of each blue tile |
 
 **Arithmetic.** Positions are integer 256ths; every product is `i64`, and
 only a quotient comes back to `i32`. A wish's axis is the vector's axis
@@ -602,5 +630,7 @@ snapshots alone are enough to start from.
    a cow, it closes in; a dog, it flees.
 11. **The nudge** (decision 25, 2026-10-14): a step blocked by kin
    carries them along, up to 8 critters.
+12. **Poop and chickens** (decision 26, 2026-10-14): dogs poop every
+   50 px; chickens chase the nearest poop within 250 px and eat it.
 
 The history behind each is in git.

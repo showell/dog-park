@@ -10,6 +10,12 @@
 export const dog_px = 40;
 export const cow_px = dog_px * 1.5;
 export const cow_emoji = "🐄";
+// Half a dog (decision 26), full-bodied.
+export const chicken_px = dog_px / 2;
+export const chicken_emoji = "🐓";
+// A dog's poop: a little brown circle, under every critter.
+export const poop_px = 12;
+export const poop_fill = "#7a4a1a";
 // The four breeds: dog n has look n mod 4 (the physics' breeds).
 export const dog_looks = ["🐕", "🐩", "🦮", "🐕‍🦺"];
 
@@ -287,18 +293,20 @@ export function between(was, cur, alpha) {
 }
 
 // Where everything is drawn as it is: no tick under way.
-export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), cows: new Map() } };
+export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), cows: new Map(), chickens: new Map() } };
 
 // The park near: the tiles on screen (each a square of its shade, its name
-// in its middle), then each cow, then each dog, each with its place under
+// in its middle), then each poop (a brown dot), each chicken, each cow,
+// then each dog, each with its place under
 // it (where it is, not where it is drawn), the leashed dog ringed (green while the drag is on, red once it has
 // ended: a bump turns it red). `dogs`
 // and `cows` in the order they are drawn; `motion` = { alpha, was } (the
-// engine's view: was.viewport a park point, was.dogs and was.cows Maps of
+// engine's view: was.viewport a park point, was.dogs, was.cows and
+// was.chickens Maps of
 // them by id), each drawn `between` there and here, the leashed dog too.
 // Across the seam, each thing is drawn at its copy nearest the viewport's
 // centre, and each tile's copy on screen.
-export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map()) {
+export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map(), more = { chickens: [], poops: [] }) {
   const { alpha, was } = motion;
   const viewport = { ...viewportNow, ...between(was.viewport, viewportNow, alpha) };
   const out = [];
@@ -322,6 +330,13 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
     if (label !== "none" && label !== "") out.push({ id: `${id}:label`, shape: "text", x: at.viewportX, y: at.viewportY + size * 0.85, w: 0, h: 0,
       text: label, font: "12px monospace", fill: "#333", role: "scenery" });
   };
+  for (const p of more.poops) {
+    const at = onScreen(p);
+    out.push({ id: `poop:${p.id}`, shape: "dot", x: at.viewportX, y: at.viewportY, w: poop_px, h: poop_px, fill: poop_fill, role: "scenery" });
+  }
+  for (const c of more.chickens) {
+    sprite(`chicken:${c.id}`, c, between(was.chickens.get(c.id), c, alpha), chicken_emoji, chicken_px, "scenery");
+  }
   for (const c of cows) {
     const visit = visits.get(`cow:${c.id}`);
     sprite(`cow:${c.id}`, c, between(was.cows.get(c.id), c, alpha), cow_emoji, cow_px, "scenery", visit === undefined ? "none" : `#${visit}`);
@@ -341,11 +356,12 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
 
 // The overview: a window onto the world (overviewFrame, its top-left `at`),
 // each tile in it a square (white and blue where subscribed, pink where
-// not), each cow a brown dot and each dog a smaller dark one (pale where its
+// not), each cow a brown dot, each chicken a red speck and each dog a
+// smaller dark dot (pale where its
 // tile is not subscribed: only remembered), the dog leashed last ringed;
 // the margins over what spills past the window; the view a rectangle; and
 // the two scrollbars.
-export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at) {
+export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at, chickens = []) {
   const o = overviewFrame(viewport.width, viewport.height, at);
   const ground = "#556";
   const w = o.window;
@@ -371,6 +387,12 @@ export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at)
     const p = overviewFromPark(o, c.parkX, c.parkY);
     out.push({ id: `cow:${c.id}`, shape: "dot", x: p.viewportX, y: p.viewportY, w: 8, h: 8,
       fill: live(c) ? "#7a4a1a" : "#c9a37a", role: "scenery" });
+  }
+  for (const c of chickens) {
+    if (!shown(c)) continue;
+    const p = overviewFromPark(o, c.parkX, c.parkY);
+    out.push({ id: `chicken:${c.id}`, shape: "dot", x: p.viewportX, y: p.viewportY, w: 4, h: 4,
+      fill: live(c) ? "#c8102e" : "#e9a0a8", role: "scenery" });
   }
   for (const d of dogs) {
     if (!shown(d)) continue;

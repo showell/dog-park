@@ -134,6 +134,20 @@ fn applyReport(kept: *judge.Kept, body: []const u8) ApplyError!void {
                 if (open == null) return error.CorruptLog;
                 try moveAsWritten(&kept.board, c);
             },
+            // A dog's walk isn't in the log (a tick's lines say where it
+            // ended, not the steps it took): an applied log leaves each at
+            // the snapshot's. Harmless: a restart is a new epoch, so the
+            // next report comes after a load, which starts afresh.
+            .poop => |p| {
+                if (open == null) return error.CorruptLog;
+                kept.board.poops[p.n] = p.at;
+                kept.board.poop_known[p.n] = .present;
+            },
+            .eaten => |n| {
+                if (open == null) return error.CorruptLog;
+                if (kept.board.poop_known[n] != .present) return error.LogDoesNotApply;
+                kept.board.poop_known[n] = .absent;
+            },
             .bump => |bu| {
                 const o = open orelse return error.CorruptLog;
                 if (bu.tick != o.t) return error.CorruptLog;
@@ -197,7 +211,7 @@ pub fn keptPrefix(report: []const u8, t: Tick) []const u8 {
         const text = lines.next() orelse break;
         const line = wire.parse(text) catch break;
         const tick: ?Tick = switch (line) {
-            .header, .from, .critter => null,
+            .header, .from, .critter, .poop, .eaten => null,
             .leash => |l| l.tick,
             .release => |r| r.tick,
             .grab, .letgo, .rest => |x| x,
@@ -239,6 +253,10 @@ pub fn resolve(b: *Board, out: *std.ArrayList(u8), alloc: std.mem.Allocator) !Re
         all[n] = .dog(@intCast(i));
         n += 1;
     }
+    for (0..physics.chicken_count) |i| {
+        all[n] = .chicken(@intCast(i));
+        n += 1;
+    }
     for (all[0..n], 0..) |c, i| {
         if (b.known(c) != .present) continue;
         for (all[0..i]) |o| {
@@ -268,7 +286,8 @@ pub fn logName(alloc: std.mem.Allocator, started: u64) ![]u8 {
 }
 
 /// The snapshot as text: a line each, critters in rank order (no leash
-/// first: positions only), `end` last.
+/// first: positions, and a dog's walk), then each poop by number, `end`
+/// last.
 pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
     var out: std.Io.Writer.Allocating = .init(alloc);
     const w = &out.writer;
@@ -296,6 +315,15 @@ pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
     }
     for (0..physics.cow_count) |i| try position(w, &s.kept.board, .cow(@intCast(i)));
     for (0..physics.dog_count) |i| try position(w, &s.kept.board, .dog(@intCast(i)));
+    for (0..physics.chicken_count) |i| try position(w, &s.kept.board, .chicken(@intCast(i)));
+    for (s.kept.board.poops, s.kept.board.poop_known, 0..) |p, k, i| {
+        if (k != .present) continue;
+        var pb: [64]u8 = undefined;
+        var t: wire.Text = .{ .buf = &pb };
+        wire.poopAt(&t, @intCast(i), p) catch unreachable;
+        try w.writeAll(t.bytes());
+        try w.writeByte('\n');
+    }
     try w.writeAll("end\n");
     return out.toOwnedSlice();
 }
@@ -303,9 +331,7 @@ pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
 fn position(w: *std.Io.Writer, b: *const Board, c: Critter) !void {
     var buf: [64]u8 = undefined;
     var t: wire.Text = .{ .buf = &buf };
-    t.critter(c) catch unreachable;
-    t.char(' ') catch unreachable;
-    t.pos(b.at(c)) catch unreachable;
+    wire.entry(&t, b, c) catch unreachable;
     try w.writeAll(t.bytes());
     try w.writeByte('\n');
 }
@@ -356,24 +382,31 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
     var expect: [physics.critter_count]Critter = undefined;
     for (0..physics.cow_count) |i| expect[i] = .cow(@intCast(i));
     for (0..physics.dog_count) |i| expect[physics.cow_count + i] = .dog(@intCast(i));
+    for (0..physics.chicken_count) |i| expect[physics.cow_count + physics.dog_count + i] = .chicken(@intCast(i));
     for (expect, 0..) |c, i| {
         if (i > 0) text = lines.next() orelse return error.Bad;
-        var it = std.mem.splitScalar(u8, text, ' ');
-        const kind = it.next() orelse "";
-        const n = it.next() orelse "";
-        const parsed = try parseCritterWords(kind, n);
-        if (!parsed.eql(c)) return error.Bad;
-        s.kept.board.place(c, try wire.parsePos(it.next() orelse ""));
-        if (it.next() != null) return error.Bad;
+        var e = wire.Entries.of(text);
+        const one = (try e.next()) orelse return error.Bad;
+        if (one != .critter or !one.critter.who.eql(c) or try e.next() != null) return error.Bad;
+        s.kept.board.place(c, one.critter.at);
+        if (c.kind == .dog) s.kept.board.walked[c.n] = one.critter.walked;
     }
-    if (!std.mem.eql(u8, lines.next() orelse "", "end") or lines.next() != null) return error.Bad;
+    // The poops, by rising number, then `end`.
+    s.kept.board.poop_known = @splat(.absent);
+    var last: ?u16 = null;
+    while (true) {
+        text = lines.next() orelse return error.Bad;
+        if (std.mem.eql(u8, text, "end")) break;
+        var e = wire.Entries.of(text);
+        const one = (try e.next()) orelse return error.Bad;
+        if (one != .poop or try e.next() != null) return error.Bad;
+        if (last != null and one.poop.n <= last.?) return error.Bad;
+        last = one.poop.n;
+        s.kept.board.poops[one.poop.n] = one.poop.at;
+        s.kept.board.poop_known[one.poop.n] = .present;
+    }
+    if (lines.next() != null) return error.Bad;
     return s;
-}
-
-fn parseCritterWords(kind: []const u8, n: []const u8) !Critter {
-    if (std.mem.eql(u8, kind, "dog")) return .dog(@intCast(try wire.parseDec(n, physics.dog_count - 1)));
-    if (std.mem.eql(u8, kind, "cow")) return .cow(@intCast(try wire.parseDec(n, physics.cow_count - 1)));
-    return error.Bad;
 }
 
 fn after(line: ?[]const u8, word: []const u8) ![]const u8 {

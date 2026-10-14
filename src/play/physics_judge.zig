@@ -148,6 +148,11 @@ pub fn judge(kept: *Kept, physics_hash: u32, report: []const u8, out: *Text, fin
 fn quote(out: *Text, line: wire.Line) Text.Error!void {
     switch (line) {
         .critter => |c| try wire.critterMove(out, c),
+        .poop => |p| try wire.poopAt(out, p.n, p.at),
+        .eaten => |n| {
+            try out.str("eaten ");
+            try out.dec(n);
+        },
         else => {
             var buf: [1024]u8 = undefined;
             var w: Text = .{ .buf = &buf };
@@ -161,6 +166,7 @@ fn quote(out: *Text, line: wire.Line) Text.Error!void {
 const Named = struct {
     dogs: [physics.dog_count]Mark = @splat(.unnamed),
     cows: [physics.cow_count]Mark = @splat(.unnamed),
+    chickens: [physics.chicken_count]Mark = @splat(.unnamed),
 
     const Mark = enum { unnamed, named };
 
@@ -168,7 +174,15 @@ const Named = struct {
         return switch (c.kind) {
             .dog => self.dogs[c.n] == .named,
             .cow => self.cows[c.n] == .named,
+            .chicken => self.chickens[c.n] == .named,
         };
+    }
+    fn name(self: *Named, c: physics.Critter) void {
+        switch (c.kind) {
+            .dog => self.dogs[c.n] = .named,
+            .cow => self.cows[c.n] = .named,
+            .chicken => self.chickens[c.n] = .named,
+        }
     }
 };
 
@@ -178,10 +192,7 @@ fn namedIn(lines: wire.Lines) Named {
     while (it.next()) |text| {
         const line = wire.parse(text) catch continue;
         switch (line) {
-            .critter => |c| switch (c.who.kind) {
-                .dog => n.dogs[c.who.n] = .named,
-                .cow => n.cows[c.who.n] = .named,
-            },
+            .critter => |c| n.name(c.who),
             else => {},
         }
     }
@@ -255,12 +266,10 @@ fn writeBoard(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.
     // report named, in rank order.
     var board = kept.board;
     var awake: Named = .{};
-    if (physics.Scene.of(&board)) |sc| {
-        for (sc.list()) |s| switch (s.who.kind) {
-            .dog => awake.dogs[s.who.n] = .named,
-            .cow => awake.cows[s.who.n] = .named,
-        };
-    }
+    // A scene lists poop slots by the thousand: `scene` keeps it off the
+    // stack.
+    const sc: ?*const physics.Scene = if (scene.init(&board)) &scene else null;
+    if (sc) |s| for (s.list()) |one| awake.name(one.who);
     try out.str("board ");
     try out.dec(t);
     const leashed = b.leashedDog();
@@ -274,14 +283,29 @@ fn writeBoard(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.
         if (leashed != null and leashed.? == i) continue;
         if (awake.has(c) or named.has(c)) try boardEntry(out, b, c);
     }
+    for (0..physics.chicken_count) |i| {
+        const c: physics.Critter = .chicken(@intCast(i));
+        if (awake.has(c) or named.has(c)) try boardEntry(out, b, c);
+    }
+    // Every poop in the region's tiles, by number: the page drops its
+    // others there.
+    if (sc) |s| {
+        var listed = s.poop_listed;
+        var it = listed.iterator(.{});
+        while (it.next()) |n| {
+            try out.char(' ');
+            try wire.poopAt(out, @intCast(n), b.poops[n]);
+        }
+    }
     try out.char('\n');
 }
 
+/// The scene `writeBoard` looks through.
+var scene: physics.Scene = undefined;
+
 fn boardEntry(out: *Text, b: *const physics.Board, c: physics.Critter) Text.Error!void {
     try out.char(' ');
-    try out.critter(c);
-    try out.char(' ');
-    try out.pos(b.at(c));
+    try wire.entry(out, b, c);
 }
 
 /// Where the re-run first disagrees: the server's own line, or `none` and
@@ -462,7 +486,7 @@ const Run = struct {
 /// next tick is an input).
 fn isChecked(line: wire.Line, t: Tick) bool {
     return switch (line) {
-        .critter, .bump, .rest => true,
+        .critter, .poop, .eaten, .bump, .rest => true,
         .release => |r| r.tick == t,
         else => false,
     };

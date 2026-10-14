@@ -364,6 +364,14 @@ pub const Server = struct {
                 if (leashed != null and leashed.? == i) continue;
                 try tileEntry(out, &k.board, t, .dog(@intCast(i)));
             }
+            for (0..physics.chicken_count) |i| try tileEntry(out, &k.board, t, .chicken(@intCast(i)));
+            for (k.board.poops, k.board.poop_known, 0..) |p, known, i| {
+                if (known != .present) continue;
+                const at = physics.tileOf(p);
+                if (at.col != t.col or at.row != t.row) continue;
+                try out.char(' ');
+                try wire.poopAt(out, @intCast(i), p);
+            }
             try out.char('\n');
             sent.add(t);
         }
@@ -374,9 +382,7 @@ pub const Server = struct {
         const at = physics.tileOf(p);
         if (at.col != t.col or at.row != t.row) return;
         try out.char(' ');
-        try out.critter(c);
-        try out.char(' ');
-        try out.pos(p);
+        try wire.entry(out, b, c);
     }
 
     // ── a load ──────────────────────────────────────────────────────────────

@@ -4,7 +4,8 @@
 //! near its own corner of the tile: breed 0 north-west, 1 north-east, 2
 //! south-west, 3 south-east, so a tile's four dogs are numbered 4k to
 //! 4k + 3, tile by tile, row by row. White tiles (column plus row even)
-//! also hold a cow in the middle, row by row.
+//! also hold a cow in the middle, row by row; blue tiles (column plus row
+//! odd) two chickens side by side in the middle, row by row (decision 26).
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
@@ -16,6 +17,9 @@ pub const corner_in = 75;
 
 pub const dog_count = tiles.park_tiles * tiles.park_tiles * 4;
 pub const cow_count = tiles.park_tiles * tiles.park_tiles - tiles.park_tiles * tiles.park_tiles / 2;
+pub const chicken_count = 2 * (tiles.park_tiles * tiles.park_tiles / 2);
+/// How far each of a blue tile's two chickens stands from its middle.
+pub const chicken_off = 15;
 
 /// A park tile's top-left corner, in 256ths.
 fn tileCorner(col: i32, row: i32) physics.Point {
@@ -30,6 +34,7 @@ pub fn board() physics.Board {
     var b = physics.Board.empty();
     var d: usize = 0;
     var c: usize = 0;
+    var h: usize = 0;
     var row: i32 = 0;
     while (row < tiles.park_tiles) : (row += 1) {
         var col: i32 = 0;
@@ -39,12 +44,19 @@ pub fn board() physics.Board {
                 b.place(.dog(@intCast(d)), .{ .x = at.x + k.x, .y = at.y + k.y });
                 d += 1;
             }
-            if (@mod(col + row, 2) == 1) continue;
-            b.place(.cow(@intCast(c)), .{ .x = at.x + px(tiles.tile_px / 2), .y = at.y + px(tiles.tile_px / 2) });
+            const mid: physics.Point = .{ .x = at.x + px(tiles.tile_px / 2), .y = at.y + px(tiles.tile_px / 2) };
+            if (@mod(col + row, 2) == 1) {
+                for ([2]i32{ -chicken_off, chicken_off }) |off| {
+                    b.place(.chicken(@intCast(h)), .{ .x = mid.x + px(off), .y = mid.y });
+                    h += 1;
+                }
+                continue;
+            }
+            b.place(.cow(@intCast(c)), mid);
             c += 1;
         }
     }
-    std.debug.assert(d == dog_count and c == cow_count);
+    std.debug.assert(d == dog_count and c == cow_count and h == chicken_count);
     return b;
 }
 
@@ -89,6 +101,7 @@ test "the first layout: no two critters overlap (a load puts it back without res
     var all: [physics.critter_count]struct { p: physics.Point, half: i32 } = undefined;
     for (b.dogs, 0..) |p, i| all[i] = .{ .p = p, .half = physics.dog_half };
     for (b.cows, 0..) |p, i| all[physics.dog_count + i] = .{ .p = p, .half = physics.cow_half };
+    for (b.chickens, 0..) |p, i| all[physics.dog_count + physics.cow_count + i] = .{ .p = p, .half = physics.chicken_half };
     for (all, 0..) |a, i| for (all[i + 1 ..]) |c| {
         try testing.expect(!physics.squaresOverlap(a.p, a.half, c.p, c.half));
     };
