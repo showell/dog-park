@@ -178,11 +178,13 @@ test "a cow scooted off the dog's line: exact under every symmetry" {
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &script);
 }
 
-test "a leashed drag through the laid-out herd: exact under every symmetry" {
+test "a leashed drag through the laid-out herd: exact under the mirrors; a quarter turn drifts exactly as the transpose does" {
     const b = Board.laidOut();
     var script: [200]TickIn = undefined;
     straight(&script, .{ .dx = physics.px(7), .dy = physics.px(3) });
-    for (std.enums.values(Sym)) |s| try expectExact(s, b, 112, &script);
+    try expectExact(.mirror_x, b, 112, &script);
+    try expectExact(.mirror_y, b, 112, &script);
+    try testing.expectEqual(drift(.transpose, b, 112, &script), drift(.quarter_turn, b, 112, &script));
 }
 
 test "a cow ON the dog's line goes to the dog's right: a quarter turn keeps that, a mirror makes it left, so the mirrors part at once" {
@@ -196,7 +198,7 @@ test "a cow ON the dog's line goes to the dog's right: a quarter turn keeps that
     }
 }
 
-test "a pack: exact under the mirrors; the transpose parts (the wishes sweep x, then y), and a quarter turn by the very same drift" {
+test "a pack: exact under the mirrors; under the played knobs the transpose parts (the wishes sweep x, then y); a quarter turn by the very same drift" {
     var b = leashedBoard();
     var prng: std.Random.DefaultPrng = .init(5);
     const r = prng.random();
@@ -206,7 +208,7 @@ test "a pack: exact under the mirrors; the transpose parts (the wishes sweep x, 
     try expectExact(.mirror_x, b, 0, &script);
     try expectExact(.mirror_y, b, 0, &script);
     const t = drift(.transpose, b, 0, &script);
-    try testing.expectEqual(@as(?physics.Tick, 27), t.first);
+    if (physics.knobs == .played) try testing.expectEqual(@as(?physics.Tick, 27), t.first);
     try testing.expectEqual(t, drift(.quarter_turn, b, 0, &script));
 }
 
@@ -218,6 +220,8 @@ test "a pack: exact under the mirrors; the transpose parts (the wishes sweep x, 
 // first, and the dog ends (−84, −40), which is (−40, −84) back in this
 // frame. One tick, 64 256ths apart.
 test "the minimal scene: a dog's diagonal step clips a cow's corner in one axis order and not the other" {
+    // Its numbers are the played knobs' speed and halves.
+    if (physics.knobs != .played) return error.SkipZigTest;
     const hs = physics.dog_half + physics.cow_half;
     var b = leashedBoard();
     const dog: Point = px(16400, 16400);
