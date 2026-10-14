@@ -1338,13 +1338,19 @@ fn outFromUnder(sc: *Scene, i: usize) void {
         }
     }
     if (!any) sc.overlap[i] = .clear;
-    if (!under) return;
+    if (under) jumpOut(sc, i);
+}
+
+/// Dog `i`, under someone above it, to the nearest spot clear of everyone.
+/// Its own function (202): the obstacles are a big array, and in
+/// `outFromUnder` every call paid for its stack, though few ever jump.
+noinline fn jumpOut(sc: *Scene, i: usize) void {
     var obs: jump.Obstacles = .{};
     for (sc.list(), 0..) |o, j| {
         if (j == i) continue;
         obs.add(Rect.square(sc.frame(sc.pos(j)), o.half), 2 * o.rank);
     }
-    if (jump.nearestSpot(sc.frame(p), me.half, obs.slice(), sc.region)) |spot| sc.jumpTo(i, spot);
+    if (jump.nearestSpot(sc.frame(sc.pos(i)), sc.seen[i].half, obs.slice(), sc.region)) |spot| sc.jumpTo(i, spot);
 }
 
 /// **THE DOGS' WISHES**, every awake dog by number, each step at most
