@@ -241,7 +241,7 @@ test("the near scene between ticks: the viewport, the cows and the dogs each par
   assert.equal(byId.get("tile:1,0").x, 55);
   assert.deepEqual([byId.get("dog:7").x, byId.get("dog:7").y], [65, 100]);
   assert.deepEqual([byId.get("dog:7:ring").x, byId.get("dog:7:ring").y], [65, 100]);
-  assert.equal(byId.get("dog:7:label").text, "(520, 100)");
+  assert.equal(byId.get("dog:7:label").text, "7");
   // Dog 3 is new since the last tick: where it is. Cow 23 moved 100 px: it glides.
   assert.equal(byId.get("dog:3").x, 455);
   assert.equal(byId.get("cow:23").x, 105);
@@ -259,7 +259,7 @@ test("the near scene: tiles, then cows, then dogs, the leashed dog ringed", () =
   const near = scene.nearScene(viewport, dogs, cows, { kind: "kept", dogId: 7 });
   assert.deepEqual(ids(near), [
     "tile:0,0", "tile:0,0:label", "tile:1,0", "tile:1,0:label", "tile:2,0", "tile:2,0:label",
-    "cow:23", "cow:23:label", "dog:7:ring", "dog:7", "dog:7:label", "dog:3", "dog:3:label",
+    "cow:23", "dog:7:ring", "dog:7", "dog:7:label", "dog:3", "dog:3:label",
   ]);
   const byId = new Map(near.map((o) => [o.id, o]));
   assert.deepEqual(byId.get("tile:1,0"), { id: "tile:1,0", shape: "rect", x: 50, y: 0, w: 500, h: 500, fill: "#eaf3fc", role: "scenery" });
@@ -267,13 +267,14 @@ test("the near scene: tiles, then cows, then dogs, the leashed dog ringed", () =
   assert.equal(byId.get("tile:0,0").fill, "#ffffff");
   // A cow: a 60 px glyph, never a target, its place to the pixel under it.
   assert.deepEqual(byId.get("cow:23"), { id: "cow:23", shape: "glyph", x: 150.5, y: 250, w: 60, h: 60, text: "🐄", fill: "#000", role: "scenery" });
-  assert.deepEqual(byId.get("cow:23:label"), { id: "cow:23:label", shape: "text", x: 150.5, y: 301, w: 0, h: 0, text: "(601, 250)", font: "11px monospace", fill: "#555", role: "scenery" });
+  // A cow has no label; a dog's is its number.
+  assert.equal(byId.get("cow:23:label"), undefined);
   // The leashed dog: a red ring under its 40 px glyph, which is a target.
   assert.deepEqual(byId.get("dog:7:ring"), { id: "dog:7:ring", shape: "ring", x: 50, y: 100, w: 2 * (40 * 0.7), h: 2 * (40 * 0.7), stroke: "#d33", lineWidth: 3, role: "scenery" });
   assert.deepEqual(byId.get("dog:7"), { id: "dog:7", shape: "glyph", x: 50, y: 100, w: 40, h: 40, text: "🐕", fill: "#000", role: "target" });
   // A far dog is still drawn (off the screen), unringed.
   assert.deepEqual(byId.get("dog:3"), { id: "dog:3", shape: "glyph", x: 3550.4, y: 4000, w: 40, h: 40, text: "🐩", fill: "#000", role: "target" });
-  assert.equal(byId.get("dog:3:label").text, "(4000, 4000)");
+  assert.equal(byId.get("dog:3:label").text, "3");
   // No leash, no ring.
   assert.ok(!ids(scene.nearScene(viewport, dogs, cows, { kind: "none" })).includes("dog:7:ring"));
 });
@@ -590,8 +591,8 @@ test("across the seam, the near scene: a viewport straddling x = 0, y = 0 and th
   assert.deepEqual([byId.get("dog:2").x, byId.get("dog:2").y], [310, 300]);
   assert.deepEqual([byId.get("dog:2:ring").x, byId.get("dog:2:ring").y], [310, 300]);
   assert.deepEqual([byId.get("cow:5").x, byId.get("cow:5").y], [500, 150]);
-  // Their places are named in the world.
-  assert.equal(byId.get("dog:1:label").text, `(${W - 10}, 100)`);
+  // A dog's label is its number.
+  assert.equal(byId.get("dog:1:label").text, "1");
 });
 
 test("across the seam: a viewport a whole world away, or a critter's copy, draws the same", () => {

@@ -62,6 +62,8 @@ export function createPhysics(x) {
     });
     return out;
   };
+  // The last tick's walk: the dogs it moved, by id, in visit order.
+  const takeWalk = () => [...new Uint16Array(x.memory.buffer, x.walkAt(), x.walkLen())];
   const text = (len) => decoder.decode(bytes(x.outBuf(), len));
   const putLine = (line) => {
     const b = encoder.encode(line);
@@ -130,7 +132,7 @@ export function createPhysics(x) {
     },
     tick(b, t, drag) {
       const len = x.tick(b, t, putDrag(drag));
-      return { checked: text(len), drag: takeDrag(x.cappedLen()), flags: x.tickFlags(), jumped: takeJumped() };
+      return { checked: text(len), drag: takeDrag(x.cappedLen()), flags: x.tickFlags(), jumped: takeJumped(), walk: takeWalk() };
     },
     tLine(t, plusMs, drag) { return text(x.writeT(t, plusMs, putDrag(drag))); },
     header(epoch, req, from, wall) { return text(x.writeHeader(epoch.ms, epoch.count, req, from, wall === "none" ? -1 : wall)); },

@@ -637,6 +637,10 @@ pub const Lines = struct {
     /// nearest spot), by `critterIndex`: the page snaps these and glides
     /// the rest.
     jumped: Jumped = .initEmpty(),
+    /// The tick's last walk (`wishes`): the dogs it moved, by number, in
+    /// the order it visited them. For the page's labels; not on the wire.
+    walk: [walk_most]u16 = undefined,
+    walk_len: usize = 0,
     /// The tick's pair checks: every test of one critter against another.
     /// A deterministic cost, so a test can bound it.
     pair_checks: u64 = 0,
@@ -851,6 +855,9 @@ pub const Scene = struct {
     drift: i32 = 0,
     jumped: Jumped = .initEmpty(),
     pair_checks: u64 = 0,
+    /// The last walk's dogs, by number, in visit order (`Lines.walk`).
+    walk: [walk_most]u16 = undefined,
+    walk_len: usize = 0,
     /// The wishes' grid (`wish_cell`): each bucket's first awake critter,
     /// each one's next and previous in its bucket, and its bucket.
     wg_head: [wish_classes * wish_grid * wish_grid]u16 = @splat(wish_none),
@@ -900,6 +907,7 @@ pub const Scene = struct {
         s.lists = .none;
         s.drift = 0;
         s.jumped = .initEmpty();
+        s.walk_len = 0;
         s.pair_checks = 0;
         s.wg_head = @splat(wish_none);
         s.rooms = .none;
@@ -1244,11 +1252,16 @@ pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) vo
                 defer {
                     out.jumped = sc.jumped;
                     out.pair_checks = sc.pair_checks;
+                    out.walk = sc.walk;
+                    out.walk_len = sc.walk_len;
                 }
                 const drag_on = b.hold.leashed.drag == .on;
                 if (drag_on) bumped = playDrag(sc, drag);
                 if (bumped != null or begun.letting_go == .after_drag) b.hold.leashed.drag = .{ .ended = t };
-                wishes(sc, speed);
+                // **NO IDLE STEP** (Steve, 2026-10-14, to debug the walk):
+                // dogs move only in the drag's pixel-ticks. A dog a cow
+                // landed on still comes out from under.
+                outFromUnderAll(sc);
                 for (sc.list()) |s| {
                     const now = b.at(s.who);
                     if (now.x != s.start.x or now.y != s.start.y) out.push(.{ .critter = .{ .who = s.who, .before = s.start, .after = now } });
@@ -1383,6 +1396,14 @@ fn cowStep(sc: *Scene, i: usize, axis: Axis, way: i32, step: i32, dog_after: Poi
 /// overlaps no one: a sweep never presses into anyone, so a new overlap
 /// comes only from a jump, and `jumpTo` marks it. A critter found clear is
 /// marked so.
+/// Every awake unleashed dog out from under, in rank order.
+fn outFromUnderAll(sc: *Scene) void {
+    for (sc.awakeOnes()) |w16| {
+        const s = sc.seen[w16];
+        if (s.who.kind == .dog and s.rank != 0) outFromUnder(sc, w16);
+    }
+}
+
 fn outFromUnder(sc: *Scene, i: usize) void {
     const me = sc.seen[i];
     if (me.awake != .awake or me.rank == 0) return;
@@ -1460,6 +1481,7 @@ fn wishes(sc: *Scene, most: i32) void {
         outFromUnder(sc, w16);
     }
     const root = leashed orelse return;
+    sc.walk_len = 0;
     var waiting: Waiting = .{};
     var lined: std.StaticBitSet(critter_count) = .initEmpty();
     lined.set(root);
@@ -1467,6 +1489,8 @@ fn wishes(sc: *Scene, most: i32) void {
     var walked: usize = 0;
     while (walked < walk_most) : (walked += 1) {
         const i: usize = waiting.pop() orelse break;
+        sc.walk[sc.walk_len] = sc.seen[i].who.n;
+        sc.walk_len += 1;
         stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
         lineUp(sc, i, &waiting, &lined);
     }

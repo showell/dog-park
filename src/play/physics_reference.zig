@@ -527,7 +527,11 @@ pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) vo
         const drag_on = b.hold.leashed.drag == .on;
         if (drag_on) bumped = playDrag(sc, drag);
         if (bumped != null or begun.letting_go == .after_drag) b.hold.leashed.drag = .{ .ended = t };
-        wishes(sc, speed);
+        // No idle step: out from under only.
+        for (sc.awakeOnes()) |w16| {
+            const s = sc.seen[w16];
+            if (s.who.kind == .dog and s.rank != 0) outFromUnder(sc, w16);
+        }
         for (sc.list()) |s| {
             const now = b.at(s.who);
             if (now.x != s.start.x or now.y != s.start.y) out.push(.{ .critter = .{ .who = s.who, .before = s.start, .after = now } });

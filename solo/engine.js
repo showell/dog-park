@@ -136,6 +136,8 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   // Whether the page ticks: a rest or a release stops it; the human's input
   // starts it.
   let ticking = false;
+  // The last walk's visit numbers, by dog id (1 to the walk's size).
+  let visits = new Map();
   // Whether the pointer holds the leashed dog (a grab or leash until a
   // letgo or a bump).
   let holding = false;
@@ -332,6 +334,8 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     record.push({ kind: "tick", t, wallMs: wall(), drag: r.drag, checked: r.checked, flags: r.flags });
     cursor++;
     ticked(r.flags);
+    // The last walk's order, for the labels: kept until a tick walks again.
+    if (r.walk.length) visits = new Map(r.walk.map((id, k) => [id, k + 1]));
     // The tick's jumpers are drawn where they land, not slid there.
     wasDogs = without(wasDogs, r.jumped.dogs);
     wasCows = without(wasCows, r.jumped.cows);
@@ -800,6 +804,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
         was: { viewport: { ...wasViewport }, dogs: points(wasDogs), cows: points(wasCows) },
         status: { ...status },
         holding,
+        visits: new Map(visits),
       };
     },
 

@@ -298,7 +298,7 @@ export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), co
 // them by id), each drawn `between` there and here, the leashed dog too.
 // Across the seam, each thing is drawn at its copy nearest the viewport's
 // centre, and each tile's copy on screen.
-export function nearScene(viewportNow, dogs, cows, leashed, motion = still) {
+export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map()) {
   const { alpha, was } = motion;
   const viewport = { ...viewportNow, ...between(was.viewport, viewportNow, alpha) };
   const out = [];
@@ -313,12 +313,14 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still) {
   }
   const onScreen = (p) => viewportFromPark(viewport,
     nearest(p.parkX, viewport.parkX + viewport.width / 2), nearest(p.parkY, viewport.parkY + viewport.height / 2));
-  const sprite = (id, critter, drawn, emoji, size, role) => {
+  // A dog's label: its number, and its place in the last walk (1 to 30)
+  // when it had one. A cow has none.
+  const sprite = (id, critter, drawn, emoji, size, role, label = "none") => {
     const at = onScreen(drawn);
     out.push({ id, shape: "glyph", x: at.viewportX, y: at.viewportY, w: size, h: size,
       text: emoji, fill: "#000", role });
-    out.push({ id: `${id}:label`, shape: "text", x: at.viewportX, y: at.viewportY + size * 0.85, w: 0, h: 0,
-      text: `(${Math.round(critter.parkX)}, ${Math.round(critter.parkY)})`, font: "11px monospace", fill: "#555", role: "scenery" });
+    if (label !== "none") out.push({ id: `${id}:label`, shape: "text", x: at.viewportX, y: at.viewportY + size * 0.85, w: 0, h: 0,
+      text: label, font: "12px monospace", fill: "#333", role: "scenery" });
   };
   for (const c of cows) sprite(`cow:${c.id}`, c, between(was.cows.get(c.id), c, alpha), cow_emoji, cow_px, "scenery");
   for (const d of dogs) {
@@ -328,7 +330,8 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still) {
       out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: at.viewportX, y: at.viewportY, w: 2 * (dog_px * 0.7), h: 2 * (dog_px * 0.7),
         stroke: leashed.kind === "in_hand" ? "#2a2" : "#d33", lineWidth: 3, role: "scenery" });
     }
-    sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target");
+    const visit = visits.get(d.id);
+    sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target", visit === undefined ? `${d.id}` : `${d.id} #${visit}`);
   }
   return out;
 }

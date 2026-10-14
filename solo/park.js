@@ -148,7 +148,7 @@ async function start() {
     if (hand.kind === "dragging" && !v.holding) hand = resting;
     drawn = mode === "overview"
       ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed, overviewAt) }
-      : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }) };
+      : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }, v.visits) };
     const note = v.status.kind === "stopped" ? v.status.message : v.status.kind === "reloading" ? `reloading: ${v.status.why}` : "none";
     draw(ctx, note === "none" ? drawn.objects : [...drawn.objects, ...messageScene(v.viewport, note)]);
     requestAnimationFrame(frame);
