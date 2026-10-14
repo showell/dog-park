@@ -1122,19 +1122,30 @@ test "isqrt is the root rounded down, either side of every square up to 2^26 squ
     }
 }
 
-test "divTruncPos is @divTrunc, either side of 2^32 and over a seeded fuzz of the i64 range (202)" {
-    const big = [_]i64{ 1, 2, 3, 255, 256, (1 << 32) - 1, 1 << 32, (1 << 32) + 1, std.math.maxInt(i64) };
-    for (big) |b| for (big) |m| for ([_]i64{ -1, 0, 1 }) |off| {
-        const a = m - 1 + off;
-        try testing.expectEqual(@divTrunc(a, b), physics.divTruncPos(a, b));
-        try testing.expectEqual(@divTrunc(-a, b), physics.divTruncPos(-a, b));
+test "quotientAlong is @divTrunc(c * length, l) for |c| <= l: either side of 2^32, the i32 range's ends, and over a seeded fuzz (202)" {
+    const plain = struct {
+        fn f(c: i32, length: i32, l: i64) i32 {
+            return @intCast(@divTrunc(@as(i64, c) * length, l));
+        }
+    }.f;
+    const max = std.math.maxInt(i32);
+    const ls = [_]i64{ 1, 2, 3, 255, 256, 65535, 65536, 65537, max - 1, max, @as(i64, max) + 1, 1 << 32, (1 << 32) + 1, 3 << 31 };
+    const lengths = [_]i32{ 0, 1, -1, 2, 255, 256, 65535, 65536, 65537, -65537, max, -max, max - 1, -(max - 1) };
+    for (ls) |l| for (lengths) |length| {
+        const top: i32 = @intCast(@min(l, max));
+        for ([_]i32{ 0, 1, 2, top - 1, top, @divTrunc(top, 2), @divTrunc(top, 3) + 1 }) |c| {
+            if (c > top) continue;
+            try testing.expectEqual(plain(c, length, l), physics.quotientAlong(c, length, l));
+            try testing.expectEqual(plain(-c, length, l), physics.quotientAlong(-c, length, l));
+        }
     };
     var prng: std.Random.DefaultPrng = .init(2027);
     const r = prng.random();
     for (0..fuzzed(100_000)) |_| {
-        const b = r.intRangeAtMost(i64, 1, if (r.boolean()) 1 << 33 else std.math.maxInt(i64));
-        const a = r.intRangeAtMost(i64, -std.math.maxInt(i64), std.math.maxInt(i64)) >> r.int(u6);
-        try testing.expectEqual(@divTrunc(a, b), physics.divTruncPos(a, b));
+        const l = r.intRangeAtMost(i64, 1, if (r.boolean()) 1 << 17 else 1 << 33);
+        const c = r.intRangeAtMost(i32, -@as(i32, @intCast(@min(l, max))), @intCast(@min(l, max)));
+        const length = r.intRangeAtMost(i32, -max, max) >> r.int(u5);
+        try testing.expectEqual(plain(c, length, l), physics.quotientAlong(c, length, l));
     }
 }
 

@@ -257,21 +257,23 @@ pub inline fn isqrt(v: i64) i64 {
     return @intCast(r);
 }
 
-/// **`@divTrunc` BY A POSITIVE DIVISOR, IN 32 BITS WHEN IT FITS** (202):
-/// truncated toward zero is the magnitudes' quotient with `a`'s sign, and
-/// a wish's magnitudes are nearly always below 2³² (`wary` × `wary` is),
-/// where an unsigned 32-bit division is cheaper than a signed 64-bit one
-/// natively (the packed herd's drag about 8% faster). Not on wasm, where V8's
-/// 64-bit division measured as fast as the branches around a 32-bit one:
-/// there it is `@divTrunc` itself. Either way the same quotient.
-pub inline fn divTruncPos(a: i64, b: i64) i64 {
-    std.debug.assert(b > 0);
-    if (comptime @import("builtin").cpu.arch.isWasm()) return @divTrunc(a, b);
-    const m = @abs(a);
-    const d: u64 = @intCast(b);
+/// **A WISH'S AXIS: `@divTrunc(c × length, l)`, FOR |c| ≤ l** (202), where
+/// `l` > 0 is the `isqrt` length of the vector `c` is an axis of, so |c| ≤
+/// `l` (c² ≤ the squared length, and |c| is whole), and `length` >
+/// minInt(i32). Truncated toward zero, it is the magnitudes' quotient with
+/// the product's sign, at most |`length`| < 2³¹: so it is worked in
+/// unsigned magnitudes, and the narrowings ReleaseSafe would check cannot
+/// fail. The magnitudes are nearly always below 2³² (`wary` × `wary` is),
+/// where an unsigned 32-bit division is cheaper than a 64-bit one
+/// natively. Not on wasm, where V8's 64-bit division measured as fast as
+/// the branches around a 32-bit one: there it is `@divTrunc` itself.
+pub inline fn quotientAlong(c: i32, length: i32, l: i64) i32 {
+    if (comptime @import("builtin").cpu.arch.isWasm()) return @intCast(@divTrunc(@as(i64, c) * length, l));
+    const m: u64 = @as(u64, @abs(c)) * @abs(length);
+    const d: u64 = @bitCast(l);
     const q: u64 = if (m >> 32 == 0 and d >> 32 == 0) @as(u32, @truncate(m)) / @as(u32, @truncate(d)) else m / d;
-    const r: i64 = @intCast(q);
-    return if (a < 0) -r else r;
+    const r: i32 = @bitCast(@as(u32, @truncate(q)));
+    return if ((c < 0) != (length < 0)) -%r else r;
 }
 
 pub const Kind = enum(u8) { dog, cow };
@@ -1769,8 +1771,8 @@ pub fn wishAlong(v: Point, length: i32) Point {
 /// `wishAlong`, `l` being `v`'s `isqrt` length.
 inline fn wishAlongRooted(v: Point, l: i64, length: i32) Point {
     return .{
-        .x = @intCast(divTruncPos(@as(i64, v.x) * length, l)),
-        .y = @intCast(divTruncPos(@as(i64, v.y) * length, l)),
+        .x = quotientAlong(v.x, length, l),
+        .y = quotientAlong(v.y, length, l),
     };
 }
 
