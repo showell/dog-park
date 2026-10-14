@@ -1685,15 +1685,20 @@ pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
         if (j == i) continue;
         if (past_me_none_count and j > i) break;
         const q = sc.pos(j);
-        const d2 = len2(delta(q, p));
+        const v = delta(q, p);
+        const d2 = len2(v);
         switch (o.who.kind) {
             .cow => if (d2 <= @as(i64, cow_room) * cow_room) {
-                add(&total, away(q, p, cow_room - @as(i32, @intCast(isqrt(d2)))));
+                const l = isqrt(d2);
+                add(&total, awayRooted(v, l, cow_room - @as(i32, @intCast(l))));
             },
             .dog => {
                 if (o.rank >= me.rank) continue;
                 if (o.who.n % breeds != breed) {
-                    if (d2 <= @as(i64, wary) * wary) add(&total, away(q, p, wary - @as(i32, @intCast(isqrt(d2)))));
+                    if (d2 <= @as(i64, wary) * wary) {
+                        const l = isqrt(d2);
+                        add(&total, awayRooted(v, l, wary - @as(i32, @intCast(l))));
+                    }
                 } else if (d2 <= @as(i64, follow) * follow and (anchor == null or d2 < anchor_d2)) {
                     anchor = j;
                     anchor_d2 = d2;
