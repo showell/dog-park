@@ -25,14 +25,6 @@
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
-/// The squares and the cows' numbers as this physics had them, before the
-/// knobs moved to physics.zig.
-const cows = struct {
-    const dog_px = 40;
-    const cow_px = 60;
-    const scare_box_px = 280;
-    const clearance_px = dog_px / 2;
-};
 const jump = @import("physics_jump.zig");
 const physics = @import("physics.zig");
 
@@ -52,38 +44,28 @@ pub const world: i32 = px(tiles.world_px);
 /// A tile's side, in 256ths.
 pub const tile: i32 = px(tiles.tile_px);
 
-// The starting numbers (docs/PHYSICS.md), all to be tuned by playing.
-pub const dog_half: i32 = px(cows.dog_px / 2);
-pub const cow_half: i32 = px(cows.cow_px / 2);
-/// A dog's own step: 7.5 px a second, 16 ticks a second.
-pub const speed: i32 = 120;
-pub const dead_zone: i32 = px(1);
-pub const awake_reach: i32 = px(800);
-pub const wary: i32 = px(225);
-pub const follow: i32 = px(600);
-pub const band_inner: i32 = px(60);
-pub const band_outer: i32 = px(100);
-pub const cow_room: i32 = px(90);
-/// The region: the 3000 px square around the leashed dog.
-pub const region_reach: i32 = px(1500);
-/// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, every
-/// awake dog takes a step as long as the leashed dog's, at most (Steve,
-/// 2026-10-13: the leashed dog's motion speeds up time for the others).
-pub const step_most: i32 = px(1);
-/// A tick's drag moves the leashed dog at most 100 px on each axis.
-pub const cap: i32 = px(100);
-pub const most_displacements = 16;
-/// The most of the human's inputs at one tick.
-pub const most_humans = 16;
-/// The leash comes off 20 s after the drag ends.
-pub const let_go_ticks = 320;
-/// The most ticks a report runs past the last kept one.
-pub const most_ticks = 32;
-/// A cow's scare box and lane, as in cows.zig.
-pub const scare_box: i32 = px(cows.scare_box_px);
-pub const lane: i32 = px(cows.dog_px / 2 + cows.cow_px / 2 + cows.clearance_px);
-/// A jump's candidates come from squares within this gap, on both axes.
-pub const jump_reach: i32 = px(100);
+// The knobs: physics.zig's own (`-Dknobs` picks the tuning), so the
+// identity test proves the optimisation under every tuning.
+pub const dog_half = physics.dog_half;
+pub const cow_half = physics.cow_half;
+pub const speed = physics.speed;
+pub const dead_zone = physics.dead_zone;
+pub const awake_reach = physics.awake_reach;
+pub const wary = physics.wary;
+pub const follow = physics.follow;
+pub const band_inner = physics.band_inner;
+pub const band_outer = physics.band_outer;
+pub const cow_room = physics.cow_room;
+pub const region_reach = physics.region_reach;
+pub const step_most = physics.step_most;
+pub const cap = physics.cap;
+pub const most_displacements = physics.most_displacements;
+pub const most_humans = physics.most_humans;
+pub const let_go_ticks = physics.let_go_ticks;
+pub const most_ticks = physics.most_ticks;
+pub const scare_box = physics.scare_box;
+pub const lane = physics.lane;
+pub const jump_reach = physics.jump_reach;
 /// Breeds: dog n has look n mod 4.
 pub const breeds = 4;
 

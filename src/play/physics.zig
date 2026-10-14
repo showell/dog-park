@@ -59,6 +59,19 @@ pub const world: i32 = px(tiles.world_px);
 pub const tile: i32 = px(tiles.tile_px);
 
 // **THE KNOBS** (docs/PHYSICS.md), in Steve's units, all tuned by playing.
+// Each tuned knob is `tuned(played, alt)`: `played` is Steve's; `alt`
+// (zig build -Dknobs=alt, in the slow tier) moves it by about half, so a
+// test that pins a value rather than a property fails there.
+
+pub const Knobs = @TypeOf(@import("physics_options").knobs);
+pub const knobs: Knobs = @import("physics_options").knobs;
+
+fn tuned(comptime played: anytype, comptime alt: @TypeOf(played)) @TypeOf(played) {
+    return switch (knobs) {
+        .played => played,
+        .alt => alt,
+    };
+}
 
 /// The squares, in whole pixels, as the page draws them (park.js's dog_px
 /// and cow_px). Each critter is its square, centred on its point.
@@ -67,41 +80,66 @@ pub const cow_px = 60;
 pub const dog_half: i32 = px(dog_px / 2);
 pub const cow_half: i32 = px(cow_px / 2);
 /// A dog's own step: 7.5 px a second.
-pub const speed: i32 = perTick(px(15) / 2);
-pub const dead_zone: i32 = px(1);
-pub const awake_reach: i32 = px(800);
-pub const wary: i32 = px(225);
-pub const follow: i32 = px(600);
-pub const band_inner: i32 = px(60);
-pub const band_outer: i32 = px(100);
-pub const cow_room: i32 = px(90);
+pub const speed: i32 = perTick(tuned(px(15) / 2, px(45) / 4));
+pub const dead_zone: i32 = tuned(px(1), px(1) / 2);
+pub const awake_reach: i32 = tuned(px(800), px(1200));
+pub const wary: i32 = tuned(px(225), px(675) / 2);
+pub const follow: i32 = tuned(px(600), px(900));
+pub const band_inner: i32 = tuned(px(60), px(30));
+pub const band_outer: i32 = tuned(px(100), px(150));
+pub const cow_room: i32 = tuned(px(90), px(135));
 /// The region: the 3000 px square around the leashed dog.
 pub const region_reach: i32 = px(1500);
 /// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, every
 /// awake dog takes a step as long as the leashed dog's, at most (Steve,
 /// 2026-10-13: the leashed dog's motion speeds up time for the others).
-pub const step_most: i32 = px(1);
+pub const step_most: i32 = tuned(px(1), px(3) / 2);
 /// A tick's drag moves the leashed dog at most 100 px on each axis.
-pub const cap: i32 = px(100);
+pub const cap: i32 = tuned(px(100), px(50));
 pub const most_displacements = 16;
 /// The most of the human's inputs at one tick.
 pub const most_humans = 16;
 /// The leash comes off 20 s after the drag ends.
-pub const let_go_ticks = seconds(20);
+pub const let_go_ticks = tuned(seconds(20), seconds(10));
 /// The most ticks a report runs past the last kept one.
 pub const most_ticks = 32;
 /// How far a dog's move along an axis reaches: a cow at most this far ahead
 /// on that axis, and at most this far off it, is scared (`scoot`).
-pub const scare_box: i32 = px(280);
+pub const scare_box: i32 = tuned(px(280), px(420));
 /// The least gap a cow keeps between the dog's square and its own: half a
 /// dog.
-pub const clearance: i32 = px(dog_px / 2);
+pub const clearance: i32 = tuned(px(dog_px / 2), px(dog_px / 4));
 /// A cow's lane: a dog's half, a cow's half and the clearance.
 pub const lane: i32 = dog_half + cow_half + clearance;
 /// A jump's candidates come from squares within this gap, on both axes.
-pub const jump_reach: i32 = px(100);
+pub const jump_reach: i32 = tuned(px(100), px(150));
 /// Breeds: dog n has look n mod 4.
 pub const breeds = 4;
+
+/// **THE REGION'S SIZE, DERIVED** (docs/PHYSICS.md): the longest reach a
+/// tick has from the leashed dog's point, per axis, from the knobs above. A
+/// tuning past `region_reach` doesn't compile.
+pub const region_needs: i32 = blk: {
+    // A walking dog: awake within the sphere, its wish steps over the tick
+    // (at most the leashed dog's Manhattan move under the cap, plus one at
+    // the speed), its square, and a critter its square could press into.
+    const walk = awake_reach + 2 * cap + speed + dog_half + cow_half;
+    // A scared cow's point at the end of its step: past the scare box by
+    // half a step, or out to the lane, from a dog within the cap.
+    const scared = @max(scare_box + @divFloor(step_most, 2), lane) + cap;
+    // A cow's push: what it lands on lies under it, that critter's jump past
+    // a cow within the reach, its landing square, and what could overlap it.
+    const push = scared + 2 * cow_half + (jump_reach + 2 * px(cow_px)) + 2 * cow_half;
+    // A dog pushed so, then walking the rest of the drag.
+    const pushed_walk = scared + dog_half + cow_half + (jump_reach + px(dog_px) + px(cow_px)) + 2 * cap + speed + dog_half + cow_half;
+    break :blk @max(@max(walk, push), pushed_walk);
+};
+comptime {
+    // A cow's room reaches past touching, or cows press before they part.
+    if (cow_room <= dog_half + cow_half) @compileError("cow_room must exceed a dog's half and a cow's half");
+    if (region_needs > region_reach)
+        @compileError(std.fmt.comptimePrint("the region ({d}/256 px each way) is short of the {d}/256 px the knobs' reaches need", .{ region_reach, region_needs }));
+}
 
 pub const Tick = u64;
 

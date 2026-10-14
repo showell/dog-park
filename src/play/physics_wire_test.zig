@@ -61,7 +61,7 @@ test "the canonical numbers: d80.40 is 3456.25 px; 0.00; displacements +1.00, -2
 test "every kind of line round-trips: written, parsed, the same integers, written the same" {
     var drag: physics.Capped = .{};
     drag.list[0] = .{ .dx = -256, .dy = 0, .ms = 3 };
-    drag.list[1] = .{ .dx = 25600, .dy = -1, .ms = 0 };
+    drag.list[1] = .{ .dx = physics.cap, .dy = -1, .ms = 0 };
     drag.len = 2;
     const lines = [_]wire.Line{
         .{ .header = .{ .language = 1, .physics = 0x5e0c91a2, .epoch = .{ .ms = 1791935990000, .count = 3 }, .req = 4 } },

@@ -172,6 +172,8 @@ test "in the lane: with time to spare, no faster than the dog; at once when the 
     const from = px(16000, 16000);
     // Far ahead on the line: a little, away, no more than the dog's step.
     const far = along(from, .{ .axis = .x, .way = 1 }, physics.scare_box, 0);
+    // Time to spare: the lane's reach ahead is at most half the box.
+    try testing.expect(physics.scare_box >= 2 * physics.lane);
     const a = cowAfter(from, d(1, 0), far);
     try testing.expectEqual(far.x, a.x);
     try testing.expect(a.y > far.y and a.y - far.y <= physics.px(1));
@@ -670,10 +672,11 @@ test "the anchor is the nearest more-alpha dog of its breed; ties go to the leas
     b.place(.dog(4), px(b0 + 400, b0));
     var sc = physics.Scene.of(&b).?;
     // Dog 8 (index 2: dogs 4 then 8): anchors on the leashed dog, 200 px:
-    // 100 px too far, west.
-    try testing.expectEqual(Point{ .x = -physics.px(100), .y = 0 }, physics.wishTotal(&sc, 2));
+    // past the band's outer edge, west.
+    try testing.expect(physics.band_outer < physics.px(200));
+    try testing.expectEqual(Point{ .x = -(physics.px(200) - physics.band_outer), .y = 0 }, physics.wishTotal(&sc, 2));
     // Dog 4 sits 400 px from the leashed dog: its only anchor, toward it.
-    try testing.expectEqual(Point{ .x = -physics.px(300), .y = 0 }, physics.wishTotal(&sc, 1));
+    try testing.expectEqual(Point{ .x = -(physics.px(400) - physics.band_outer), .y = 0 }, physics.wishTotal(&sc, 1));
     // Dog 12 between dog 4 and dog 8, equally near both (100 px): dog 4.
     b.place(.dog(12), px(b0 + 300, b0 + 100));
     sc = physics.Scene.of(&b).?;
@@ -733,10 +736,9 @@ test "pixel-ticks: a dog of the leashed dog's breed keeps up with a long drag, w
     const start: Point = .{ .x = from.x + @divTrunc(physics.band_inner + physics.band_outer, 2), .y = from.y };
     const follower: u16 = physics.breeds;
     b.place(.dog(follower), start);
-    // A second of dragging west, 50 px a tick: farther than the follow
-    // distance.
-    const ticks = 16;
-    const per_tick = 50;
+    // Dragging west, half the cap a tick, a little past the follow distance.
+    const per_tick = @divExact(physics.cap, physics.px(2));
+    const ticks = @divTrunc(physics.follow, physics.px(per_tick)) + 4;
     try testing.expect(physics.px(ticks * per_tick) > physics.follow);
     var t: physics.Tick = 1;
     while (t <= ticks) : (t += 1) _ = ticked(&b, t, &.{}, &.{d(-per_tick, 0)});
@@ -755,21 +757,28 @@ test "merged and capped: past 16 displacements are added into the 16th; each axi
     for (&raw, 0..) |*r, i| r.* = .{ .dx = physics.px(10), .dy = 0, .ms = @intCast(i) };
     const c = physics.mergeAndCap(&raw);
     try testing.expectEqual(@as(usize, 16), c.len);
-    for (c.slice()[0..10]) |one| try testing.expectEqual(physics.px(10), one.dx);
-    for (c.slice()[10..]) |one| try testing.expectEqual(@as(i32, 0), one.dx);
+    // The cap in 10 px steps: those whole, the rest cut to nothing.
+    const whole: usize = @intCast(@divExact(physics.cap, physics.px(10)));
+    try testing.expect(whole < 16);
+    for (c.slice()[0..whole]) |one| try testing.expectEqual(physics.px(10), one.dx);
+    for (c.slice()[whole..]) |one| try testing.expectEqual(@as(i32, 0), one.dx);
     try testing.expectEqual(@as(u32, 19), c.list[15].ms);
     try testing.expect(physics.withinCap(c.slice()));
-    const cut = physics.mergeAndCap(&.{ d(60, 10), d(60, -10), d(5, 5) });
-    try testing.expectEqualSlices(physics.Disp, &.{ d(60, 10), d(40, -10), d(0, 5) }, cut.slice());
-    try testing.expect(!physics.withinCap(&.{ d(60, 0), d(41, 0) }));
-    try testing.expect(physics.withinCap(&.{ d(60, 0), d(-40, 0) }));
+    // Three fifths of the cap, then three fifths more: cut to two fifths.
+    const fifth = @divExact(physics.cap, physics.px(5));
+    const cut = physics.mergeAndCap(&.{ d(3 * fifth, 10), d(3 * fifth, -10), d(5, 5) });
+    try testing.expectEqualSlices(physics.Disp, &.{ d(3 * fifth, 10), d(2 * fifth, -10), d(0, 5) }, cut.slice());
+    try testing.expect(!physics.withinCap(&.{ d(3 * fifth, 0), d(2 * fifth + 1, 0) }));
+    try testing.expect(physics.withinCap(&.{ d(3 * fifth, 0), d(-2 * fifth, 0) }));
 }
 
 test "a tick's drag moves the leashed dog at most 100 px on each axis" {
     var b = leashedAt(px(16000, 16000));
-    const c = physics.mergeAndCap(&.{ d(90, -90), d(90, -90) });
+    // Nine tenths of the cap, twice, each way: the cap, each way.
+    const most = @divExact(physics.cap, physics.px(10)) * 9;
+    const c = physics.mergeAndCap(&.{ d(most, -most), d(most, -most) });
     _ = ticked(&b, 1, &.{}, c.slice());
-    try testing.expectEqual(px(16100, 15900), b.dogs[0]);
+    try testing.expectEqual(Point{ .x = physics.px(16000) + physics.cap, .y = physics.px(16000) - physics.cap }, b.dogs[0]);
 }
 
 test "at the world's edge the drag is clamped, and carries on" {

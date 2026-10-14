@@ -4,10 +4,16 @@ const std = @import("std");
 /// edit; `full` for the slow tier (`zig build slow`, or -Dfuzz=full).
 const Fuzz = enum { fast, full };
 
+/// The physics' tuning (physics.zig's `tuned`): `played`, Steve's, or `alt`,
+/// every tuned knob moved by about half, so a test that pins a value
+/// instead of a property fails.
+const Knobs = enum { played, alt };
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const fuzz = b.option(Fuzz, "fuzz", "the seeded fuzz loops' size: fast (a tenth, the default) or full") orelse .fast;
+    const knobs = b.option(Knobs, "knobs", "the physics' tuning: played (Steve's, the default) or alt (every knob moved by about half)") orelse .played;
 
     // webbox is two modules: `webbox`, portable, what the application's code
     // imports; and `webbox_linux`, the Linux host, for a Linux `main` only.
@@ -22,7 +28,8 @@ pub fn build(b: *std.Build) void {
     // files src/play/physics_sources.zon lists, read here at configure
     // time and handed to every module that compiles the physics.
     const physics_options = b.addOptions();
-    physics_options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play")));
+    physics_options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play"), knobs));
+    physics_options.addOption(Knobs, "knobs", knobs);
     const physics_mod = physics_options.createModule();
 
     const wasm32 = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
@@ -214,8 +221,8 @@ fn nodeTest(b: *std.Build, file: []const u8) *std.Build.Step {
 }
 
 /// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
-/// lists, in its order.
-fn physicsHash(b: *std.Build, dir: []const u8) u32 {
+/// lists, in its order; under a tuning other than `played`, its name too.
+fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs) u32 {
     const io = b.graph.io;
     const list_path = b.fmt("{s}/physics_sources.zon", .{dir});
     const list = std.Io.Dir.cwd().readFileAlloc(io, list_path, b.allocator, .limited(1 << 16)) catch |e|
@@ -228,5 +235,6 @@ fn physicsHash(b: *std.Build, dir: []const u8) u32 {
         crc.update(std.Io.Dir.cwd().readFileAlloc(io, path, b.allocator, .limited(1 << 22)) catch |e|
             std.process.fatal("the physics hash's source {s} does not read ({t})", .{ path, e }));
     }
+    if (knobs != .played) crc.update(@tagName(knobs));
     return crc.final();
 }
