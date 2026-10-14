@@ -7,4 +7,5 @@ test {
     _ = @import("physics_wire.zig");
     _ = @import("physics_judge.zig");
     _ = @import("physics_page.zig");
+    _ = @import("physics_symmetry_test.zig");
 }
