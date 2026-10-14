@@ -16,7 +16,7 @@
 //! which takes the short way round; every move wraps its result back into
 //! the world (`wrapped`).
 //!
-//! **A tick** (decisions 20-23): only while the leashed dog is dragged does
+//! **A tick** (decisions 20-24): only while the leashed dog is dragged does
 //! anything move. The drag is cut into pixel-ticks; in each, the leashed
 //! dog takes the step (stopping just short of pressing into anyone), then
 //! the walk moves up to `walk_most` critters, dogs and cows, one at a time,
@@ -74,11 +74,6 @@ pub const band_inner: i32 = px(60);
 pub const band_outer: i32 = px(100);
 /// A dog keeps this from a moving cow.
 pub const cow_room: i32 = px(90);
-/// A cow follows the nearest moving cow within this, keeping it in its
-/// own band (no breeds).
-pub const cow_follow: i32 = px(120);
-pub const cow_band_inner: i32 = px(70);
-pub const cow_band_outer: i32 = px(90);
 /// The region: the 3000 px square around the leashed dog; every critter in
 /// the tiles it meets is seen (and awake).
 pub const region_reach: i32 = px(1500);
@@ -877,15 +872,15 @@ fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, visited: *const std.
     for (near_key[0..n], near_who[0..n]) |d, j| waiting.offer(d, j);
 }
 
-/// **WHAT A CRITTER WANTS** (decisions 21-23), from the critters in motion
+/// **WHAT A CRITTER WANTS** (decisions 21-24), from the critters in motion
 /// only, where they now stand:
-/// - a cow: room `wary` from every moving dog, and its place against its
-///   anchor, the nearest moving cow within `cow_follow` (ties to the lower
-///   rank), in the cows' band;
+/// - a cow: from the nearest moving critter alone (ties to the lower rank):
+///   a cow, it closes in to touching; a dog, it keeps `wary` from it;
 /// - a dog: room `cow_room` from every moving cow, `wary` from every
 ///   moving dog of another breed, and its place in the herd against its
 ///   anchor, the nearest moving dog of its breed (ties to the lower rank).
 pub fn wishOf(sc: *const Scene, i: usize) Point {
+    if (sc.seen[i].who.kind == .cow) return cowWish(sc, i);
     const me = sc.seen[i].who;
     const p = sc.pos(i);
     var total: Point = .{ .x = 0, .y = 0 };
@@ -896,43 +891,53 @@ pub fn wishOf(sc: *const Scene, i: usize) Point {
         if (j == i) continue;
         const o = sc.seen[j].who;
         const q = sc.pos(j);
-        const kin = switch (me.kind) {
-            .cow => switch (o.kind) {
-                .dog => blk: {
-                    addRoom(&total, q, p, wary);
-                    break :blk false;
-                },
-                .cow => measure(delta(q, p)) <= cow_follow,
+        switch (o.kind) {
+            .cow => addRoom(&total, q, p, cow_room),
+            .dog => if (o.n % breeds != me.n % breeds) {
+                addRoom(&total, q, p, wary);
+            } else {
+                const d = measure(delta(q, p));
+                if (anchor == null or d < anchor_d or (d == anchor_d and j < anchor.?)) {
+                    anchor = j;
+                    anchor_d = d;
+                }
             },
-            .dog => switch (o.kind) {
-                .cow => blk: {
-                    addRoom(&total, q, p, cow_room);
-                    break :blk false;
-                },
-                .dog => if (o.n % breeds != me.n % breeds) blk: {
-                    addRoom(&total, q, p, wary);
-                    break :blk false;
-                } else true,
-            },
-        };
-        if (!kin) continue;
-        const d = measure(delta(q, p));
-        if (anchor == null or d < anchor_d or (d == anchor_d and j < anchor.?)) {
-            anchor = j;
-            anchor_d = d;
         }
     }
     if (anchor) |j| {
-        const inner, const outer = switch (me.kind) {
-            .dog => .{ band_inner, band_outer },
-            .cow => .{ cow_band_inner, cow_band_outer },
-        };
         const q = sc.pos(j);
-        if (anchor_d > outer) {
-            add(&total, wishAlong(delta(p, q), @as(i32, @intCast(anchor_d)) - outer));
-        } else if (anchor_d < inner) {
-            add(&total, away(q, p, inner - @as(i32, @intCast(anchor_d))));
+        if (anchor_d > band_outer) {
+            add(&total, wishAlong(delta(p, q), @as(i32, @intCast(anchor_d)) - band_outer));
+        } else if (anchor_d < band_inner) {
+            add(&total, away(q, p, band_inner - @as(i32, @intCast(anchor_d))));
         }
+    }
+    return total;
+}
+
+/// A cow's wish (decision 24): the nearest moving critter decides it. A
+/// cow, it closes the gap to touching; a dog, room `wary` from it.
+fn cowWish(sc: *const Scene, i: usize) Point {
+    const p = sc.pos(i);
+    var nearest: ?usize = null;
+    var nearest_d: i64 = 0;
+    for (sc.moving[0..sc.moving_len]) |j16| {
+        const j: usize = j16;
+        if (j == i) continue;
+        const d = measure(delta(sc.pos(j), p));
+        if (nearest == null or d < nearest_d or (d == nearest_d and j < nearest.?)) {
+            nearest = j;
+            nearest_d = d;
+        }
+    }
+    var total: Point = .{ .x = 0, .y = 0 };
+    const j = nearest orelse return total;
+    const q = sc.pos(j);
+    switch (sc.seen[j].who.kind) {
+        .dog => addRoom(&total, q, p, wary),
+        .cow => if (nearest_d > 2 * cow_half) {
+            total = wishAlong(delta(p, q), @as(i32, @intCast(nearest_d)) - 2 * cow_half);
+        },
     }
     return total;
 }

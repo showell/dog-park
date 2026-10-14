@@ -615,18 +615,20 @@ test "the edge (decision 23): a walked critter never steps within cow_half of th
     try testing.expectEqual(px(17964, 16250), b.dogs[5]);
 }
 
-test "a cow follows the nearest moving cow within cow_follow, into the cows' band; one farther off stays (decision 23)" {
+test "a cow heeds only its nearest moving critter: a cow, it closes in; a dog, it flees (decision 24)" {
     // The leashed dog, dragged west, scares cow 0 (200 px off) west. Cow 1,
-    // 100 px west of cow 0 and out of the dog's reach, follows it: east, at
-    // half a dog's step. Cow 2 is 125 px from both: out of cow_follow.
+    // 100 px west of cow 0 and 300 from the dog, has cow 0 nearest: it
+    // closes in, east, at half a dog's step. Cow 2 is inside the dog's
+    // `wary` (199 px) but cow 0 and cow 1 are nearer (125 each, a tie the
+    // lower rank wins): it ignores the dog and closes in on cow 0, north.
     const at = px(16250, 16250);
     var b = leashedAt(at);
     b.place(.cow(0), px(16050, 16250));
     b.place(.cow(1), px(15950, 16250));
-    b.place(.cow(2), px(15925, 16375));
-    const lines = ticked(&b, 1, &.{}, &.{d(-1, 0)});
-    try testing.expectEqualSlices(u16, &.{ physics.dog_count, physics.dog_count + 1, physics.dog_count + 2 }, lines.walk[0..lines.walk_len]);
+    b.place(.cow(2), px(16050, 16375));
+    _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
     try testing.expectEqual(physics.px(16050) - 128, b.cows[0].x);
     try testing.expectEqual(physics.px(15950) + 128, b.cows[1].x);
-    try testing.expectEqual(px(15925, 16375), b.cows[2]);
+    try testing.expectEqual(px(16050, 16375 - 1).x, b.cows[2].x);
+    try testing.expectEqual(physics.px(16375) - 128, b.cows[2].y);
 }

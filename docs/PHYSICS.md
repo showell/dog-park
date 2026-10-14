@@ -77,10 +77,10 @@ stand.
   leads its breed). Past the band's outer edge (100 px) it wants to close
   the excess; inside the inner edge (60 px) to open the shortfall; in the
   band it is content.
-- **A cow** keeps `wary` from each moving dog, of any breed, and follows
-  the nearest moving cow within `cow_follow` (120 px), no breeds, in its
-  own band (70 to 90 px), the way a dog follows its anchor. A cow with no
-  moving cow that near follows no one (decision 23).
+- **A cow** heeds only its **nearest** moving critter (ties to the lower
+  rank), at any distance: a cow, it closes the gap to touching; a dog, it
+  keeps `wary` from it (decision 24). Cows are, in effect, a slower breed
+  that follows its nearest kin instead of the leashed dog.
 
 Each wish is a step straight away from (or toward) the other, as long as
 the shortfall (or the excess); they add up. The step is the total, cut to
@@ -105,7 +105,7 @@ Tuned by playing; each is a constant in `physics.zig`.
 | wary | 225 px |
 | herd band | 60 to 100 px |
 | a dog's room from a cow | 90 px |
-| a cow follows a cow | within 120 px, band 70 to 90 px |
+| a cow closes on its nearest moving cow | to touching, no reach |
 | the edge | no step within 30 px of the seen tiles' edge |
 | dead zone | 1 px |
 | the region | `region_reach`, 1500 px each way |
@@ -259,6 +259,22 @@ from 1040 wall 1791936000000
 held 1041 30,32 31,32 32,32 33,32 34,32 35,32 36,32 30,33 31,33 32,33 33,33 34,33 35,33 36,33 30,34 31,34 32,34 33,34 34,34 35,34 36,34 30,35 31,35 36,35 30,36 31,36 36,36 30,37 31,37 32,37 33,37 34,37 35,37 36,37 30,38 31,38 32,38 33,38 34,38 35,38 36,38
 t 1041 +0 drag -1.00,0@3 -2.00,0@19
  dog 219 423c.00,463c.00 > 4239.00,463c.00
+ cow 26 3b92.00,3f7a.00 > 3b93.80,3f7b.80
+ cow 27 3f7a.00,3f7a.00 > 3f78.83,3f7b.80
+ cow 28 4362.00,3f7a.00 > 4360.80,3f7b.7d
+ cow 29 474a.00,3f7a.00 > 4748.80,3f7b.7d
+ cow 32 3d86.00,416e.00 > 3d87.80,416f.80
+ cow 33 416e.00,416e.00 > 416c.80,416c.83
+ cow 34 4556.00,416e.00 > 4554.80,416c.83
+ cow 36 3b92.00,4362.00 > 3b93.80,4360.83
+ cow 37 3f7a.00,4362.00 > 3f7b.80,4363.80
+ cow 38 4362.00,4362.00 > 4360.80,4363.80
+ cow 39 474a.00,4362.00 > 4748.80,4360.83
+ cow 42 3d86.00,4556.00 > 3d84.83,4554.80
+ cow 44 4556.00,4556.00 > 4554.80,4557.80
+ cow 46 3b92.00,474a.00 > 3b93.7d,4748.80
+ cow 47 3f7a.00,474a.00 > 3f7b.80,4748.80
+ cow 49 474a.00,474a.00 > 4748.80,4748.83
  dog 223 42d2.00,463c.00 > 42cf.00,463c.00
 letgo 1042
 t 1042 +63
@@ -575,8 +591,9 @@ snapshots alone are enough to start from.
    critters in motion** (decision 21), and **cows walk with the dogs**
    (decision 22, 2026-10-14): no scoot, no pushing, no jumps; every step
    is vetoed whole if it would overlap. Rank only breaks ties.
-9. **Cows follow cows, and the edge is vetoed** (decision 23,
-   2026-10-14): a cow anchors on the nearest moving cow within 120 px;
-   no step comes within 30 px of the seen tiles' edge.
+9. **The edge is vetoed** (decision 23, 2026-10-14): no step comes
+   within 30 px of the seen tiles' edge.
+10. **A cow heeds its nearest moving critter** (decision 24, 2026-10-14):
+   a cow, it closes in; a dog, it flees.
 
 The history behind each is in git.
