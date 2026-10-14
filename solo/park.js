@@ -58,21 +58,12 @@ async function loadPhysics() {
   return physics;
 }
 
-// Where the viewport was, per browser: a convenience, so a reload shows the
-// same place (a leashed dog wins).
-const viewport_key = "dogpark.viewport";
-
-function rememberedViewport() {
-  try {
-    const at = JSON.parse(localStorage.getItem(viewport_key));
-    if (at && Number.isFinite(at.parkX) && Number.isFinite(at.parkY)) return at;
-  } catch { /* none kept, or no storage */ }
-  return "none";
-}
-
-function rememberViewport(v) {
-  try { localStorage.setItem(viewport_key, JSON.stringify({ parkX: Math.round(v.parkX), parkY: Math.round(v.parkY) })); } catch { /* no storage */ }
-}
+// **NO REMEMBERED VIEWPORT**: every load starts the park afresh (decision
+// 16), its dogs back where they were laid out, so a view kept from the last
+// visit can only show where they no longer are: empty land (Steve,
+// 2026-10-14: "9103 has no critters"). A load opens on the park's middle.
+// What an older page kept is cleared.
+try { localStorage.removeItem("dogpark.viewport"); } catch { /* no storage */ }
 
 // ── the page ────────────────────────────────────────────────────────────────
 
@@ -109,7 +100,7 @@ async function start() {
     canvas.height = Math.floor(height * ratio);
     return { width, height };
   }
-  await engine.load(fit, rememberedViewport());
+  await engine.load(fit);
 
   // The page does what an event means, in order: the mode and the
   // overview's window are the page's, the rest the engine's.
@@ -151,7 +142,6 @@ async function start() {
   // Each frame: the ticks due run (the edge bands, near, among them), then
   // the scene drawn, near between the last two ticks. A bump lets go of the
   // pointer: the hand rests until the next press.
-  let remembered = 0;
   const frame = (nowMs) => {
     engine.frame(nowMs, mode === "near" ? panPointer(hand) : "none");
     const v = engine.view();
@@ -161,10 +151,6 @@ async function start() {
       : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }) };
     const note = v.status.kind === "stopped" ? v.status.message : v.status.kind === "reloading" ? `reloading: ${v.status.why}` : "none";
     draw(ctx, note === "none" ? drawn.objects : [...drawn.objects, ...messageScene(v.viewport, note)]);
-    if (nowMs - remembered > 1000) {
-      remembered = nowMs;
-      rememberViewport(v.viewport);
-    }
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

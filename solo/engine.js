@@ -30,8 +30,9 @@
 //                 physics: `budget_bytes`, unless a test wants less
 //
 //   engine.load(measure, at)  POST /load; `measure()` -> { width, height };
-//                         `at` a remembered viewport top-left { parkX,
-//                         parkY }, or "none" (the world's centre); a
+//                         `at` a viewport top-left { parkX, parkY } to
+//                         open on (tests), or "none" (the world's
+//                         centre, the park's middle); a
 //                         leashed dog is put in the middle of the screen
 //   engine.resize({ width, height })
 //   engine.intent(i)      a pointer intent (pointer.js): grab, drag, letgo, pan
@@ -689,8 +690,8 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     status = { kind: "playing" };
     rewind();
     refresh(true);
-    // The viewport: on the leashed dog, else where it was, else the world's
-    // centre (the populated park's middle).
+    // The viewport: on the leashed dog, else `at`, else the world's centre
+    // (the populated park's middle).
     const leashedDog = physics.leashed(LIVE);
     if (leashedDog !== "none") {
       const d = dogs.get(leashedDog);
