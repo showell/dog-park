@@ -162,7 +162,7 @@ pub const Point = extern struct { x: i32, y: i32 };
 /// **THE ONE DIFFERENCE**: from `a` to `b`, per axis, the short way round
 /// the torus: each axis in [−world/2, world/2) (decision 14). Every
 /// centre-to-centre difference in the physics goes through here.
-pub fn delta(a: Point, b: Point) Point {
+pub inline fn delta(a: Point, b: Point) Point {
     return .{ .x = shortWay(b.x - a.x), .y = shortWay(b.y - a.y) };
 }
 
