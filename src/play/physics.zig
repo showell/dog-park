@@ -1755,7 +1755,7 @@ fn away(from: Point, p: Point, length: i32) Point {
 
 /// `away`, `v` from the other's centre to the critter's and `l` its
 /// `isqrt` length, already taken.
-fn awayRooted(v: Point, l: i64, length: i32) Point {
+inline fn awayRooted(v: Point, l: i64, length: i32) Point {
     if (v.x == 0 and v.y == 0) return .{ .x = length, .y = 0 };
     return wishAlongRooted(v, l, length);
 }
@@ -1767,7 +1767,7 @@ pub fn wishAlong(v: Point, length: i32) Point {
 }
 
 /// `wishAlong`, `l` being `v`'s `isqrt` length.
-fn wishAlongRooted(v: Point, l: i64, length: i32) Point {
+inline fn wishAlongRooted(v: Point, l: i64, length: i32) Point {
     return .{
         .x = @intCast(divTruncPos(@as(i64, v.x) * length, l)),
         .y = @intCast(divTruncPos(@as(i64, v.y) * length, l)),
