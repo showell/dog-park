@@ -1518,9 +1518,7 @@ fn stepSwept(sc: *Scene, i: usize, want: Point) void {
     // Each scanned critter a pair check, counted here for the scan.
     sc.pair_checks += if (near_list) |list| list.len else sc.len - 1;
     if (near_list) |list| {
-        for (list) |j| if (stepMeets(sc, i, j, s, may_overlap)) |c| {
-            first = earliest(first, c);
-        };
+        first = stepMeetsListed(sc, i, s, may_overlap, list);
     } else {
         for (0..sc.len) |j| if (j != i) {
             if (stepMeets(sc, i, j, s, may_overlap)) |c| first = earliest(first, c);
@@ -1549,7 +1547,7 @@ fn stepAway(sc: *Scene, i: usize, j: usize, s: Point) Point {
 /// Seen critter `j` against `i`'s step `s`; one beyond the two halves plus
 /// the step's part on some axis is never met, and is passed over before
 /// the fractions.
-inline fn stepMeets(sc: *const Scene, i: usize, j: usize, s: Point, may_overlap: bool) ?Contact {
+pub inline fn stepMeets(sc: *const Scene, i: usize, j: usize, s: Point, may_overlap: bool) ?Contact {
     const p = sc.pos(i);
     const q = sc.pos(j);
     const hs = sc.seen[i].half + sc.seen[j].half;
@@ -1557,6 +1555,56 @@ inline fn stepMeets(sc: *const Scene, i: usize, j: usize, s: Point, may_overlap:
     if (mag(d.x) >= hs + mag(s.x) or mag(d.y) >= hs + mag(s.y)) return null;
     if (may_overlap and squaresOverlap(p, sc.seen[i].half, q, sc.seen[j].half)) return null;
     return stepContact(p, sc.seen[i].half, s, q, sc.seen[j].half);
+}
+
+/// **THE STEP'S SCAN OF ITS NEIGHBOURS** (202): `stepMeets` over `list`,
+/// in order, the earliest contact. Where every point is in the world, the
+/// first test, the one nearly every neighbour fails (beyond the two halves
+/// plus the step's part on some axis), runs `room_lanes` neighbours at a
+/// time in i32 vectors (the short way by one select each side, as
+/// `addRoomsListed`); a neighbour that passes it takes `stepMeets` itself,
+/// in the list's order.
+pub fn stepMeetsListed(sc: *const Scene, i: usize, s: Point, may_overlap: bool, list: []const u16) ?Contact {
+    var first: ?Contact = null;
+    var rest = list;
+    const p = sc.pos(i);
+    // A short list is cheaper one by one: gathering a chunk costs about
+    // what its tests save.
+    if (room_lanes > 1 and list.len >= 2 * room_lanes and sc.in_world and inWorld(p)) {
+        const N = room_lanes;
+        const VI = @Vector(N, i32);
+        const at_x: VI = @splat(p.x);
+        const at_y: VI = @splat(p.y);
+        const w: VI = @splat(world);
+        const hw: VI = @splat(half_world);
+        const reach_x: VI = @splat(sc.seen[i].half + mag(s.x));
+        const reach_y: VI = @splat(sc.seen[i].half + mag(s.y));
+        while (rest.len >= N) : (rest = rest[N..]) {
+            var qx: [N]i32 = undefined;
+            var qy: [N]i32 = undefined;
+            var qh: [N]i32 = undefined;
+            inline for (0..N) |k| {
+                const q = sc.pos(rest[k]);
+                qx[k] = q.x;
+                qy[k] = q.y;
+                qh[k] = sc.seen[rest[k]].half;
+            }
+            var dx: VI = @as(VI, qx) - at_x;
+            var dy: VI = @as(VI, qy) - at_y;
+            dx = @select(i32, dx >= hw, dx - w, @select(i32, dx < -hw, dx + w, dx));
+            dy = @select(i32, dy >= hw, dy - w, @select(i32, dy < -hw, dy + w, dy));
+            const h: VI = qh;
+            const close = @select(bool, @abs(dx) < @as(@Vector(N, u32), @bitCast(reach_x + h)), @abs(dy) < @as(@Vector(N, u32), @bitCast(reach_y + h)), @as(@Vector(N, bool), @splat(false)));
+            if (!@reduce(.Or, close)) continue;
+            inline for (0..N) |k| if (close[k]) {
+                if (stepMeets(sc, i, rest[k], s, may_overlap)) |c| first = earliest(first, c);
+            };
+        }
+    }
+    for (rest) |j| if (stepMeets(sc, i, j, s, may_overlap)) |c| {
+        first = earliest(first, c);
+    };
+    return first;
 }
 
 /// The earlier of the earliest so far (if any) and `y`; at the same moment,

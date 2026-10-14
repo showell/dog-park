@@ -1218,6 +1218,46 @@ test "holdsPoint is holds(tileOf(p)): spans that wrap, cover the world or more, 
     }
 }
 
+test "stepMeetsListed is stepMeets over the list, one by one: neighbours on the first test's edge either side, mid-world and across the seam (202)" {
+    var prng: std.Random.DefaultPrng = .init(2030);
+    const r = prng.random();
+    var met: usize = 0;
+    for (0..fuzzed(400)) |round| {
+        const c0: i32 = if (round % 2 == 0) physics.px(16000) else 0;
+        var b = leashedAt(physics.wrapped(.{ .x = c0, .y = c0 }));
+        const s: physics.Point = .{ .x = r.intRangeAtMost(i32, -physics.px(3), physics.px(3)), .y = r.intRangeAtMost(i32, -physics.px(3), physics.px(3)) };
+        const n = r.intRangeAtMost(u16, 1, 40);
+        for (1..n + 1) |k| {
+            const half = physics.dog_half;
+            // On the edge of the first test (the two halves plus the
+            // step's part), a 256th either side, or anywhere near.
+            const edge_x = 2 * half + physics.mag(s.x) + r.intRangeAtMost(i32, -1, 1);
+            const edge_y = 2 * half + physics.mag(s.y) + r.intRangeAtMost(i32, -1, 1);
+            const dx = if (r.boolean()) (if (r.boolean()) edge_x else -edge_x) else r.intRangeAtMost(i32, -3 * half, 3 * half);
+            const dy = if (r.boolean()) (if (r.boolean()) edge_y else -edge_y) else r.intRangeAtMost(i32, -3 * half, 3 * half);
+            b.place(.dog(@intCast(k)), physics.wrapped(.{ .x = c0 + dx, .y = c0 + dy }));
+        }
+        var sc = physics.Scene.of(&b).?;
+        try testing.expect(sc.in_world);
+        var list: [64]u16 = undefined;
+        var len: usize = 0;
+        for (1..sc.len) |j| {
+            list[len] = @intCast(j);
+            len += 1;
+        }
+        for ([_]bool{ false, true }) |may_overlap| {
+            var want: ?physics.Contact = null;
+            for (list[0..len]) |j| if (physics.stepMeets(&sc, 0, j, s, may_overlap)) |c| {
+                want = if (want) |w| (if (c.num * w.den < w.num * c.den) c else if (w.num * c.den < c.num * w.den) w else .{ .num = w.num, .den = w.den, .face = if (w.face == c.face) w.face else .both }) else c;
+            };
+            const got = physics.stepMeetsListed(&sc, 0, s, may_overlap, list[0..len]);
+            try testing.expectEqual(want, got);
+            if (want != null) met += 1;
+        }
+    }
+    try testing.expect(met > fuzzed(400) / 4);
+}
+
 test "the room lists give the wishes the scan gives, while they serve and after (202): crowds past wish_scan_most, the lists built, then the critters drifting a little and a lot" {
     var prng: std.Random.DefaultPrng = .init(2023);
     const r = prng.random();
