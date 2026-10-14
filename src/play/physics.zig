@@ -809,6 +809,11 @@ pub const Scene = struct {
     /// the tick's inner loops read one array.
     at: [critter_count]Point = undefined,
     len: usize = 0,
+    /// Whether every one of `at` is in the world, [0, `world`) on each
+    /// axis: a board's are when they came from the wire or a move (`put`
+    /// wraps), but a board can be placed anywhere. The room lists' vectors
+    /// need it (`addRoomsListed`).
+    in_world: bool = true,
     /// The awake ones' places in `seen`, in rank order: what the wishes read.
     awake: [critter_count]u16 = undefined,
     awake_len: usize = 0,
@@ -881,6 +886,7 @@ pub const Scene = struct {
     fn add(s: *Scene, c: Critter, awake: Seen.Awake) void {
         s.seen[s.len] = .{ .who = c, .rank = rank(s.leashed, c), .half = c.half(), .awake = awake, .start = s.board.at(c) };
         s.at[s.len] = s.board.at(c);
+        s.in_world = s.in_world and inWorld(s.at[s.len]);
         s.overlap[s.len] = .maybe;
         if (awake == .awake) {
             s.awake[s.awake_len] = @intCast(s.len);
@@ -1651,11 +1657,79 @@ fn addRoom(sc: *const Scene, total: *Point, i: usize, p: Point, class: u16, reac
     }
 }
 
+fn inWorld(p: Point) bool {
+    return p.x >= 0 and p.x < world and p.y >= 0 and p.y < world;
+}
+
+/// The lanes `addRoomsListed` works in: f64 vectors of the target's width
+/// (`std.simd.suggestVectorLength`), or none (the scalar loop alone) where
+/// the target has no vectors, as wasm32 without simd128.
+const room_lanes: comptime_int = std.simd.suggestVectorLength(f64) orelse 1;
+
 /// Adds, for each critter of `list` within `reach` of `p`, a push away as
 /// long as the shortfall.
+///
+/// **IN f64 VECTORS, EXACTLY** (202), `room_lanes` critters at a time,
+/// when every point is in the world (`Scene.in_world`), else one by one
+/// in integers. The vectors give the same pushes, term for term:
+/// - two points in the world are less than a world apart on each axis, so
+///   the short way is one add or subtract of the world, in i32;
+/// - the axes (|v| ≤ `half_world` < 2²³) convert to f64 exactly, and their
+///   squares and sum (< 2⁴⁷) are exact;
+/// - below 2⁵² a double's square root, truncated, is `isqrt` (as there);
+/// - the shortfall `reach` − l and each axis times it (< 2⁴⁶) are exact;
+/// - a quotient of integers below 2⁵³, rounded once, truncates to the
+///   integer one: if whole it is exact, and otherwise the true quotient is
+///   at least 1/l from an integer while the rounding moves it at most its
+///   size × 2⁻⁵³ < 1/l;
+/// - coincident centres push east, as `awayRooted`.
+/// The sum is of integers, so its order is free.
 fn addRoomsListed(sc: *const Scene, total: *Point, p: Point, list: []const u16, reach: i32) void {
+    var rest = list;
+    if (room_lanes > 1 and sc.in_world and inWorld(p)) {
+        const N = room_lanes;
+        const VI = @Vector(N, i32);
+        const VF = @Vector(N, f64);
+        const at_x: VI = @splat(p.x);
+        const at_y: VI = @splat(p.y);
+        const w: VI = @splat(world);
+        const hw: VI = @splat(half_world);
+        const zero: VI = @splat(0);
+        const reach_v: VI = @splat(reach);
+        const reach2: VF = @splat(@as(f64, @floatFromInt(@as(i64, reach) * reach)));
+        var sum_x: VI = zero;
+        var sum_y: VI = zero;
+        while (rest.len >= N) : (rest = rest[N..]) {
+            var qx: [N]i32 = undefined;
+            var qy: [N]i32 = undefined;
+            inline for (0..N) |k| {
+                const q = sc.pos(rest[k]);
+                qx[k] = q.x;
+                qy[k] = q.y;
+            }
+            var vx: VI = at_x - @as(VI, qx);
+            var vy: VI = at_y - @as(VI, qy);
+            vx = @select(i32, vx >= hw, vx - w, @select(i32, vx < -hw, vx + w, vx));
+            vy = @select(i32, vy >= hw, vy - w, @select(i32, vy < -hw, vy + w, vy));
+            const fx: VF = @floatFromInt(vx);
+            const fy: VF = @floatFromInt(vy);
+            const d2 = fx * fx + fy * fy;
+            const near = d2 <= reach2;
+            const l: VI = @intFromFloat(@sqrt(d2));
+            const short: VF = @floatFromInt(reach_v - l);
+            const lf: VF = @floatFromInt(@max(l, @as(VI, @splat(1))));
+            const ax: VI = @intFromFloat(fx * short / lf);
+            const ay: VI = @intFromFloat(fy * short / lf);
+            const same_spot = l == zero;
+            const wx = @select(i32, same_spot, reach_v, ax);
+            const wy = @select(i32, same_spot, zero, ay);
+            sum_x += @select(i32, near, wx, zero);
+            sum_y += @select(i32, near, wy, zero);
+        }
+        add(total, .{ .x = @reduce(.Add, sum_x), .y = @reduce(.Add, sum_y) });
+    }
     const reach2 = @as(i64, reach) * reach;
-    for (list) |j| {
+    for (rest) |j| {
         const v = delta(sc.pos(j), p);
         const d2 = len2(v);
         if (d2 > reach2) continue;

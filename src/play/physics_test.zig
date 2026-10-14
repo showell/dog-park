@@ -1222,14 +1222,24 @@ test "the room lists give the wishes the scan gives, while they serve and after 
     var prng: std.Random.DefaultPrng = .init(2023);
     const r = prng.random();
     var listed: usize = 0;
-    for (0..fuzzed(60)) |_| {
-        const c0 = 16000;
+    for (0..fuzzed(60)) |round| {
+        // Mid-world; at the seam's corner, placed in the world (the room
+        // lists' vectors across the seam); at the corner unwrapped (a board
+        // placed out of the world: the scalar loop).
+        const where = round % 3;
+        const c0: i32 = if (where == 0) 16000 else 0;
         const step = r.intRangeAtMost(i32, 20, 90);
         var b = leashedAt(px(c0, c0));
         const n = r.intRangeAtMost(u16, physics.wish_scan_most + 2, physics.dog_count - 1);
-        for (1..n) |i| b.place(.dog(@intCast(i)), px(c0 + step * r.intRangeAtMost(i32, -8, 8), c0 + step * r.intRangeAtMost(i32, -8, 8)));
-        for (0..r.uintLessThan(usize, physics.cow_count)) |i| b.place(.cow(@intCast(i)), px(c0 + r.intRangeAtMost(i32, -500, 500), c0 + r.intRangeAtMost(i32, -500, 500)));
+        const placed = struct {
+            fn f(w: usize, p: physics.Point) physics.Point {
+                return if (w == 2) p else physics.wrapped(p);
+            }
+        }.f;
+        for (1..n) |i| b.place(.dog(@intCast(i)), placed(where, px(c0 + step * r.intRangeAtMost(i32, -8, 8), c0 + step * r.intRangeAtMost(i32, -8, 8))));
+        for (0..r.uintLessThan(usize, physics.cow_count)) |i| b.place(.cow(@intCast(i)), placed(where, px(c0 + r.intRangeAtMost(i32, -500, 500), c0 + r.intRangeAtMost(i32, -500, 500))));
         var sc = physics.Scene.of(&b).?;
+        try testing.expectEqual(where != 2, sc.in_world);
         if (sc.awake_len <= physics.wish_scan_most) continue;
         sc.refresh(0);
         // Three rounds: as built; each critter moved up to a third of the
