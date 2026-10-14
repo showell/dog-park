@@ -46,9 +46,7 @@ treat them as orientation.
   Debug and run under node (`physics-wasm`, about 8 s), and the node tests
   against a scratch server (`tools/test_page_physics.mjs`, about 7 to
   11 s, and `tools/test_physics_server.mjs`).
-- **`slow`**: the full fuzz natively (about 30 s of run), the physics
-  against `physics_reference.zig` over long seeded sessions
-  (`physics_identity_test.zig`, about a minute in Debug), the physics'
+- **`slow`**: the full fuzz natively (about 30 s of run), the physics'
   tests on wasm32 in ReleaseSafe as the page is served with the full fuzz
   (about 23 s to compile), and every node test.
 
