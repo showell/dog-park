@@ -1269,7 +1269,9 @@ test "Scene.init sets every field the struct literal gives a value, on memory th
     // literal given the same critters.
     var want = lit;
     inline for (std.meta.fields(physics.Scene)) |f| {
-        const array = @typeInfo(f.type) == .array;
+        // The arrays, and the grid's cells (all arrays), are built before
+        // they are read.
+        const array = comptime @typeInfo(f.type) == .array or std.mem.eql(u8, f.name, "cells");
         if (comptime !array or std.mem.eql(u8, f.name, "wg_head")) {
             if (comptime std.mem.eql(u8, f.name, "wg_head") or std.mem.eql(u8, f.name, "len") or std.mem.eql(u8, f.name, "awake_len")) continue;
             try testing.expectEqual(@field(want, f.name), @field(sc.*, f.name));

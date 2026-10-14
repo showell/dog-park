@@ -706,27 +706,29 @@ fn gridCell(p: Point, dx: i32, dy: i32) u16 {
 /// Each seen critter in an `nb_cell` square, the cells folded onto a
 /// `grid_side` square, each cell's in rank order: a critter within
 /// `nb_reach` of another on both axes is in its cell's 3 × 3.
+///
+/// Kept in the scene (`Scene.cells`) and built there (202): built in a
+/// frame of its own, a safe build filled it with 0xaa first, every build.
 const Cells = struct {
     from: [grid_side * grid_side + 1]u16,
     by_cell: [critter_count]u16,
+    /// Each critter's cell, the build's own.
+    cell_of: [critter_count]u16,
 
-    fn of(s: *const Scene) Cells {
-        var c: Cells = undefined;
+    fn build(c: *Cells, s: *const Scene) void {
         var cell_len: [grid_side * grid_side]u16 = @splat(0);
-        var cell_of: [critter_count]u16 = undefined;
         for (0..s.len) |i| {
             const k = gridCell(s.pos(i), 0, 0);
-            cell_of[i] = k;
+            c.cell_of[i] = k;
             cell_len[k] += 1;
         }
         c.from[0] = 0;
         for (cell_len, 0..) |l, k| c.from[k + 1] = c.from[k] + l;
         var fill: [grid_side * grid_side]u16 = c.from[0 .. grid_side * grid_side].*;
         for (0..s.len) |i| {
-            c.by_cell[fill[cell_of[i]]] = @intCast(i);
-            fill[cell_of[i]] += 1;
+            c.by_cell[fill[c.cell_of[i]]] = @intCast(i);
+            fill[c.cell_of[i]] += 1;
         }
-        return c;
     }
 
     fn in(c: *const Cells, k: u16) []const u16 {
@@ -850,6 +852,8 @@ pub const Scene = struct {
     rl_mid: [critter_count]u16 = undefined,
     rl_hi: [critter_count]u16 = undefined,
     rl: [rooms_most]u16 = undefined,
+    /// The neighbours' grid, as the last build left it (`Cells`).
+    cells: Cells = undefined,
 
     pub const Lists = enum { none, built };
 
@@ -1011,7 +1015,8 @@ pub const Scene = struct {
         const reach = nb_reach;
         var n: usize = 0;
         for (0..s.len) |i| s.overlap[i] = .clear;
-        const cells: Cells = .of(s);
+        s.cells.build(s);
+        const cells = &s.cells;
         var cand: [critter_count]u16 = undefined;
         for (0..s.len) |i| {
             s.nb_from[i] = @intCast(n);
@@ -1962,7 +1967,8 @@ pub fn overlaps(b: *Board, found: []([2]Critter)) usize {
 
 fn overlapsIn(sc: *Scene, b: *Board, found: []([2]Critter)) usize {
     if (!sc.init(b)) return 0;
-    const cells: Cells = .of(sc);
+    sc.cells.build(sc);
+    const cells = &sc.cells;
     var n: usize = 0;
     var hit: [critter_count]u16 = undefined;
     for (sc.list(), 0..) |a, i| {
