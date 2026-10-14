@@ -93,4 +93,3 @@ test "the first layout: no two critters overlap (a load puts it back without res
         try testing.expect(!physics.squaresOverlap(a.p, a.half, c.p, c.half));
     };
 }
-

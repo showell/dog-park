@@ -15,6 +15,13 @@ const testing = std.testing;
 const Board = physics.Board;
 const Point = physics.Point;
 
+/// The worked example is the doc's, written under the played knobs: under
+/// another tuning (-Dknobs=alt) the same inputs play out otherwise, so its
+/// tests skip there, by name; the tests derived from no example still run.
+fn playedOnly() !void {
+    if (physics.knobs != .played) return error.SkipZigTest;
+}
+
 /// The doc's physics hash (a placeholder there): the judge takes it as its
 /// own, so the fixture reads as written.
 const doc_hash: u32 = 0x5e0c91a2;
@@ -144,11 +151,13 @@ fn judged(report: []const u8, buf: []u8, kept: *judge_mod.Kept) ![]const u8 {
 }
 
 test "the worked example from the page's side: its own run writes the doc's report, byte for byte" {
+    try playedOnly();
     var buf: [8192]u8 = undefined;
     try testing.expectEqualStrings(example_report, try examplePageRun(&buf));
 }
 
 test "the worked example: the report is kept through 1043, the drag ended at the letgo, the leash on" {
+    try playedOnly();
     var k = exampleKept();
     var buf: [4096]u8 = undefined;
     try testing.expectEqualStrings("req 4\nkept 1043\n", try judged(example_report, &buf, &k));
@@ -190,6 +199,7 @@ const differ_answer = "req 4\n" ++
     "board 1042 dog 219 4239.00,463c.00 cow 38 4362.00,4362.00 cow 43 416e.00,4554.80 cow 47 3f7a.00,474a.00 cow 48 4362.00,474a.00 dog 223 42ce.88,463c.00\n";
 
 test "the worked example, dog 223's step at 1042 a 256th off: the exact differ answer" {
+    try playedOnly();
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -207,6 +217,7 @@ test "the worked example, dog 223's step at 1042 a 256th off: the exact differ a
 }
 
 test "the worked example's region holds the viewport, and its awake critters are the leashed dog, the cows within the sphere and dog 223" {
+    try playedOnly();
     var b = exampleBoard();
     b.hold = .{ .leashed = .{ .dog = leashed, .drag = .on } };
     const region = exampleRegion();
@@ -277,6 +288,7 @@ test "a refused input: a leash while one is leashed is differ none at that line"
 }
 
 test "a report missing a line the server's run has, and one with a line it doesn't" {
+    try playedOnly();
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -300,6 +312,7 @@ test "a report missing a line the server's run has, and one with a line it doesn
 }
 
 test "a drag with no drag on is ignored and noted as a finding" {
+    try playedOnly();
     var k = exampleKept();
     var buf: [4096]u8 = undefined;
     const report = try std.mem.replaceOwned(u8, testing.allocator, example_report, "t 1043 +125\n", "t 1043 +125 drag +1.00,0@5\n");

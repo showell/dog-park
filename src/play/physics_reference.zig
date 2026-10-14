@@ -771,4 +771,3 @@ pub fn overlaps(b: *Board, found: []([2]Critter)) usize {
     }
     return n;
 }
-

@@ -27,10 +27,7 @@ pub fn build(b: *std.Build) void {
     // **THE PHYSICS HASH, ONCE** (physics_wire.zig): a CRC-32 over the
     // files src/play/physics_sources.zon lists, read here at configure
     // time and handed to every module that compiles the physics.
-    const physics_options = b.addOptions();
-    physics_options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play"), knobs));
-    physics_options.addOption(Knobs, "knobs", knobs);
-    const physics_mod = physics_options.createModule();
+    const physics_mod = physicsOptions(b, knobs);
 
     const wasm32 = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const wasi = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
@@ -174,9 +171,16 @@ pub fn build(b: *std.Build) void {
     check.dependOn(physics_wasm);
     for (node_server) |f| check.dependOn(nodeTest(b, f));
 
-    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics against its reference, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, every node test");
+    const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics against its reference, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, the physics' tests under -Dknobs=alt, every node test");
     slow.dependOn(units.all(.full));
     slow.dependOn(units.identity());
+    // The physics' tests under the other tuning, so a test that pins a
+    // played value instead of a property fails here.
+    if (knobs != .alt) {
+        var alt = units;
+        alt.physics_mod = physicsOptions(b, .alt);
+        slow.dependOn(alt.physics(.full));
+    }
     units.onWasm(wasi, wasm32, .ReleaseSafe, .full, slow);
     for (node_fast ++ node_server) |f| slow.dependOn(nodeTest(b, f));
 
@@ -222,6 +226,14 @@ fn nodeTest(b: *std.Build, file: []const u8) *std.Build.Step {
 
 /// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
 /// lists, in its order; under a tuning other than `played`, its name too.
+/// The physics' build options, `physics_options`: its hash and its tuning.
+fn physicsOptions(b: *std.Build, knobs: Knobs) *std.Build.Module {
+    const options = b.addOptions();
+    options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play"), knobs));
+    options.addOption(Knobs, "knobs", knobs);
+    return options.createModule();
+}
+
 fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs) u32 {
     const io = b.graph.io;
     const list_path = b.fmt("{s}/physics_sources.zon", .{dir});

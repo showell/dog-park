@@ -937,6 +937,8 @@ fn post(io: std.Io, alloc: std.mem.Allocator, hub: *webbox.bus.Hub, path: []cons
 }
 
 test "the worked example through POST /report: the doc's report in, req 4 kept 1043 out, byte for byte; and a body past 64 KiB is a 413" {
+    // The doc's worked example is the played knobs' (physics_judge_test.zig).
+    if (physics.knobs != .played) return error.SkipZigTest;
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
