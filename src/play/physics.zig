@@ -16,7 +16,7 @@
 //! which takes the short way round; every move wraps its result back into
 //! the world (`wrapped`).
 //!
-//! **A tick** (decisions 20-24): only while the leashed dog is dragged does
+//! **A tick** (decisions 20-25): only while the leashed dog is dragged does
 //! anything move. The drag is cut into pixel-ticks; in each, the leashed
 //! dog takes the step (stopping just short of pressing into anyone), then
 //! the walk moves up to `walk_most` critters, dogs and cows, one at a time,
@@ -95,6 +95,9 @@ pub const breeds = 4;
 /// aside, and how many each visited critter lines up.
 pub const walk_most = 40;
 pub const walk_fan = 3;
+/// **THE NUDGE**: the most critters one step moves together, the stepper
+/// and the kin it nudges (decision 25).
+pub const nudge_most = 8;
 
 comptime {
     // **THE WORLD IS WIDER THAN THE REGION** (decision 14): the region's
@@ -963,20 +966,47 @@ pub fn stepAtMost(total: Point, most: i32) Point {
     };
 }
 
-/// **THE VETO** (Steve, 2026-10-14): seen critter `i` takes `step` whole,
-/// or not at all if its square there would overlap anyone seen, or come
-/// within `cow_half` of the seen tiles' edge, where a critter the physics
-/// doesn't see may poke in (decision 23). No two critters overlap, by
-/// induction.
+/// **THE VETO AND THE NUDGE** (Steve, 2026-10-14; decision 25): seen
+/// critter `i` takes `step` whole, or not at all. Where its square there
+/// would overlap kin (a cow a cow, a dog a dog of its breed, never the
+/// leashed dog), it nudges them: they take the same step with it, and
+/// whoever they would overlap is nudged in turn, up to `nudge_most` in
+/// all. The step is vetoed, for every one of them, if any would overlap a
+/// critter not kin, or come within `cow_half` of the seen tiles' edge,
+/// where a critter the physics doesn't see may poke in (decision 23). The
+/// group moves by one vector, so its members keep clear of each other; no
+/// two critters overlap, by induction.
 fn stepVetoed(sc: *Scene, i: usize, step: Point) void {
     if (step.x == 0 and step.y == 0) return;
-    const to = wrapped(.{ .x = sc.pos(i).x + step.x, .y = sc.pos(i).y + step.y });
-    const me = sc.seen[i];
-    if (!clearOfTheEdge(sc.span, to, me.half)) return;
-    for (sc.list(), 0..) |o, j| {
-        if (j != i and squaresOverlap(to, me.half, sc.pos(j), o.half)) return;
+    var group: [nudge_most]usize = undefined;
+    group[0] = i;
+    var n: usize = 1;
+    var in_group: std.StaticBitSet(critter_count) = .initEmpty();
+    in_group.set(i);
+    const breed = kinOf(sc.seen[i].who);
+    var k: usize = 0;
+    while (k < n) : (k += 1) {
+        const g = group[k];
+        const to = wrapped(.{ .x = sc.pos(g).x + step.x, .y = sc.pos(g).y + step.y });
+        const h = sc.seen[g].half;
+        if (!clearOfTheEdge(sc.span, to, h)) return;
+        for (sc.list(), 0..) |o, j| {
+            if (in_group.isSet(j) or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
+            if (j == 0 or kinOf(o.who) != breed or n == nudge_most) return;
+            group[n] = j;
+            n += 1;
+            in_group.set(j);
+        }
     }
-    sc.put(i, to);
+    for (group[0..n]) |g| sc.put(g, .{ .x = sc.pos(g).x + step.x, .y = sc.pos(g).y + step.y });
+}
+
+/// Who nudges whom: cows are one kin, each breed of dog another.
+fn kinOf(c: Critter) u8 {
+    return switch (c.kind) {
+        .cow => breeds,
+        .dog => @intCast(c.n % breeds),
+    };
 }
 
 /// Whether the square of half `h` at `p` keeps `cow_half` (the most any

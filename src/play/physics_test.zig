@@ -632,3 +632,33 @@ test "a cow heeds only its nearest moving critter: a cow, it closes in; a dog, i
     try testing.expectEqual(px(16050, 16375 - 1).x, b.cows[2].x);
     try testing.expectEqual(physics.px(16375) - 128, b.cows[2].y);
 }
+
+test "the nudge (decision 25): a lone dog drives three touching cows west in unison; their pull on each other keeps them together" {
+    // Steve's case (cows 27, 23, 28 beside dog 185): a row of cows, each
+    // touching the next. The dog scares the nearest; without the nudge the
+    // cow in its way vetoes its step, and that cow, touching its nearest
+    // moving kin, wants nothing: the row is stuck.
+    const at = px(16250, 16250);
+    var b = leashedAt(at);
+    b.place(.cow(0), px(16050, 16250));
+    b.place(.cow(1), px(15990, 16250));
+    b.place(.cow(2), px(15930, 16250));
+    var t: physics.Tick = 1;
+    while (t <= 20) : (t += 1) _ = ticked(&b, t, &.{}, &.{d(-10, 0)});
+    try testing.expect(b.cows[0].x < physics.px(16050 - 40));
+    try testing.expectEqual(b.cows[0].x - physics.px(60), b.cows[1].x);
+    try testing.expectEqual(b.cows[1].x - physics.px(60), b.cows[2].x);
+    for (b.cows[0..3]) |c| try testing.expectEqual(physics.px(16250), c.y);
+}
+
+test "the nudge stops at a critter not kin: a cow pressed against a dog vetoes the whole row" {
+    // One pixel-tick: the dog flees the moving cow 1 only later in it.
+    const at = px(16250, 16250);
+    var b = leashedAt(at);
+    b.place(.cow(0), px(16050, 16250));
+    b.place(.cow(1), px(15990, 16250));
+    b.place(.dog(1), px(15940, 16250));
+    _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
+    try testing.expectEqual(px(16050, 16250), b.cows[0]);
+    try testing.expectEqual(px(15990, 16250), b.cows[1]);
+}
