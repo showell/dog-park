@@ -835,12 +835,14 @@ pub const Scene = struct {
     /// **THE ROOM LISTS** (202): for each awake unleashed dog when the wishes
     /// read the grid, the awake cows and other breeds' dogs above it within
     /// its reach of them (`cow_room`, `wary`) plus `skin`, as they stood when
-    /// the neighbour lists were built (`refresh`): `rl[rl_lo[i]..rl_hi[i]]`.
+    /// the neighbour lists were built (`refresh`): `rl[rl_lo[i]..rl_hi[i]]`,
+    /// the strangers before `rl_mid[i]` and the cows from it.
     /// A cost knob only: one left out was past the reach plus `skin`, and
     /// while 3 × `drift` < `skin` (each of two critters moved at most √2 ×
     /// `drift`) it is still past the reach (`roomsServe`).
     rooms: Lists = .none,
     rl_lo: [critter_count]u16 = undefined,
+    rl_mid: [critter_count]u16 = undefined,
     rl_hi: [critter_count]u16 = undefined,
     rl: [rooms_most]u16 = undefined,
 
@@ -1031,12 +1033,15 @@ pub const Scene = struct {
             const i: usize = w16;
             const me = s.seen[i];
             s.rl_lo[i] = @intCast(n);
+            s.rl_mid[i] = @intCast(n);
             s.rl_hi[i] = @intCast(n);
             if (me.who.kind != .dog or me.rank == 0) continue;
             const breed = me.who.n % breeds;
             const p = s.pos(i);
+            // The other breeds, then the cows (class `breeds`), last.
             for (0..breeds + 1) |class| {
                 if (class == breed) continue;
+                if (class == breeds) s.rl_mid[i] = @intCast(n);
                 const reach: i32 = (if (class == breeds) cow_room else wary) + skin;
                 const reach2 = @as(i64, reach) * reach;
                 var cy = wishCellOf(p.y - reach);
@@ -1608,16 +1613,10 @@ pub fn wishTotalGridded(sc: *const Scene, i: usize) Point {
     const breed = me.who.n % breeds;
     var total: Point = .{ .x = 0, .y = 0 };
     if (sc.roomsServe()) {
-        // Its room list: each a stranger within `wary`, or a cow within
+        // Its room list: the strangers within `wary`, the cows within
         // `cow_room`, measured now.
-        for (sc.rl[sc.rl_lo[i]..sc.rl_hi[i]]) |j| {
-            const reach: i32 = if (sc.seen[j].who.kind == .cow) cow_room else wary;
-            const v = delta(sc.pos(j), p);
-            const d2 = len2(v);
-            if (d2 > @as(i64, reach) * reach) continue;
-            const l = isqrt(d2);
-            add(&total, awayRooted(v, l, reach - @as(i32, @intCast(l))));
-        }
+        addRoomsListed(sc, &total, p, sc.rl[sc.rl_lo[i]..sc.rl_mid[i]], wary);
+        addRoomsListed(sc, &total, p, sc.rl[sc.rl_mid[i]..sc.rl_hi[i]], cow_room);
     } else {
         // Strangers: other breeds above it, within `wary`.
         for (0..breeds) |b| {
@@ -1649,6 +1648,19 @@ fn addRoom(sc: *const Scene, total: *Point, i: usize, p: Point, class: u16, reac
                 add(total, awayRooted(v, l, reach - @as(i32, @intCast(l))));
             }
         }
+    }
+}
+
+/// Adds, for each critter of `list` within `reach` of `p`, a push away as
+/// long as the shortfall.
+fn addRoomsListed(sc: *const Scene, total: *Point, p: Point, list: []const u16, reach: i32) void {
+    const reach2 = @as(i64, reach) * reach;
+    for (list) |j| {
+        const v = delta(sc.pos(j), p);
+        const d2 = len2(v);
+        if (d2 > reach2) continue;
+        const l = isqrt(d2);
+        add(total, awayRooted(v, l, reach - @as(i32, @intCast(l))));
     }
 }
 
