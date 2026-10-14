@@ -299,6 +299,10 @@ const Run = struct {
     findings: *Findings,
     /// A line read and not yet used.
     peeked: ?[]const u8 = null,
+    /// Each tick's checked lines, the server's: one for the report, as
+    /// `physics.run` starts each tick's afresh (its `len`, `jumped` and
+    /// `pair_checks`), not a 10 KB value made and zeroed every tick (202).
+    tick_lines: physics.Lines = undefined,
 
     fn next(self: *Run) ?[]const u8 {
         if (self.peeked) |p| {
@@ -393,11 +397,11 @@ const Run = struct {
                     if (tl.tick != t or t > from + physics.most_ticks) return refuse(t, text);
                     if (!physics.withinCap(tl.drag.slice())) return refuse(t, text);
                     if (!self.regionHeld()) return refuse(t, text);
-                    var lines: physics.Lines = .{};
+                    const lines = &self.tick_lines;
                     const drag_on = k.board.hold == .leashed and k.board.hold.leashed.drag == .on;
                     if (tl.drag.len > 0 and !drag_on) self.findings.idle_drags += 1;
-                    physics.run(&k.board, t, begun, tl.drag.slice(), &lines);
-                    if (self.compare(t, &lines)) |d| return .{ .differ = d };
+                    physics.run(&k.board, t, begun, tl.drag.slice(), lines);
+                    if (self.compare(t, lines)) |d| return .{ .differ = d };
                     k.tick = t;
                     k.pending_len = 0;
                     var pairs: [1][2]physics.Critter = undefined;
