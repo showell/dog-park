@@ -964,18 +964,19 @@ pub const Scene = struct {
                 while (dx <= 1) : (dx += 1) {
                     const c = gridCell(p, dx, dy);
                     for (by_cell[cell_from[c]..cell_from[c + 1]]) |j| {
+                        if (j == i) continue;
+                        s.pair_checks += 1;
+                        const d = delta(p, s.pos(j));
+                        if (mag(d.x) >= reach or mag(d.y) >= reach) continue;
                         cand[cand_len] = j;
                         cand_len += 1;
                     }
                 }
             }
+            // Those within reach, in rank order (only they are sorted).
             std.sort.insertion(u16, cand[0..cand_len], {}, std.sort.asc(u16));
             for (cand[0..cand_len]) |j16| {
                 const j: usize = j16;
-                if (j == i) continue;
-                s.pair_checks += 1;
-                const d = delta(p, s.pos(j));
-                if (mag(d.x) >= reach or mag(d.y) >= reach) continue;
                 if (n == neighbours_most) {
                     s.lists = .none;
                     for (0..s.len) |k| s.overlap[k] = .maybe;
