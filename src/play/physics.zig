@@ -1473,7 +1473,7 @@ fn stepAway(sc: *Scene, i: usize, j: usize, s: Point) Point {
 /// Seen critter `j` against `i`'s step `s`; one beyond the two halves plus
 /// the step's part on some axis is never met, and is passed over before
 /// the fractions.
-fn stepMeets(sc: *Scene, i: usize, j: usize, s: Point, may_overlap: bool) ?Contact {
+inline fn stepMeets(sc: *Scene, i: usize, j: usize, s: Point, may_overlap: bool) ?Contact {
     sc.pair_checks += 1;
     const p = sc.pos(i);
     const q = sc.pos(j);
