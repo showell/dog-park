@@ -1090,3 +1090,35 @@ test "shortWay is the @mod formula, at every edge and over a seeded fuzz of the 
         try testing.expectEqual(plain(close), physics.shortWay(close));
     }
 }
+
+test "the room lists give the wishes the scan gives, while they serve and after (202): crowds past wish_scan_most, the lists built, then the critters drifting a little and a lot" {
+    var prng: std.Random.DefaultPrng = .init(2023);
+    const r = prng.random();
+    var listed: usize = 0;
+    for (0..fuzzed(60)) |_| {
+        const c0 = 16000;
+        const step = r.intRangeAtMost(i32, 20, 90);
+        var b = leashedAt(px(c0, c0));
+        const n = r.intRangeAtMost(u16, physics.wish_scan_most + 2, physics.dog_count - 1);
+        for (1..n) |i| b.place(.dog(@intCast(i)), px(c0 + step * r.intRangeAtMost(i32, -8, 8), c0 + step * r.intRangeAtMost(i32, -8, 8)));
+        for (0..r.uintLessThan(usize, physics.cow_count)) |i| b.place(.cow(@intCast(i)), px(c0 + r.intRangeAtMost(i32, -500, 500), c0 + r.intRangeAtMost(i32, -500, 500)));
+        var sc = physics.Scene.of(&b).?;
+        if (sc.awake_len <= physics.wish_scan_most) continue;
+        sc.refresh(0);
+        // Three rounds: as built; each critter moved up to a third of the
+        // skin (the lists still serve); then up to 300 px (they don't).
+        for ([_]i32{ 0, @divFloor(physics.skin, 3) - 1, physics.px(300) }) |most| {
+            if (most > 0) for (0..sc.len) |i| {
+                const p = sc.pos(i);
+                sc.put(i, .{ .x = p.x + r.intRangeAtMost(i32, -most, most), .y = p.y + r.intRangeAtMost(i32, -most, most) });
+            };
+            for (sc.awakeOnes()) |w| {
+                const me = sc.seen[w];
+                if (me.who.kind != .dog or me.rank == 0) continue;
+                try testing.expectEqual(physics.wishTotalScanned(&sc, w), physics.wishTotalGridded(&sc, w));
+                if (most < physics.skin) listed += 1;
+            }
+        }
+    }
+    try testing.expect(listed > fuzzed(60));
+}

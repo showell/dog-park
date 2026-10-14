@@ -612,6 +612,9 @@ pub const skin: i32 = px(48);
 /// The most the neighbour lists hold, all critters together; a build that
 /// would hold more leaves every scan full.
 pub const neighbours_most = 16384;
+/// The most the room lists hold (`Scene.rooms`), all dogs together; a build
+/// that would hold more leaves every dog reading the wishes' grid.
+pub const rooms_most = 24576;
 
 /// **A GRID ACROSS THE SEAM** (decision 14): the side of a grid's square
 /// cell that is at least `need`, divides the world exactly, and leaves a
@@ -757,6 +760,17 @@ pub const Scene = struct {
     wg_next: [critter_count]u16 = undefined,
     wg_prev: [critter_count]u16 = undefined,
     wg_bucket: [critter_count]u16 = undefined,
+    /// **THE ROOM LISTS** (202): for each awake unleashed dog when the wishes
+    /// read the grid, the awake cows and other breeds' dogs above it within
+    /// its reach of them (`cow_room`, `wary`) plus `skin`, as they stood when
+    /// the neighbour lists were built (`refresh`): `rl[rl_lo[i]..rl_hi[i]]`.
+    /// A cost knob only: one left out was past the reach plus `skin`, and
+    /// while 3 × `drift` < `skin` (each of two critters moved at most √2 ×
+    /// `drift`) it is still past the reach (`roomsServe`).
+    rooms: Lists = .none,
+    rl_lo: [critter_count]u16 = undefined,
+    rl_hi: [critter_count]u16 = undefined,
+    rl: [rooms_most]u16 = undefined,
 
     pub const Lists = enum { none, built };
 
@@ -890,7 +904,7 @@ pub const Scene = struct {
     /// Rebuilds the neighbour lists unless they still serve a step of
     /// `most`; a build measures every critter's `Overlap` afresh.
     pub fn refresh(s: *Scene, most: i32) void {
-        if (s.lists == .built and 2 * s.drift + most <= skin) return;
+        if (s.lists == .built and 2 * s.drift + most <= skin and (s.rooms != .built or 3 * s.drift < skin)) return;
         const reach = nb_reach;
         var n: usize = 0;
         for (0..s.len) |i| s.overlap[i] = .clear;
@@ -949,6 +963,50 @@ pub const Scene = struct {
         @memcpy(s.nb_at[0..s.len], s.at[0..s.len]);
         s.drift = 0;
         s.lists = .built;
+        s.buildRooms();
+    }
+
+    /// The room lists (`rooms`), from the wishes' grid, for the dogs that
+    /// read it: among more than `wish_scan_most` awake critters.
+    fn buildRooms(s: *Scene) void {
+        s.rooms = .none;
+        if (s.awake_len <= wish_scan_most) return;
+        var n: usize = 0;
+        for (s.awakeOnes()) |w16| {
+            const i: usize = w16;
+            const me = s.seen[i];
+            s.rl_lo[i] = @intCast(n);
+            s.rl_hi[i] = @intCast(n);
+            if (me.who.kind != .dog or me.rank == 0) continue;
+            const breed = me.who.n % breeds;
+            const p = s.pos(i);
+            for (0..breeds + 1) |class| {
+                if (class == breed) continue;
+                const reach: i32 = (if (class == breeds) cow_room else wary) + skin;
+                const reach2 = @as(i64, reach) * reach;
+                var cy = wishCellOf(p.y - reach);
+                while (cy <= wishCellOf(p.y + reach)) : (cy += 1) {
+                    var cx = wishCellOf(p.x - reach);
+                    while (cx <= wishCellOf(p.x + reach)) : (cx += 1) {
+                        var j = s.wg_head[wishBucket(@intCast(class), cx, cy)];
+                        while (j != wish_none and j < i) : (j = s.wg_next[j]) {
+                            if (len2(delta(s.pos(j), p)) > reach2) continue;
+                            if (n == rooms_most) return;
+                            s.rl[n] = j;
+                            n += 1;
+                        }
+                    }
+                }
+            }
+            s.rl_hi[i] = @intCast(n);
+        }
+        s.rooms = .built;
+    }
+
+    /// Whether dog `i`'s room list holds every critter whose room it must
+    /// keep now.
+    fn roomsServe(s: *const Scene) bool {
+        return s.rooms == .built and s.lists == .built and 3 * s.drift < skin;
     }
 
     /// Seen critter `i`'s neighbours when they hold everyone a step of `s`
@@ -1485,13 +1543,26 @@ pub fn wishTotalGridded(sc: *const Scene, i: usize) Point {
     const p = sc.pos(i);
     const breed = me.who.n % breeds;
     var total: Point = .{ .x = 0, .y = 0 };
-    // Strangers: other breeds above it, within `wary`.
-    for (0..breeds) |b| {
-        if (b == breed) continue;
-        addRoom(sc, &total, i, p, @intCast(b), wary);
+    if (sc.roomsServe()) {
+        // Its room list: each a stranger within `wary`, or a cow within
+        // `cow_room`, measured now.
+        for (sc.rl[sc.rl_lo[i]..sc.rl_hi[i]]) |j| {
+            const reach: i32 = if (sc.seen[j].who.kind == .cow) cow_room else wary;
+            const v = delta(sc.pos(j), p);
+            const d2 = len2(v);
+            if (d2 > @as(i64, reach) * reach) continue;
+            const l = isqrt(d2);
+            add(&total, awayRooted(v, l, reach - @as(i32, @intCast(l))));
+        }
+    } else {
+        // Strangers: other breeds above it, within `wary`.
+        for (0..breeds) |b| {
+            if (b == breed) continue;
+            addRoom(sc, &total, i, p, @intCast(b), wary);
+        }
+        // Every awake cow is above it, within `cow_room`.
+        addRoom(sc, &total, i, p, breeds, cow_room);
     }
-    // Every awake cow is above it, within `cow_room`.
-    addRoom(sc, &total, i, p, breeds, cow_room);
     if (anchorOf(sc, i, p, breed)) |a| addAnchor(&total, p, sc.pos(a.j), a.d2);
     return total;
 }
