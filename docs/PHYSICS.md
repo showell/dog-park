@@ -417,7 +417,17 @@ then dogs by number. Sleepers and the world's edge never move.
   along each step of the drag, and the drag ends (above). It never
   overlaps anyone.
 - **A dog's own step** (its wishes) stops where it would press into any
-  critter the physics sees, above or below it, awake or asleep.
+  critter the physics sees, above or below it, awake or asleep. The step
+  is **one straight move** (decision 18): kept in the world per axis;
+  then each axis that would press deeper into a square it already
+  overlaps is dropped (from Δ = 0 either way is free); then it goes to
+  its earliest contact along the segment, the moment a fraction n/d of
+  the step (d the step's length on the face's axis), each axis cut to
+  `trunc(step × n / d)`: the gap exactly on the face's axis, and never
+  past the segment on the other, so the dog is clear of everyone the
+  segment is. If it met one face only (x or y), the rest of the other
+  axis slides along it, swept on that axis alone; if it met a corner
+  exactly, or two squares at once on different faces, it stops there.
 - **A cow's grid step** is swept too, per internal step: it stops just
   short of the leashed dog, any sleeper it sees (sleeping dogs aren't
   pushed) and any cow above it; if it already overlaps one of those, that
@@ -1084,8 +1094,8 @@ play says otherwise:
    (the other axis untouched), and that axis plays no more this tick. The
    budget counts the input, not where the dog ended up after a clamp. It suits x-then-y and needs no square root. (Past 16,
    displacements are first added into the 16th, which keeps the last one's `@ms`.)
-4. **A dog's own wish step is swept like the drag:** x then y, stopping
-   where it would press in. Sliding along a face comes free. Its edge
+4. **A dog's own wish step is swept, stopping where it would press in,**
+   as one move (decision 18), sliding along the one face it met. Its edge
    clamp and its sweep can go in either order: both only shorten the step.
 5. **`grab T`** records the pointer going down on the leashed dog (a
    `leash T D` implies it): a held, still pointer keeps the let-go timer
@@ -1387,3 +1397,15 @@ and the request numbering.
     logs the why, the last report and its answer on the console, so
     Steve can report it. Transient failures (no answer, a 5xx) are still
     retried byte for byte, never a stop.
+18. **A step is one move** (Steve, 2026-10-14): a dog's wish step is swept
+    as a single straight move, not x then y. Swept by axis, a diagonal
+    step that clipped a critter's corner was stopped in one axis order
+    and not the other, so the physics was symmetric under the world's
+    mirrors but not under the transpose (and so not a quarter turn).
+    Integer only: the contact is the exact fraction of the step where it
+    first presses in, both axes truncated toward zero at it (odd, so the
+    mirrors hold; the same rule on both axes, so the transpose holds);
+    the slide goes along a single face only, never preferring x to y.
+    `physics_symmetry_test.zig` holds the transpose and a quarter turn
+    exact. The drag still plays x then y (decision 9): its displacements
+    are the human's, and the cows' grid rule is per axis.

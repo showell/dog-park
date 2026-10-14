@@ -657,15 +657,159 @@ fn wishes(sc: *Scene, most: i32) void {
         if (s.who.kind != .dog or s.rank == 0) continue;
         outFromUnder(sc, i);
         const step = stepAtMost(wishTotal(sc, i), most);
-        var at = sc.pos(i);
-        for ([_]Axis{ .x, .y }) |axis| {
-            const want = inWorld(at, dog_half, axis, on(step, axis));
-            if (want == 0) continue;
-            const r = sweep(sc, i, axis, want, .everyone);
-            at = moved(at, axis, r.by);
-            sc.put(i, at);
+        const at = sc.pos(i);
+        stepSwept(sc, i, .{ .x = inWorld(at, dog_half, .x, step.x), .y = inWorld(at, dog_half, .y, step.y) });
+    }
+}
+
+/// Which axis a straight step meets a square on: the face it presses into,
+/// or both at once (a corner met exactly, or two squares met at the same
+/// moment on different faces).
+pub const Face = enum {
+    x,
+    y,
+    both,
+
+    fn with(a: Face, b: Face) Face {
+        return if (a == b) a else .both;
+    }
+};
+
+/// When a straight step first presses into a square: at `num` / `den` of
+/// the step (0 ≤ num < den), on `face`.
+pub const Contact = struct {
+    num: i64,
+    den: i64,
+    face: Face,
+
+    /// Whether `a` comes before `b` (a fraction compared by cross products).
+    fn before(a: Contact, b: Contact) bool {
+        return a.num * b.den < b.num * a.den;
+    }
+
+    fn sameTime(a: Contact, b: Contact) bool {
+        return a.num * b.den == b.num * a.den;
+    }
+};
+
+/// One axis's span of a step's fractions during which the squares overlap
+/// on that axis: (enter, exit) over `den`, the open interval; `always` when
+/// the step does not move on that axis and they overlap on it, `never`
+/// when it does not and they do not.
+const Span = union(enum) { always, never, during: struct { enter: i64, exit: i64, den: i64 } };
+
+fn spanOn(d: i32, hs: i32, s: i32) Span {
+    if (s == 0) return if (mag(d) < hs) .always else .never;
+    const w: i64 = sign(s) * @as(i64, d);
+    return .{ .during = .{ .enter = w - hs, .exit = w + hs, .den = mag(s) } };
+}
+
+/// **THE STEP AS ONE MOVE** (decision 18): when the square of half `h` at
+/// `p`, stepping straight by `s`, first presses into the square of half
+/// `oh` at `o`, which it does not overlap at the start; null if it never
+/// does within the step (touching doesn't block, nor does reaching
+/// contact exactly at the step's end). Exact: the moment is a fraction
+/// with the step's own length on one axis as its denominator.
+pub fn stepContact(p: Point, h: i32, s: Point, o: Point, oh: i32) ?Contact {
+    const d = delta(p, o);
+    const hs = h + oh;
+    const sx = spanOn(d.x, hs, s.x);
+    const sy = spanOn(d.y, hs, s.y);
+    if (sx == .never or sy == .never) return null;
+    // Both `always` would be an overlap at the start, which the caller
+    // has already handled.
+    const ax = switch (sx) {
+        .during => |v| v,
+        else => return contactOn(sy.during, .y),
+    };
+    const ay = switch (sy) {
+        .during => |v| v,
+        else => return contactOn(ax, .x),
+    };
+    // The later entry and the earlier exit, as cross products.
+    const enter_cmp = std.math.order(ax.enter * ay.den, ay.enter * ax.den);
+    const entry: @TypeOf(ax) = if (enter_cmp == .lt) ay else ax;
+    const face: Face = switch (enter_cmp) {
+        .lt => .y,
+        .gt => .x,
+        .eq => .both,
+    };
+    const exit_x_first = ax.exit * ay.den < ay.exit * ax.den;
+    const exit_num = if (exit_x_first) ax.exit else ay.exit;
+    const exit_den = if (exit_x_first) ax.den else ay.den;
+    if (entry.enter * exit_den >= exit_num * entry.den) return null;
+    if (entry.enter >= entry.den or exit_num <= 0) return null;
+    return .{ .num = @max(0, entry.enter), .den = entry.den, .face = face };
+}
+
+fn contactOn(a: anytype, face: Face) ?Contact {
+    if (a.enter >= a.den or a.exit <= 0) return null;
+    return .{ .num = @max(0, a.enter), .den = a.den, .face = face };
+}
+
+/// A step against a square it already overlaps: each axis that would
+/// shrink |Δ| on it is dropped (from Δ = 0 either way is free), as
+/// `sweepLimit` has it.
+pub fn awayFrom(p: Point, s: Point, o: Point) Point {
+    const d = delta(p, o);
+    return .{
+        .x = if (d.x != 0 and sign(d.x) == sign(s.x)) 0 else s.x,
+        .y = if (d.y != 0 and sign(d.y) == sign(s.y)) 0 else s.y,
+    };
+}
+
+/// The step `s` cut to `c`'s moment, each axis truncated toward zero: on
+/// the face's axis that is the gap exactly, and the other axis never
+/// reaches past the segment, so the point is clear of every square the
+/// segment is clear of.
+pub fn cutTo(s: Point, c: Contact) Point {
+    return .{
+        .x = @intCast(@divTrunc(@as(i64, s.x) * c.num, c.den)),
+        .y = @intCast(@divTrunc(@as(i64, s.y) * c.num, c.den)),
+    };
+}
+
+/// Dog `i`'s step `s` (already kept in the world) as one straight move
+/// against everyone, scanning everyone: dropped on each axis that presses
+/// deeper into a square it overlaps, taken to its earliest contact, then
+/// slid along a single face it met.
+fn stepSwept(sc: *Scene, i: usize, want: Point) void {
+    const me = sc.seen[i];
+    const p = sc.pos(i);
+    var s = want;
+    for (sc.list(), 0..) |o, j| {
+        if (j == i) continue;
+        if (squaresOverlap(p, me.half, sc.pos(j), o.half)) s = awayFrom(p, s, sc.pos(j));
+    }
+    if (s.x == 0 and s.y == 0) return;
+    var first: ?Contact = null;
+    for (sc.list(), 0..) |o, j| {
+        if (j == i) continue;
+        if (squaresOverlap(p, me.half, sc.pos(j), o.half)) continue;
+        const c = stepContact(p, me.half, s, sc.pos(j), o.half) orelse continue;
+        const f = first orelse {
+            first = c;
+            continue;
+        };
+        if (c.num * f.den < f.num * c.den) {
+            first = c;
+        } else if (c.num * f.den == f.num * c.den) {
+            first = .{ .num = f.num, .den = f.den, .face = if (f.face == c.face) f.face else .both };
         }
     }
+    const c = first orelse return sc.put(i, .{ .x = p.x + s.x, .y = p.y + s.y });
+    const cut = cutTo(s, c);
+    const at: Point = .{ .x = p.x + cut.x, .y = p.y + cut.y };
+    sc.put(i, at);
+    const slide: Axis = switch (c.face) {
+        .x => .y,
+        .y => .x,
+        .both => return,
+    };
+    const rest = on(s, slide) - on(cut, slide);
+    if (rest == 0) return;
+    const r = sweep(sc, i, slide, rest, .everyone);
+    sc.put(i, moved(at, slide, r.by));
 }
 
 /// The step dog `i` wants: its wishes summed, the dead zone, the speed.

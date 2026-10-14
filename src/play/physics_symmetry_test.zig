@@ -11,18 +11,16 @@
 //!   goes to the dog's RIGHT (docs/PHYSICS.md), and a mirror turns right
 //!   into left (the nearest spot's E, S, W, N order and coincident
 //!   centres' east are the same kind of tie).
-//! - **The transpose (and so a quarter turn): not exact.** A dog's wish
-//!   step sweeps x, then y (`wishes`); transposed, the same step sweeps
-//!   the other axis first, and a step that clips a corner is stopped by it
-//!   in one order and not the other. A fraction of a pixel per clipped
-//!   corner, and it compounds: over the fuzz's 300-tick scenes, typically
-//!   a pixel or three, and now and then a drift becomes a bump in one
-//!   orientation and not the other, the drag ends, and the scenes part.
-//!   A quarter turn is mirror x after the transpose, and the mirror is
-//!   exact, so its drift is the transpose's exactly; the tests hold that.
+//! - **The transpose (and so a quarter turn): exact**, over the same
+//!   scenes and fuzz. A dog's wish step is one straight move (decision
+//!   18, `stepSwept`): its contact is a fraction of the whole step, both
+//!   axes cut at that fraction the same way, and a slide only along the
+//!   one face it met, so no axis goes first. A quarter turn is mirror x
+//!   after the transpose. The same direction-broken ties apply: the
+//!   on-line cow's right is kept by a quarter turn, not by the transpose.
 //!
 //! The drag is given as single-axis displacements, so its own x-then-y
-//! order maps to itself; only the wishes' order is left to show.
+//! order maps to itself under every symmetry here.
 
 const std = @import("std");
 const physics = @import("physics.zig");
@@ -178,13 +176,11 @@ test "a cow scooted off the dog's line: exact under every symmetry" {
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &script);
 }
 
-test "a leashed drag through the laid-out herd: exact under the mirrors; a quarter turn drifts exactly as the transpose does" {
+test "a leashed drag through the laid-out herd: exact under every symmetry" {
     const b = Board.laidOut();
     var script: [200]TickIn = undefined;
     straight(&script, .{ .dx = physics.px(7), .dy = physics.px(3) });
-    try expectExact(.mirror_x, b, 112, &script);
-    try expectExact(.mirror_y, b, 112, &script);
-    try testing.expectEqual(drift(.transpose, b, 112, &script), drift(.quarter_turn, b, 112, &script));
+    for (std.enums.values(Sym)) |s| try expectExact(s, b, 112, &script);
 }
 
 test "a cow ON the dog's line goes to the dog's right: a quarter turn keeps that, a mirror makes it left, so the mirrors part at once" {
@@ -198,28 +194,26 @@ test "a cow ON the dog's line goes to the dog's right: a quarter turn keeps that
     }
 }
 
-test "a pack: exact under the mirrors; under the played knobs the transpose parts (the wishes sweep x, then y); a quarter turn by the very same drift" {
+test "a pack: exact under every symmetry" {
     var b = leashedBoard();
     var prng: std.Random.DefaultPrng = .init(5);
     const r = prng.random();
     for (1..13) |i| b.place(.dog(@intCast(i)), px(16000 + r.intRangeAtMost(i32, -400, 400), 16000 + r.intRangeAtMost(i32, -400, 400)));
     var script: [200]TickIn = undefined;
     straight(&script, .{ .dx = physics.px(2), .dy = physics.px(-1) });
-    try expectExact(.mirror_x, b, 0, &script);
-    try expectExact(.mirror_y, b, 0, &script);
-    const t = drift(.transpose, b, 0, &script);
-    if (physics.knobs == .played) try testing.expectEqual(@as(?physics.Tick, 27), t.first);
-    try testing.expectEqual(t, drift(.quarter_turn, b, 0, &script));
+    for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &script);
 }
 
 // **THE MINIMAL SCENE**: the leashed dog still, dog 4 (its breed) 400 px
 // off on the diagonal, closing on it at the speed, its step (−84, −84)
 // in 256ths; a cow just off its path, 40 and 20 256ths beyond touching.
-// Sweeping x first, dog 4 passes the cow on x and is stopped on y 20
-// short: (−84, −20). Transposed, the cow is 20 and 40 off, x again
-// first, and the dog ends (−84, −40), which is (−40, −84) back in this
-// frame. One tick, 64 256ths apart.
-test "the minimal scene: a dog's diagonal step clips a cow's corner in one axis order and not the other" {
+// Swept x then y, dog 4 would pass the cow on x and stop on y 20 short,
+// (−84, −20), and transposed end (−40, −84) in this frame: 64 256ths
+// apart. As one move (decision 18), the step overlaps the cow
+// on y at 20/84 of the way and presses into its x face at 40/84: cut
+// there to (−40, −40), it slides the rest of y to (−40, −84), and the
+// transpose gives the same.
+test "the minimal scene: a dog's diagonal step meets a cow's face, not its corner, the same in every orientation" {
     // Its numbers are the played knobs' speed and halves.
     if (physics.knobs != .played) return error.SkipZigTest;
     const hs = physics.dog_half + physics.cow_half;
@@ -230,13 +224,8 @@ test "the minimal scene: a dog's diagonal step clips a cow's corner in one axis 
     const one = [1]TickIn{.{}};
     var a = b;
     play(&a, null, 1, 0, one[0]);
-    try testing.expectEqual(Point{ .x = dog.x - 84, .y = dog.y - 20 }, a.dogs[4]);
-    try expectExact(.mirror_x, b, 0, &one);
-    try expectExact(.mirror_y, b, 0, &one);
-    var t = mapBoard(.transpose, b);
-    play(&t, .transpose, 1, 0, one[0]);
-    try testing.expectEqual(mapPoint(.transpose, .{ .x = dog.x - 40, .y = dog.y - 84 }), t.dogs[4]);
-    try testing.expectEqual(@as(i32, 64), drift(.transpose, b, 0, &one).worst);
+    try testing.expectEqual(Point{ .x = dog.x - 40, .y = dog.y - 84 }, a.dogs[4]);
+    for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &one);
 }
 
 // --------------------------------------------------------- the seeded fuzz
@@ -271,53 +260,13 @@ fn randomScene(r: std.Random, b: *Board, script: []TickIn) void {
     }
 }
 
-test "random scenes (seeded): exact under the mirrors; a quarter turn drifts exactly as the transpose does" {
+test "random scenes (seeded): exact under every symmetry" {
     var script: [300]TickIn = undefined;
     var prng: std.Random.DefaultPrng = .init(77);
     const r = prng.random();
-    var parted: usize = 0;
     for (0..fuzzed(100)) |_| {
         var b: Board = undefined;
         randomScene(r, &b, &script);
-        try expectExact(.mirror_x, b, 0, &script);
-        try expectExact(.mirror_y, b, 0, &script);
-        const t = drift(.transpose, b, 0, &script);
-        try testing.expectEqual(t, drift(.quarter_turn, b, 0, &script));
-        if (t.first != null) parted += 1;
+        for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &script);
     }
-    // The transpose is no symmetry: most scenes part. Were none to, the
-    // axis order would have stopped mattering and this file's account of
-    // it would be stale.
-    try testing.expect(parted > 0);
-}
-
-/// **ONE TICK'S DRIFT, WITHOUT A DRAG**: each dog takes one wish step, at
-/// most `speed` long; the two axis orders each move a dog, per axis,
-/// between 0 and the step's part, so they differ by at most `speed` on an
-/// axis. That is one dog's bound; the fuzz holds it for the whole board,
-/// later dogs reading the earlier ones' moved places. (With a drag the
-/// wishes run once per pixel-tick, and one tick's drift was seen past a
-/// pixel: no bound is claimed for it here.)
-const one_tick_drift_most = physics.speed;
-
-test "random scenes (seeded), each tick from the same board: with no drag, the transpose's drift in one tick is at most the speed" {
-    var script: [300]TickIn = undefined;
-    var prng: std.Random.DefaultPrng = .init(78);
-    const r = prng.random();
-    var worst: i32 = 0;
-    for (0..fuzzed(100)) |_| {
-        var b: Board = undefined;
-        randomScene(r, &b, &script);
-        for (&script) |*in| in.n = 0;
-        for (script, 1..) |in, t| {
-            var c = mapBoard(.transpose, b);
-            play(&b, null, t, 0, in);
-            play(&c, .transpose, t, 0, in);
-            const mb = mapBoard(.transpose, b);
-            worst = @max(worst, apart(&mb, &c));
-        }
-    }
-    try testing.expect(worst <= one_tick_drift_most);
-    // Not vacuous: some tick does drift.
-    try testing.expect(worst > 0);
 }
