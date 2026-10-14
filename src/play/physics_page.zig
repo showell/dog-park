@@ -476,7 +476,8 @@ export fn lineTick() f64 {
     return @floatFromInt(line_tick);
 }
 
-/// **A `state` LINE** in `inBuf`: its leash and drag set on board `b`; its
+/// **A `state` LINE** in `inBuf`: its leash, drag and poops laid set on
+/// board `b`; its
 /// view and held tiles into `ints`: w, h, the view's count and its col, row
 /// pairs, then the held count and pairs. 0, or -1 when it doesn't read
 /// (the board is then unchanged).
@@ -503,6 +504,8 @@ fn readStateWords(w: *Words, b: u32) error{Malformed}!void {
             return error.Malformed;
         hold = .{ .leashed = .{ .dog = dog, .drag = d } };
     }
+    try w.expect("laid");
+    const laid: u32 = @intCast(try wire.parseDec(w.next() orelse return error.Malformed, std.math.maxInt(u32)));
     try w.expect("view");
     const size = w.next() orelse return error.Malformed;
     const x = std.mem.indexOfScalar(u8, size, 'x') orelse return error.Malformed;
@@ -532,6 +535,7 @@ fn readStateWords(w: *Words, b: u32) error{Malformed}!void {
     if (!in_held) return error.Malformed;
     ints_buf[count_at] = n;
     board(b).hold = hold;
+    board(b).laid = laid;
 }
 
 /// **AN `input` LINE** in `inBuf` (`input leash T D` and the like): its
@@ -664,8 +668,8 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
     try testing.expect(readBoard(putLine(board_line), scratch) >= 0);
     try testing.expectEqual(@as(f64, 1), lineTick());
 
-    try testing.expectEqual(@as(i32, -1), readState(putLine("state leash 7 drag sideways view 0x0 held"), scratch));
-    try testing.expectEqual(@as(i32, 0), readState(putLine("state leash 7 drag ended 12 view 640x480 3,4 5,6 held 5,6"), scratch));
+    try testing.expectEqual(@as(i32, -1), readState(putLine("state leash 7 drag sideways laid 0 view 0x0 held"), scratch));
+    try testing.expectEqual(@as(i32, 0), readState(putLine("state leash 7 drag ended 12 laid 0 view 640x480 3,4 5,6 held 5,6"), scratch));
     try testing.expectEqual(@as(f64, 12), dragOf(scratch));
     try testing.expectEqualSlices(i32, &.{ 640, 480, 2, 3, 4, 5, 6, 1, 5, 6 }, ints_buf[0..10]);
 

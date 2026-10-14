@@ -59,7 +59,7 @@ try {
     for (let gx = -7; gx <= 7; gx++) if (Math.max(Math.abs(gx), Math.abs(gy)) > 1) herd.push(`dog ${dogs++} ${hex(h0 + 45 * gx)},${hex(h0 + 45 * gy)}`);
   let cows = 0;
   for (const x of [-440, -375, 375, 440]) for (let y = -330; y <= 330; y += 64) herd.push(`cow ${cows++} ${hex(h0 + x)},${hex(h0 + y)}`);
-  if (physics.readState("state leash 0 drag on view 0x0 held", KEPT) === "malformed") throw new Error("the herd's state line");
+  if (physics.readState("state leash 0 drag on laid 0 view 0x0 held", KEPT) === "malformed") throw new Error("the herd's state line");
   if (physics.readBoard(herd.join(" "), KEPT) === "malformed") throw new Error("the herd's board line");
   const full = [[100 * 256, 100 * 256, 0]];
   const h = 20;

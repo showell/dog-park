@@ -135,8 +135,9 @@ fn applyReport(kept: *judge.Kept, body: []const u8) ApplyError!void {
                 try moveAsWritten(&kept.board, c);
             },
             // A dog's walk isn't in the log (a tick's lines say where it
-            // ended, not the steps it took): an applied log leaves each at
-            // the snapshot's. Harmless: a restart is a new epoch, so the
+            // ended, not the steps it took), nor the poops laid (one laid
+            // and eaten in a tick may leave no line): an applied log leaves
+            // them at the snapshot's. Harmless: a restart is a new epoch, so the
             // next report comes after a load, which starts afresh.
             .poop => |p| {
                 if (open == null) return error.CorruptLog;
@@ -293,7 +294,7 @@ pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
     const w = &out.writer;
     var hash: [8]u8 = undefined;
     _ = std.fmt.bufPrint(&hash, "{x:0>8}", .{s.physics}) catch unreachable;
-    try w.print("dogpark snapshot 2\nphysics {s}\nstarted {d}\nlog {d} {d}\nkept {d}\n", .{ &hash, s.started, s.log_started, s.log_offset, s.kept.tick });
+    try w.print("dogpark snapshot 3\nphysics {s}\nstarted {d}\nlog {d} {d}\nkept {d}\n", .{ &hash, s.started, s.log_started, s.log_offset, s.kept.tick });
     switch (s.kept.board.hold) {
         .none => try w.writeAll("hold none\n"),
         .leashed => |l| switch (l.drag) {
@@ -301,6 +302,7 @@ pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
             .ended => |e| try w.print("hold {d} drag ended {d}\n", .{ l.dog, e }),
         },
     }
+    try w.print("laid {d}\n", .{s.kept.board.laid});
     var buf: [128]u8 = undefined;
     for (s.kept.pendingSlice()) |h| {
         var t: wire.Text = .{ .buf = &buf };
@@ -346,7 +348,7 @@ pub fn readSnapshot(bytes: []const u8) SnapshotError!Snapshot {
 
 fn readSnapshotOr(bytes: []const u8) !Snapshot {
     var lines: wire.Lines = .{ .rest = bytes };
-    if (!std.mem.eql(u8, lines.next() orelse "", "dogpark snapshot 2")) return error.Bad;
+    if (!std.mem.eql(u8, lines.next() orelse "", "dogpark snapshot 3")) return error.Bad;
     var s: Snapshot = undefined;
     s.physics = try std.fmt.parseInt(u32, try after(lines.next(), "physics "), 16);
     s.started = try wire.parseDec(try after(lines.next(), "started "), std.math.maxInt(u63));
@@ -371,6 +373,7 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
             s.kept.board.hold = .{ .leashed = .{ .dog = dog, .drag = drag } };
         }
     }
+    s.kept.board.laid = @intCast(try wire.parseDec(try after(lines.next(), "laid "), std.math.maxInt(u32)));
     var text = lines.next() orelse return error.Bad;
     while (true) : (text = lines.next() orelse return error.Bad) {
         const line = wire.parse(text) catch break;

@@ -96,24 +96,28 @@ own kin in turn, up to `nudge_most` (8) in all; if any of them is
 blocked, none moves. Nobody is ever pressed into, and still critters
 never attract or repel.
 
-## Poop and chickens (decision 26)
+## Poop and chickens (decisions 26-27)
 
 **A dog poops** each time its walk (every step it takes, counted by the
-step's larger axis, the leashed dog's own included) passes another 50 px.
+step's larger axis, the leashed dog's own included) passes another 700 px.
 The poop lands at the nearest spot where its 12 px square overlaps no
 critter and no poop the physics sees: rings 4 px apart out from the dog,
 each walked clockwise from its north-west corner, out to 200 px (none
-fits: no poop). Each dog has 4 poop slots, used in turn, so its fifth
-poop takes its first one's slot. No critter treats poop as an obstacle.
+fits: no poop). **Poop stays until a chicken eats it.** The park's poops
+take 2048 slots in turn, counted since the load (`laid`, on the `state`
+line), so only the 2049th would take the first one's slot. No critter
+treats poop as an obstacle.
 
-**A chicken** (two to each blue tile, a 20 px square) moves after the
-walk in each pixel-tick, in number order: it steps toward the nearest
-poop it sees within half a tile (250 px), as far as the leashed dog
-stepped, whole or not at all (the veto; a chicken has no kin, so it
-neither nudges nor is nudged). Then it eats every poop its square
-overlaps. It heeds no critter and plans nothing: three chickens chase the
-same poop until it's gone. Every other critter treats a chicken as an
-obstacle; the walk never visits one.
+**A chicken** (two to each blue tile, a 20 px square) is part of the
+walk (decision 27): it moves only when the walk visits it, so only while
+you drag and only near the leashed dog's cascade. On its turn it steps
+toward the nearest poop it sees within half a tile (250 px), up to 3
+times the leashed dog's step, whole or not at all (the veto; a chicken
+has no kin, so it neither nudges nor is nudged). Then it eats every poop
+its square overlaps. It heeds no critter and plans nothing: three
+chickens chase the same poop until it's gone. Every other critter treats
+a chicken as an obstacle and nothing more: no dog or cow reacts to a
+moving one.
 
 **On the wire:** a tick's checked lines add ` poop N x,y` (slot N holds a
 new poop) and ` eaten N` (a poop the region's tiles held is gone), by
@@ -142,8 +146,8 @@ Tuned by playing; each is a constant in `physics.zig`.
 | the region | `region_reach`, 1500 px each way |
 | the leash off | 320 ticks (20 s) after the drag ends |
 | the squares | dogs 40 px, cows 60 px, chickens 20 px, poop 12 px |
-| poop | every 50 px walked; 4 slots a dog; within 200 px of it |
-| a chicken's sight | 250 px (half a tile) |
+| poop | every 700 px walked; 2048 slots, in turn; within 200 px of the dog |
+| a chicken | sees 250 px (half a tile); steps 3 times the leashed dog's |
 | the first layout | `layout.zig`: 400 dogs, four to a tile, one breed per corner; 50 cows in the white tiles; 100 chickens, two side by side in the middle of each blue tile |
 
 **Arithmetic.** Positions are integer 256ths; every product is `i64`, and
@@ -292,20 +296,15 @@ from 1040 wall 1791936000000
 held 1041 30,32 31,32 32,32 33,32 34,32 35,32 36,32 30,33 31,33 32,33 33,33 34,33 35,33 36,33 30,34 31,34 32,34 33,34 34,34 35,34 36,34 30,35 31,35 36,35 30,36 31,36 36,36 30,37 31,37 32,37 33,37 34,37 35,37 36,37 30,38 31,38 32,38 33,38 34,38 35,38 36,38
 t 1041 +0 drag -1.00,0@3 -2.00,0@19
  dog 219 423c.00,463c.00 > 4239.00,463c.00
- cow 26 3b92.00,3f7a.00 > 3b93.80,3f7b.80
- cow 27 3f7a.00,3f7a.00 > 3f78.83,3f7b.80
- cow 28 4362.00,3f7a.00 > 4360.80,3f7b.7d
- cow 29 474a.00,3f7a.00 > 4748.80,3f7b.7d
- cow 32 3d86.00,416e.00 > 3d87.80,416f.80
- cow 33 416e.00,416e.00 > 416c.80,416c.83
- cow 34 4556.00,416e.00 > 4554.80,416c.83
- cow 36 3b92.00,4362.00 > 3b93.80,4360.83
+ cow 32 3d86.00,416e.00 > 3d84.83,416f.80
+ cow 33 416e.00,416e.00 > 416c.83,416f.80
+ cow 36 3b92.00,4362.00 > 3b93.80,4363.7d
  cow 37 3f7a.00,4362.00 > 3f7b.80,4363.80
  cow 38 4362.00,4362.00 > 4360.80,4363.80
- cow 39 474a.00,4362.00 > 4748.80,4360.83
- cow 42 3d86.00,4556.00 > 3d84.83,4554.80
+ cow 39 474a.00,4362.00 > 4748.80,4363.80
+ cow 42 3d86.00,4556.00 > 3d87.80,4557.7d
  cow 44 4556.00,4556.00 > 4554.80,4557.80
- cow 46 3b92.00,474a.00 > 3b93.7d,4748.80
+ cow 46 3b92.00,474a.00 > 3b93.80,4748.83
  cow 47 3f7a.00,474a.00 > 3f7b.80,4748.80
  cow 49 474a.00,474a.00 > 4748.80,4748.83
  dog 223 42d2.00,463c.00 > 42cf.00,463c.00
@@ -425,7 +424,7 @@ kept 1043
 req 4
 kept 1040
 differ 1041 dog 223 42d2.00,463c.00 > 42cf.00,463c.00
-state leash none drag none view 1280x800 (the 49 tiles) held (the viewport's 8)
+state leash none drag none laid 0 view 1280x800 (the 49 tiles) held (the viewport's 8)
 input leash 1041 219
 board 1041 dog 219 423c.00,463c.00 dog 223 42d2.00,463c.00
 ```
@@ -443,7 +442,7 @@ plays again; and the critters the report named, as they stood.
 | `kept T` | the last kept tick, after this request. With no `differ` after it, the whole report is kept: its ticks through T, and any inputs it carried for T + 1 after its last `t` line (they wait for that tick; a later report may add more for T + 1 before its `t` line). A report with no ticks gets `kept` its own `from` |
 | `differ T <line>` | the server's run has this line at tick T, and the report lacks it or writes it differently. The report is kept through T − 1 (the `kept` above), nothing of its own at T |
 | `differ T none <line>` | the report has this line at tick T, and the server's run doesn't; also every **refused** line: malformed, out of bounds, an input whose precondition fails (below), or the `t` line of a tick whose region meets a tile not held. A malformed line belongs to the current tick if it looks like a critter, `bump` or `rest` line; anything else after a tick's checked lines, to the next tick |
-| `state leash D\|none drag on\|ended E\|none view WxH c,r … held c,r …` | at the start of tick T (K + 1 for a load), before that tick's inputs: who is leashed; whether a drag is on, or the tick E it ended (the release is due at E + `let_go_ticks`), or none (unleashed); the view and the held tiles in effect, a `view` or `held` an earlier request kept for T included. The server writes tiles row, then column; a tile listed twice in one list is refused |
+| `state leash D\|none drag on\|ended E\|none laid N view WxH c,r … held c,r …` | at the start of tick T (K + 1 for a load), before that tick's inputs: who is leashed; whether a drag is on, or the tick E it ended (the release is due at E + `let_go_ticks`), or none (unleashed); the poops the park has laid since its layout; the view and the held tiles in effect, a `view` or `held` an earlier request kept for T included. The server writes tiles row, then column; a tile listed twice in one list is refused |
 | `board T dog N a cow M b …` | with `differ`: the server's critters at the start of tick T, in rank order: every one it saw at the start of T (in the region's tiles around the `state` line's leashed dog), and every one the report named |
 | `input <line>` | with a load or a `differ`: an input an earlier request already kept for that tick (K + 1, or T), as written, in order, after the `state` line's moment. Only `release`, `leash`, `grab` and `letgo`: a `view` or `held` is in the `state` line. The page plays it at that tick and never sends it again |
 | `tile c,r dog N a cow M b …` | in any answer but `req ?`: a subscribed tile's critters not yet named in a kept `held` this epoch, as they stand at the start of the tick after `kept`; the page applies them to its board at the last kept tick, to critters it hasn't received this epoch only |
@@ -630,7 +629,9 @@ snapshots alone are enough to start from.
    a cow, it closes in; a dog, it flees.
 11. **The nudge** (decision 25, 2026-10-14): a step blocked by kin
    carries them along, up to 8 critters.
-12. **Poop and chickens** (decision 26, 2026-10-14): dogs poop every
-   50 px; chickens chase the nearest poop within 250 px and eat it.
+12. **Poop and chickens** (decisions 26-27, 2026-10-14): dogs poop every
+   700 px, and poop stays until eaten; chickens walk in the cascade,
+   chase the nearest poop within 250 px at triple a dog's pace, and eat
+   it.
 
 The history behind each is in git.

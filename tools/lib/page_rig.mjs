@@ -134,8 +134,8 @@ const hex = (px) => `${Math.round(px * 256).toString(16).replace(/(..)$/, ".$1")
 /** The region's tiles around a dog at park point (x, y), [{ col, row }]. */
 export function regionAround(x, y) {
   geometry.reset();
-  geometry.readState("state leash 0 drag on view 0x0 held", SCRATCH);
-  geometry.readBoard(`board 1 dog 0 ${hex(x)},${hex(y)}`, SCRATCH);
+  if (geometry.readState("state leash 0 drag on laid 0 view 0x0 held", SCRATCH) === "malformed") throw new Error("regionAround: the state line doesn't read");
+  if (geometry.readBoard(`board 1 dog 0 ${hex(x)},${hex(y)}`, SCRATCH) === "malformed") throw new Error("regionAround: the board line doesn't read");
   return geometry.region(SCRATCH);
 }
 

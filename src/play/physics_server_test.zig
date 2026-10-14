@@ -304,7 +304,7 @@ test "2. a differ at from + 1 is answered differ, with state and board, never re
     const a = try rig.report(wrong);
     var buf: [64]u8 = undefined;
     try testing.expect(std.mem.startsWith(u8, a, try std.fmt.bufPrint(&buf, "req {d}\nkept {d}\ndiffer {d} dog 125 ", .{ page.req, page.from, page.from + 1 })));
-    try testing.expect(std.mem.indexOf(u8, a, "\nstate leash 125 drag on view 1280x800 ") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "\nstate leash 125 drag on laid 0 view 1280x800 ") != null);
     try testing.expect(std.mem.indexOf(u8, a, "\nboard ") != null);
     try testing.expect(std.mem.indexOf(u8, a, "reload") == null);
     // The page rewinds and sends its own run again: kept.
@@ -352,7 +352,7 @@ test "4. every load starts the park afresh: after play, a load gives back the fi
     // The page reloads.
     const answer = try rig.load("1280x800");
     var buf: [128]u8 = undefined;
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "epoch {d}.2\nkept {d}\nstate leash none drag none view 1280x800 held\n", .{ t0, kept }), answer);
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "epoch {d}.2\nkept {d}\nstate leash none drag none laid 0 view 1280x800 held\n", .{ t0, kept }), answer);
     const first = Board.laidOut();
     try testing.expect(std.meta.eql(first.dogs, rig.server.kept.board.dogs));
     try testing.expect(std.meta.eql(first.cows, rig.server.kept.board.cows));

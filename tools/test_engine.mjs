@@ -37,7 +37,7 @@ function script() {
 // Dogs 0 and 1 and cow 0 in tile 32,32 (the world's middle).
 const tileLine = `tile 32,32 cow 0 ${hex(16300)},${hex(16300)} dog 0 ${hex(16100)},${hex(16100)} dog 1 ${hex(16200)},${hex(16150)}`;
 
-const loadAnswer = (k = 10) => `epoch 1791935990000.1\nkept ${k}\nstate leash none drag none view 1280x800 held\n`;
+const loadAnswer = (k = 10) => `epoch 1791935990000.1\nkept ${k}\nstate leash none drag none laid 0 view 1280x800 held\n`;
 
 // A loaded page: the load answered, the first report (its view) waiting.
 async function loadedPage(s, answer = loadAnswer()) {
@@ -298,7 +298,7 @@ async function onWorld(critters, budget) {
 function differAnswer(rig, req, T, line, board) {
   const d = rig.engine.debug();
   const tiles = (keys) => keys.map((k) => ` ${k}`).join("");
-  const state = `state leash 0 drag on view 200x200${tiles(d.view)} held${tiles(d.held)}`;
+  const state = `state leash 0 drag on laid 0 view 200x200${tiles(d.view)} held${tiles(d.held)}`;
   return `req ${req}\nkept ${T - 1}\ndiffer ${T} ${line}\n${state}\nboard ${T}${board.map((c) => ` ${c.kind} ${c.n} ${hex(c.x)},${hex(c.y)}`).join("")}\n`;
 }
 

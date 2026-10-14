@@ -181,7 +181,7 @@ test("sketch B, the second half, and 2: a page whose board drifted is refuted, r
     const T = Number(/\ndiffer (\d+) dog /.exec(answer)[1]);
     assert.ok(T > K);
     assert.match(answer, new RegExp(`\\nkept ${T - 1}\\ndiffer ${T} dog ${dog.id} `));
-    assert.match(answer, /\nstate leash \d+ drag on view /);
+    assert.match(answer, /\nstate leash \d+ drag on laid \d+ view /);
     assert.match(answer, new RegExp(`\\nboard ${T} dog ${dog.id} `));
     // The next report starts from T - 1 and is kept: the rewind healed it.
     const after = wire.answers.findIndex((a) => a === refuted[0]);
@@ -395,7 +395,7 @@ test("4: a load after play starts the park afresh: the dog dragged is back where
     const fresh = await pageRig({ post: wire.post });
     await fresh.load();
     const loadAnswer = wire.answers[0].text;
-    assert.match(loadAnswer, /\nstate leash none drag none view 1280x800( \d+,\d+)* held( \d+,\d+)*\n$/);
+    assert.match(loadAnswer, /\nstate leash none drag none laid 0 view 1280x800( \d+,\d+)* held( \d+,\d+)*\n$/);
     assert.deepEqual(fresh.engine.view().leashed, { kind: "none" });
     await fresh.ticks(20);
     const back = fresh.engine.view().dogs.get(dog.id);

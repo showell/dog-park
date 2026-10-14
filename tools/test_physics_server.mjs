@@ -30,7 +30,7 @@ test("a load: a new epoch, kept 0, nothing leashed, no tiles", async () => {
   const a = await post("/load", `dogpark 1 physics ${hash} load 1280x800\n`);
   assert.equal(a.status, 200);
   assert.equal(a.type, "text/plain; charset=utf-8");
-  const m = a.text.match(/^epoch (\d+)\.1\nkept 0\nstate leash none drag none view 1280x800 held\n$/);
+  const m = a.text.match(/^epoch (\d+)\.1\nkept 0\nstate leash none drag none laid 0 view 1280x800 held\n$/);
   assert.ok(m, a.text);
   epoch = `${m[1]}.1`;
   assert.ok(Math.abs(Number(m[1]) - Date.now()) < 60_000, "the epoch is the run's start, Unix ms");

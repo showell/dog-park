@@ -27,20 +27,15 @@ pub const example_report =
     \\held 1041 30,32 31,32 32,32 33,32 34,32 35,32 36,32 30,33 31,33 32,33 33,33 34,33 35,33 36,33 30,34 31,34 32,34 33,34 34,34 35,34 36,34 30,35 31,35 36,35 30,36 31,36 36,36 30,37 31,37 32,37 33,37 34,37 35,37 36,37 30,38 31,38 32,38 33,38 34,38 35,38 36,38
     \\t 1041 +0 drag -1.00,0@3 -2.00,0@19
     \\ dog 219 423c.00,463c.00 > 4239.00,463c.00
-    \\ cow 26 3b92.00,3f7a.00 > 3b93.80,3f7b.80
-    \\ cow 27 3f7a.00,3f7a.00 > 3f78.83,3f7b.80
-    \\ cow 28 4362.00,3f7a.00 > 4360.80,3f7b.7d
-    \\ cow 29 474a.00,3f7a.00 > 4748.80,3f7b.7d
-    \\ cow 32 3d86.00,416e.00 > 3d87.80,416f.80
-    \\ cow 33 416e.00,416e.00 > 416c.80,416c.83
-    \\ cow 34 4556.00,416e.00 > 4554.80,416c.83
-    \\ cow 36 3b92.00,4362.00 > 3b93.80,4360.83
+    \\ cow 32 3d86.00,416e.00 > 3d84.83,416f.80
+    \\ cow 33 416e.00,416e.00 > 416c.83,416f.80
+    \\ cow 36 3b92.00,4362.00 > 3b93.80,4363.7d
     \\ cow 37 3f7a.00,4362.00 > 3f7b.80,4363.80
     \\ cow 38 4362.00,4362.00 > 4360.80,4363.80
-    \\ cow 39 474a.00,4362.00 > 4748.80,4360.83
-    \\ cow 42 3d86.00,4556.00 > 3d84.83,4554.80
+    \\ cow 39 474a.00,4362.00 > 4748.80,4363.80
+    \\ cow 42 3d86.00,4556.00 > 3d87.80,4557.7d
     \\ cow 44 4556.00,4556.00 > 4554.80,4557.80
-    \\ cow 46 3b92.00,474a.00 > 3b93.7d,4748.80
+    \\ cow 46 3b92.00,474a.00 > 3b93.80,4748.83
     \\ cow 47 3f7a.00,474a.00 > 3f7b.80,4748.80
     \\ cow 49 474a.00,474a.00 > 4748.80,4748.83
     \\ dog 223 42d2.00,463c.00 > 42cf.00,463c.00
@@ -193,7 +188,7 @@ test "the worked example, dog 223's step at 1041 a 256th off: differ at that lin
     var k = exampleKept();
     var buf: [8192]u8 = undefined;
     const answer = try judged(tampered, &buf, &k);
-    try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.allocPrint(a, "req 4\nkept 1040\ndiffer 1041 {s}\nstate leash none drag none ", .{right})));
+    try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.allocPrint(a, "req 4\nkept 1040\ndiffer 1041 {s}\nstate leash none drag none laid 0 ", .{right})));
     try testing.expect(std.mem.indexOf(u8, answer, "\ninput leash 1041 219\nboard 1041 ") != null);
     // Nothing of 1041 kept.
     try testing.expectEqual(@as(physics.Tick, 1040), k.tick);
@@ -238,7 +233,7 @@ test "a tick whose region meets a tile not held is refused at its t line" {
     var buf: [4096]u8 = undefined;
     const report = "dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040 wall 1791936000000\nt 1041 +0\n";
     const answer = try judged(report, &buf, &k);
-    try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1040\ndiffer 1041 none t 1041 +0\nstate leash none drag none view 1280x800"));
+    try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1040\ndiffer 1041 none t 1041 +0\nstate leash none drag none laid 0 view 1280x800"));
     // The kept leash waits for 1041, and the answer says so.
     try testing.expect(std.mem.indexOf(u8, answer, "\ninput leash 1041 219\n") != null);
 }
@@ -290,7 +285,7 @@ test "a report missing a line the server's run has, and one with a line it doesn
         var k = exampleKept();
         const report = example_report ++ "rest 1043\n";
         const answer = try judged(report, &buf, &k);
-        try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1042\ndiffer 1043 none rest 1043\nstate leash 219 drag ended 1042 "));
+        try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1042\ndiffer 1043 none rest 1043\nstate leash 219 drag ended 1042 laid 0 "));
     }
 }
 

@@ -241,6 +241,8 @@ pub fn stateAndInputs(out: *Text, kept: *const Kept, t: Tick) Text.Error!void {
             }
         },
     }
+    try out.str(" laid ");
+    try out.dec(b.laid);
     try out.str(" view ");
     try out.dec(kept.view.w);
     try out.char('x');
