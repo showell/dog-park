@@ -158,14 +158,19 @@ test "ahead only, and in the box: a cow at the box's far edge, ahead and off, mo
 
 test "a diagonal step is the step along x, a pause, then the step along y" {
     const cow = px(1150, 750);
-    // East 4 (the cow ahead, north of the line): north 2 px; then south 6
-    // (the cow behind on y): nothing.
-    try testing.expectEqual(px(1150, 748), cowAfter(px(1000, 1000), d(4, 6), cow));
+    try testing.expect(physics.px(250) <= physics.scare_box);
+    // East 4 (the cow ahead, north of the line): north half of it, 2 px,
+    // short by at most a 256th for each of the drag's internal steps (each
+    // halved, truncated); then south 6 (the cow behind on y): nothing.
+    const once = cowAfter(px(1000, 1000), d(4, 6), cow);
+    const steps: i32 = @intCast(std.math.divCeil(i32, physics.px(4), physics.step_most) catch unreachable);
+    try testing.expectEqual(cow.x, once.x);
+    try testing.expect(once.y >= cow.y - physics.px(2) and once.y < cow.y - physics.px(2) + steps);
     var b = leashedAt(px(1000, 1000));
     b.place(.cow(0), cow);
     _ = ticked(&b, 1, &.{}, &.{d(4, 0)});
     _ = ticked(&b, 2, &.{}, &.{d(0, 6)});
-    try testing.expectEqual(px(1150, 748), b.cows[0]);
+    try testing.expectEqual(once, b.cows[0]);
 }
 
 test "in the lane: with time to spare, no faster than the dog; at once when the dog is on it; and the dog never comes within the lane" {
@@ -677,11 +682,12 @@ test "the anchor is the nearest more-alpha dog of its breed; ties go to the leas
     try testing.expectEqual(Point{ .x = -(physics.px(200) - physics.band_outer), .y = 0 }, physics.wishTotal(&sc, 2));
     // Dog 4 sits 400 px from the leashed dog: its only anchor, toward it.
     try testing.expectEqual(Point{ .x = -(physics.px(400) - physics.band_outer), .y = 0 }, physics.wishTotal(&sc, 1));
-    // Dog 12 between dog 4 and dog 8, equally near both (100 px): dog 4.
-    b.place(.dog(12), px(b0 + 300, b0 + 100));
+    // Dog 12 between dog 4 and dog 8, equally near both: dog 4.
+    b.place(.dog(12), px(b0 + 300, b0 + 200));
     sc = physics.Scene.of(&b).?;
     const w = physics.wishTotal(&sc, 3);
-    // Toward dog 4 at (400, 0) from (300, 100): 141 px, 41 too far, NE.
+    // Toward dog 4 at (400, 0) from (300, 200): 223 px, past the band, NE.
+    try testing.expect(physics.band_outer < physics.px(223));
     try testing.expect(w.x > 0 and w.y < 0);
 }
 
