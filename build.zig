@@ -198,7 +198,11 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseSafe,
         .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
     }) });
-    b.step("physics-bench", "Time a physics tick natively (ReleaseSafe)").dependOn(&b.addRunArtifact(physics_bench).step);
+    const physics_bench_run = b.addRunArtifact(physics_bench);
+    // `zig build physics-bench -- herd`: the packed herd's full drag alone,
+    // a fixed number of runs, for a profiler (metal-vmm QUEUE 202).
+    if (b.args) |args| physics_bench_run.addArgs(args);
+    b.step("physics-bench", "Time a physics tick natively (ReleaseSafe); -- herd: the packed herd's drag alone, for a profiler").dependOn(&physics_bench_run.step);
 
     // A 32-tick report's round trip through POST /report, in process
     // (ReleaseSafe): the route, the judge's re-run, the log's append.

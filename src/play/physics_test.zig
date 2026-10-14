@@ -1070,3 +1070,23 @@ test "the wishes' grid sums every awake dog's wishes as the scan over every awak
     }
     try testing.expect(dogs_checked > fuzzed(400));
 }
+
+test "shortWay is the @mod formula, at every edge and over a seeded fuzz of the whole i32 range (202)" {
+    const w = physics.world;
+    const h = physics.half_world;
+    const plain = struct {
+        fn f(v: i32) i32 {
+            return @mod(v + h, w) - h;
+        }
+    }.f;
+    const edges = [_]i32{ 0, 1, -1, h - 1, h, h + 1, -h - 1, -h, -h + 1, w - 1, w, w + 1, -w - 1, -w, -w + 1, w + h - 1, w + h, w + h + 1, -w - h - 1, -w - h, -w - h + 1, 2 * w, -2 * w, std.math.maxInt(i32) - h, std.math.minInt(i32) + h };
+    for (edges) |v| try testing.expectEqual(plain(v), physics.shortWay(v));
+    var prng: std.Random.DefaultPrng = .init(202);
+    const r = prng.random();
+    for (0..fuzzed(100_000)) |_| {
+        const v = r.intRangeAtMost(i32, std.math.minInt(i32) + h, std.math.maxInt(i32) - h);
+        try testing.expectEqual(plain(v), physics.shortWay(v));
+        const close = r.intRangeAtMost(i32, -w - h, w + h);
+        try testing.expectEqual(plain(close), physics.shortWay(close));
+    }
+}

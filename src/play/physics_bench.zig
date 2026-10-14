@@ -53,31 +53,11 @@ fn timeTick(io: std.Io, start: *const Board, humans: []const physics.Human, drag
     return @as(f64, @floatFromInt(t1 - t0)) / @as(f64, @floatFromInt(runs)) / 1000.0;
 }
 
-pub fn main(init: std.process.Init) !void {
-    const io = init.io;
-    const full = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = physics.cap }});
+const Herd = struct { board: Board, dogs: u16, cows: u16 };
 
-    // The park's busiest spot.
-    var park = Board.laidOut();
-    var busiest: u16 = 0;
-    var most: usize = 0;
-    for (0..physics.dog_count) |i| {
-        park.hold = .{ .leashed = .{ .dog = @intCast(i), .drag = .on } };
-        const n = awakeCount(&park);
-        if (n > most) {
-            most = n;
-            busiest = @intCast(i);
-        }
-    }
-    park.hold = .{ .leashed = .{ .dog = busiest, .drag = .on } };
-    var lines: physics.Lines = .{};
-    var probe = park;
-    _ = physics.tick(&probe, 1, &.{}, full.slice(), &lines);
-    std.debug.print("park's busiest spot: dog {d}, {d} awake (itself included), the full drag: {d} lines, {d:.1} us a tick\n", .{ busiest, most, lines.len, timeTick(io, &park, &.{}, full.slice()) });
-    std.debug.print("  the same, no drag (wishes alone): {d:.1} us a tick\n", .{timeTick(io, &park, &.{}, &.{})});
-
-    // A packed herd: dogs on a 45 px grid around the leashed dog, the cows
-    // in columns beside them, every one within 500 px.
+/// A packed herd: dogs on a 45 px grid around the leashed dog, the cows
+/// in columns beside them, every one within 500 px.
+fn packedHerd() Herd {
     var herd = Board.empty();
     const c0 = 16000;
     herd.place(.dog(0), px(c0, c0));
@@ -101,7 +81,49 @@ pub fn main(init: std.process.Init) !void {
             cow += 1;
         }
     }
-    std.debug.print("a packed herd: {d} dogs and {d} cows placed, {d} awake: wishes alone {d:.1} us, the full drag {d:.1} us a tick\n", .{ n, cow, awakeCount(&herd), timeTick(io, &herd, &.{}, &.{}), timeTick(io, &herd, &.{}, full.slice()) });
+    return .{ .board = herd, .dogs = n, .cows = cow };
+}
+
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const full = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = physics.cap }});
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
+    // **FOR A PROFILER** (`-- herd`): the packed herd's full drag, 20 runs,
+    // nothing else, so a profile is that tick's.
+    if (args.len > 1 and std.mem.eql(u8, args[1], "herd")) {
+        const herd = packedHerd();
+        var lines: physics.Lines = .{};
+        var sink: usize = 0;
+        for (0..20) |_| {
+            var b = herd.board;
+            _ = physics.tick(&b, 1, &.{}, full.slice(), &lines);
+            sink +%= lines.len;
+        }
+        std.mem.doNotOptimizeAway(sink);
+        return;
+    }
+
+    // The park's busiest spot.
+    var park = Board.laidOut();
+    var busiest: u16 = 0;
+    var most: usize = 0;
+    for (0..physics.dog_count) |i| {
+        park.hold = .{ .leashed = .{ .dog = @intCast(i), .drag = .on } };
+        const n = awakeCount(&park);
+        if (n > most) {
+            most = n;
+            busiest = @intCast(i);
+        }
+    }
+    park.hold = .{ .leashed = .{ .dog = busiest, .drag = .on } };
+    var lines: physics.Lines = .{};
+    var probe = park;
+    _ = physics.tick(&probe, 1, &.{}, full.slice(), &lines);
+    std.debug.print("park's busiest spot: dog {d}, {d} awake (itself included), the full drag: {d} lines, {d:.1} us a tick\n", .{ busiest, most, lines.len, timeTick(io, &park, &.{}, full.slice()) });
+    std.debug.print("  the same, no drag (wishes alone): {d:.1} us a tick\n", .{timeTick(io, &park, &.{}, &.{})});
+
+    var herd = packedHerd();
+    std.debug.print("a packed herd: {d} dogs and {d} cows placed, {d} awake: wishes alone {d:.1} us, the full drag {d:.1} us a tick\n", .{ herd.dogs, herd.cows, awakeCount(&herd.board), timeTick(io, &herd.board, &.{}, &.{}), timeTick(io, &herd.board, &.{}, full.slice()) });
 
     // A 32-tick report from the busiest spot, re-run by the server.
     var page = park;

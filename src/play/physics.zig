@@ -169,7 +169,16 @@ pub fn delta(a: Point, b: Point) Point {
 pub const half_world: i32 = @divExact(world, 2);
 
 /// A difference on one axis, the short way round: in [−world/2, world/2).
+/// Two points in the world are less than a world apart, so one add or
+/// subtract of the world brings it round; only a difference past that
+/// (none the physics makes) takes the division. The same as
+/// `@mod(d + half_world, world) - half_world` for every `d`.
 pub fn shortWay(d: i32) i32 {
+    if (d >= half_world) {
+        if (d < world + half_world) return d - world;
+    } else if (d >= -half_world) {
+        return d;
+    } else if (d >= -half_world - world) return d + world;
     return @mod(d + half_world, world) - half_world;
 }
 
