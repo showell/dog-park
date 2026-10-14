@@ -172,8 +172,10 @@ pub const half_world: i32 = @divExact(world, 2);
 /// Two points in the world are less than a world apart, so one add or
 /// subtract of the world brings it round; only a difference past that
 /// (none the physics makes) takes the division. The same as
-/// `@mod(d + half_world, world) - half_world` for every `d`.
+/// `@mod(d + half_world, world) - half_world` for every `d`. Most
+/// differences are already short, and one unsigned compare says so.
 pub fn shortWay(d: i32) i32 {
+    if (@as(u32, @bitCast(d +% half_world)) < world) return d;
     if (d >= half_world) {
         if (d < world + half_world) return d - world;
     } else if (d >= -half_world) {
