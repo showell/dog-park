@@ -1,6 +1,6 @@
 //! **THE WORKED EXAMPLE AS A GOLDEN FIXTURE** (docs/PHYSICS.md, test 26):
 //! the doc's report, its `kept 1043` answer, and the exact `differ` answer
-//! to it with dog 223's step at 1042 a 256th off, byte for byte; and the
+//! to it with dog 223's step at 1041 a 256th off; and the
 //! page's side, writing that report from its own board. The two goldens
 //! pin the wire's form and the page and the server agreeing; a retune
 //! changes them, and their failures print the new text, which goes here
@@ -35,12 +35,10 @@ pub const example_report =
     \\t 1041 +0 drag -1.00,0@3 -2.00,0@19
     \\ dog 219 423c.00,463c.00 > 4239.00,463c.00
     \\ cow 43 416e.00,4556.00 > 416e.00,4554.80
-    \\ dog 223 42d2.00,463c.00 > 42ce.88,463c.00
+    \\ dog 223 42d2.00,463c.00 > 42cf.00,463c.00
     \\letgo 1042
     \\t 1042 +63
-    \\ dog 223 42ce.88,463c.00 > 42ce.10,463c.00
     \\t 1043 +125
-    \\ dog 223 42ce.10,463c.00 > 42cd.98,463c.00
     \\
 ;
 
@@ -55,14 +53,15 @@ pub const follower: u16 = 223;
 
 /// The played board: today's park in the 64 x 64 world, dog 219 at
 /// (16956, 17980) and dog 223 150 px east of it; every other dog that was
-/// laid out within the awake sphere of 219 has wandered off (to empty
-/// ground far away); the cows where they were laid out.
+/// laid out in the tiles of 219's region (all awake) has wandered off (to
+/// empty ground far away); the cows where they were laid out.
 pub fn exampleBoard() Board {
     var b = Board.laidOut();
     const at219 = px(16956, 17980);
+    const span = physics.TileSpan.of(physics.region(at219));
     var far: i32 = 0;
     for (&b.dogs) |*d| {
-        if (physics.len2(physics.delta(at219, d.*)) <= @as(i64, physics.awake_reach + physics.px(40)) * (physics.awake_reach + physics.px(40))) {
+        if (span.holdsPoint(d.*)) {
             d.* = px(1000 + 100 * far, 1000);
             far += 1;
         }
@@ -176,60 +175,41 @@ fn exampleLine(t: physics.Tick, who: []const u8, buf: []u8) ![]const u8 {
     return std.fmt.bufPrint(buf, "{s}", .{example_report[at + 1 .. eol]});
 }
 
-const differ_answer = "req 4\n" ++
-    "kept 1041\n" ++
-    "differ 1042 dog 223 42ce.88,463c.00 > 42ce.10,463c.00\n" ++
-    "state leash 219 drag on view 1280x800" ++
-    " 30,32 31,32 32,32 33,32 34,32 35,32 36,32" ++
-    " 30,33 31,33 32,33 33,33 34,33 35,33 36,33" ++
-    " 30,34 31,34 32,34 33,34 34,34 35,34 36,34" ++
-    " 30,35 31,35 32,35 33,35 34,35 35,35 36,35" ++
-    " 30,36 31,36 32,36 33,36 34,36 35,36 36,36" ++
-    " 30,37 31,37 32,37 33,37 34,37 35,37 36,37" ++
-    " 30,38 31,38 32,38 33,38 34,38 35,38 36,38" ++
-    " held" ++
-    " 30,32 31,32 32,32 33,32 34,32 35,32 36,32" ++
-    " 30,33 31,33 32,33 33,33 34,33 35,33 36,33" ++
-    " 30,34 31,34 32,34 33,34 34,34 35,34 36,34" ++
-    " 30,35 31,35 32,35 33,35 34,35 35,35 36,35" ++
-    " 30,36 31,36 32,36 33,36 34,36 35,36 36,36" ++
-    " 30,37 31,37 32,37 33,37 34,37 35,37 36,37" ++
-    " 30,38 31,38 32,38 33,38 34,38 35,38 36,38" ++
-    "\n" ++
-    "board 1042 dog 219 4239.00,463c.00 cow 37 3f7a.00,4362.00 cow 38 4362.00,4362.00 cow 43 416e.00,4554.80 cow 44 4556.00,4556.00 cow 47 3f7a.00,474a.00 cow 48 4362.00,474a.00 dog 223 42ce.88,463c.00\n";
-
-test "the worked example, dog 223's step at 1042 a 256th off: the exact differ answer" {
+test "the worked example, dog 223's step at 1041 a 256th off: differ at that line, the server's own line and its state and board at 1041" {
     try playedOnly();
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var line_buf: [128]u8 = undefined;
-    const right = try exampleLine(1042, " dog 223 ", &line_buf);
+    const right = try exampleLine(1041, " dog 223 ", &line_buf);
     const last = right[right.len - 1];
     const wrong = try std.fmt.allocPrint(a, "{s}{c}", .{ right[0 .. right.len - 1], @as(u8, if (last == '0') '1' else '0') });
     const tampered = try std.mem.replaceOwned(u8, a, example_report, try std.fmt.allocPrint(a, " {s}\n", .{right}), try std.fmt.allocPrint(a, " {s}\n", .{wrong}));
     var k = exampleKept();
     var buf: [8192]u8 = undefined;
-    try testing.expectEqualStrings(differ_answer, try judged(tampered, &buf, &k));
-    // Kept through 1041; the drag still on at the start of 1042.
-    try testing.expectEqual(@as(physics.Tick, 1041), k.tick);
-    try testing.expectEqual(physics.Drag.on, k.board.hold.leashed.drag);
+    const answer = try judged(tampered, &buf, &k);
+    try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.allocPrint(a, "req 4\nkept 1040\ndiffer 1041 {s}\nstate leash none drag none ", .{right})));
+    try testing.expect(std.mem.indexOf(u8, answer, "\ninput leash 1041 219\nboard 1041 ") != null);
+    // Nothing of 1041 kept.
+    try testing.expectEqual(@as(physics.Tick, 1040), k.tick);
 }
 
-test "the worked example's region holds the viewport, and its awake critters are the leashed dog, the cows within the sphere and dog 223" {
+test "the worked example's region holds the viewport, and its awake critters are every one in the region's tiles" {
     try playedOnly();
     var b = exampleBoard();
     b.hold = .{ .leashed = .{ .dog = leashed, .drag = .on } };
     const region = exampleRegion();
     for (exampleViewport().slice()) |t| try testing.expect(region.holds(t));
     const sc = physics.Scene.of(&b).?;
-    var awake: [16]physics.Critter = undefined;
+    // Every critter in the region's tiles is awake: here the leashed dog,
+    // dog 223 and the cows there.
+    const span = physics.TileSpan.of(physics.region(b.dogs[leashed]));
     var n: usize = 0;
-    for (sc.list()) |s| if (s.awake == .awake) {
-        awake[n] = s.who;
-        n += 1;
-    };
-    try testing.expectEqualSlices(physics.Critter, &.{ .dog(leashed), .cow(37), .cow(38), .cow(43), .cow(44), .cow(47), .cow(48), .dog(follower) }, awake[0..n]);
+    for (sc.list()) |s| {
+        try testing.expectEqual(span.holdsPoint(b.at(s.who)), s.awake == .awake);
+        if (s.awake == .awake and s.who.kind == .dog) n += 1;
+    }
+    try testing.expectEqual(@as(usize, 2), n);
 }
 
 /// The page's side: its board holds only the critters of the tiles it has.

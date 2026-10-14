@@ -692,6 +692,10 @@ fn wishes(sc: *Scene, most: i32) void {
     }
     const r = root orelse return;
     var lined = [_]bool{false} ** critter_count;
+    // The dogs in motion this step: the leashed dog, then each visited.
+    var moving_buf: [physics.walk_most + 1]usize = undefined;
+    var moving: std.ArrayList(usize) = .initBuffer(&moving_buf);
+    moving.appendAssumeCapacity(r);
     var buf: [critter_count]Wait = undefined;
     var waiting: std.ArrayList(Wait) = .initBuffer(&buf);
     lined[r] = true;
@@ -705,7 +709,8 @@ fn wishes(sc: *Scene, most: i32) void {
         }
         const i = waiting.swapRemove(best).who;
         lined[i] = true;
-        stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
+        stepSwept(sc, i, stepAtMost(wishTotal(sc, i, moving.items), most));
+        moving.appendAssumeCapacity(i);
         lineUp(sc, i, &waiting, &lined);
     }
 }
@@ -890,11 +895,6 @@ fn stepSwept(sc: *Scene, i: usize, want: Point) void {
     sc.put(i, moved(at, slide, r.by));
 }
 
-/// The step dog `i` wants: its wishes summed, the dead zone, the speed.
-pub fn wishStep(sc: *const Scene, i: usize) Point {
-    return stepOf(wishTotal(sc, i));
-}
-
 /// The step a total of wishes comes to: none inside the dead zone; the
 /// total itself within the speed; else scaled to the speed.
 pub fn stepOf(total: Point) Point {
@@ -915,33 +915,33 @@ pub fn stepAtMost(total: Point, most: i32) Point {
 
 /// The sum of dog `i`'s wishes: room from other breeds above it, its place
 /// against its anchor, room from the cows. Only awake critters count.
-pub fn wishTotal(sc: *const Scene, i: usize) Point {
+/// Dog `i`'s wishes, written plainly: room from every awake cow within
+/// `cow_room`; room from the dogs of other breeds in `moving` (the walk so
+/// far this step) within `wary`; and its anchor, the nearest dog of its
+/// breed in `moving` (ties to the lower index).
+pub fn wishTotal(sc: *const Scene, i: usize, moving: []const usize) Point {
     const me = sc.seen[i];
     const p = sc.pos(i);
     const breed = me.who.n % breeds;
     var total: Point = .{ .x = 0, .y = 0 };
-    var anchor: ?usize = null;
-    var anchor_d2: i64 = 0;
     for (sc.awakeOnes()) |j16| {
         const j: usize = j16;
-        const o = sc.seen[j];
+        if (sc.seen[j].who.kind != .cow) continue;
+        const q = sc.pos(j);
+        const d2 = measure(delta(q, p));
+        if (d2 <= measureOf(cow_room)) add(&total, away(q, p, cow_room - @as(i32, @intCast(lengthOf(d2)))));
+    }
+    var anchor: ?usize = null;
+    var anchor_d2: i64 = 0;
+    for (moving) |j| {
         if (j == i) continue;
         const q = sc.pos(j);
         const d2 = measure(delta(q, p));
-        switch (o.who.kind) {
-            .cow => if (d2 <= measureOf(cow_room)) {
-                add(&total, away(q, p, cow_room - @as(i32, @intCast(lengthOf(d2)))));
-            },
-            .dog => {
-                // Every stranger within `wary`; its anchor above it.
-                const above = o.rank < me.rank;
-                if (o.who.n % breeds != breed) {
-                    if (d2 <= measureOf(wary)) add(&total, away(q, p, wary - @as(i32, @intCast(lengthOf(d2)))));
-                } else if (above and d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
-                    anchor = j;
-                    anchor_d2 = d2;
-                }
-            },
+        if (sc.seen[j].who.n % breeds != breed) {
+            if (d2 <= measureOf(wary)) add(&total, away(q, p, wary - @as(i32, @intCast(lengthOf(d2)))));
+        } else if (anchor == null or d2 < anchor_d2 or (d2 == anchor_d2 and j < anchor.?)) {
+            anchor = j;
+            anchor_d2 = d2;
         }
     }
     if (anchor) |j| {

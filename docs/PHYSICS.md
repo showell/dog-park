@@ -61,30 +61,28 @@ Steve's rules, which everything here follows:
   clock: drags are displacements, and critters react to them at once,
   whatever their speed. Wall time paces the page and is recorded, never
   computed with.
-- **The dogs move in a walk out from the leashed dog:** at each step,
-  shortest link first, each dog lining up its 3 nearest, at most 30
-  dogs, each reacting to where the dogs before it now stand. A dog heeds every
-  stranger near it, above or below; it follows only a more-alpha dog of
-  its breed (its anchor), so a herd hangs off its most-alpha member and
-  the board has a direction. How well it settles is for play to show,
-  not for a proof.
+- **Dogs move only while the leashed dog is dragged, in a walk out from
+  it:** at each pixel of the drag, shortest link first, each dog lining
+  up its 3 nearest, at most 40 dogs. **A dog reacts only to dogs in
+  motion:** the leashed dog and the dogs the walk moved before it this
+  step, where they now stand. It keeps clear of every cow, and never
+  presses into anyone, moving or still. How well it settles is for play
+  to show, not for a proof.
 - **A dog wants three things, each with a comfortable band:**
   - to keep its distance from dogs of other breeds;
-  - to keep near, but not on top of, the nearest more-alpha dog of its
-    own breed;
+  - to keep near, but not on top of, the nearest dog of its own breed
+    that is moving this step (its anchor);
   - to keep clear of the leashed dog and the cows.
 
   It moves only while something is outside its band. Once all three are
   satisfied, it rests.
-- **7.5 px a second on its own,** with positions kept in 256ths of a
-  pixel so a slow dog really is slow: 120/256 of a pixel a tick. **And
-  pixel-ticks** (decision 15): during a drag, for each pixel the leashed
-  dog moves, every awake dog takes a step of at most that pixel, so the
-  pack keeps pace with the human.
-- **Awake means close and watched.** A critter takes part only if it
+- **Pixel-ticks** (decision 15): during a drag, for each pixel the
+  leashed dog moves, the walk's dogs each take a step of at most that
+  pixel, so the pack keeps pace with the human. With no drag, no dog
+  moves (decision 21).
+- **Awake means in the region's tiles.** A critter takes part only if it
   stands in a tile meeting the region around the leashed dog (tiles the
-  page always holds before it ticks) *and* it is within 800 px of the
-  leashed dog.
+  page always holds before it ticks).
   Unleashing puts the whole park to sleep. When a tick moves nothing, the
   human does nothing and no let-go timer is running, the page stops
   ticking and sends nothing until the human acts again (a drag, a grab, a
@@ -146,11 +144,11 @@ the opposite one (the torus, decision 14), and so does everyone.
 Within a tick, in this order:
 
 1. **For each step of the drag,** as above: the cows react, the leashed
-   dog moves, then every awake dog takes a wish step of at most that
+   dog moves, then the walk's dogs take a wish step of at most that
    move. Physics never moves the leashed dog otherwise. Cows ignore the
    other dogs, and push them (below).
-2. **Then, once per tick, every awake dog** takes its own step at the
-   speed (7.5 px a second).
+2. **Then, once per tick,** a dog a cow landed on comes out from under
+   it. No dog takes a step of its own (decision 21).
 
 **The walk** (Steve, 2026-10-14, decision 20), in each wish step, the
 pixel-tick's and the tick's own: every awake dog comes out from under a
@@ -161,15 +159,18 @@ visits the waiting dog with the least of those (ties to the lower
 number): it works out its wish by the rules below, seeing the dogs
 visited before it where they moved to (and the cows' and the leashed
 dog's new places), steps at once, and lines up its own 3 nearest not yet
-lined up, from where it now stands. So a pack of dogs close to one
+visited, from where it now stands (a dog already waiting takes the
+nearer of its two keys). So a pack of dogs close to one
 another is walked to its end before a dog farther from the dog that
 found it, however near the leashed dog that one is. The walk stops after
-`walk_most` (30) dogs; a dog it doesn't reach stays put this step. Only
-awake dogs take part. A dog reacts to the dog beside it, not to its
-rank: rank decides only who follows whom.
+`walk_most` (40) dogs; a dog it doesn't reach stays put this step. Only
+awake dogs take part. **A dog reacts only to dogs in motion** (decision
+21): its room from the other breeds and its anchor come from the leashed
+dog and the dogs visited before it this step; still dogs it only never
+presses into. Rank only breaks ties.
 
-So the cows and the dogs both react to every pixel of a drag, and the
-dogs creep on at the speed once a tick, drag or not. A critter's report
+So the cows and the dogs both react to every pixel of a drag, and
+nothing moves between drags. A critter's report
 line is its net move over the tick, however many steps it took.
 
 **What a pixel-tick lets a dog cover.** A tick's drag is capped at 100 px
@@ -194,24 +195,20 @@ anchors, strangers or room-makers; a sleeper the physics sees is just an
 obstacle, and a critter outside the **region's tiles** isn't there at all
 (below), so the page never needs critters beyond them.
 
-**The leashed dog counts as the most alpha dog of all** (Steve,
-2026-10-13): it is above every dog in the cascade, so for these rules it
-is more alpha than any of them, whatever its number. **Only its own breed
-follows it:** those dogs can anchor on it, so their herd follows the
-player. Dogs of other breeds never follow it; they keep their wary
-distance and gather in herds of their own breed.
+**The leashed dog leads its own breed:** dogs of its breed can anchor on
+it, so their herd follows the player. Dogs of other breeds keep their
+wary distance from it.
 
-**1. Room from other breeds.** For each dog of another breed (the
-leashed dog included, and those below D as well as above), within the
+**1. Room from other breeds.** For each dog of another breed in motion
+(the leashed dog, or one the walk moved before D this step), within the
 *wary* distance, D wants to be farther away. Its wish
 is a step straight away from that dog, as long as the shortfall. These
 add up, so a dog squeezed between two strangers is pushed out sideways.
 
 **2. Its place in the herd.** D's *anchor* is the nearest dog of its own
-breed that is more alpha (the leashed dog included, if it is of D's
-breed), within the *follow* distance; between two equally near, the
-higher-ranked: the leashed dog first, then the lower number. If D has no
-anchor, it is the herd's head and only keeps its room. Against the anchor:
+breed in motion (the leashed dog, or one the walk moved before D this
+step), at any distance in the awake area; between two equally near, the
+lower number. If D has none, it only keeps its room. Against the anchor:
 - **Too far** (beyond the band's outer edge): D wants to step toward it,
   as long as the excess over the edge.
 - **Too close** (inside the inner edge): D wants to step away, as long as
@@ -219,7 +216,8 @@ anchor, it is the herd's head and only keeps its room. Against the anchor:
   "near but not on top".
 - **In the band:** content.
 
-**3. Room from the cows.** The same as 1, with its own distance. (The
+**3. Room from the cows.** The same as 1, with its own distance, from
+every awake cow, moving or not. (The
 leashed dog needs no rule of its own: other breeds keep their wary
 distance from it, and its own breed its herd band.)
 
@@ -309,7 +307,8 @@ rate a second as 256ths a tick; one that doesn't divide doesn't compile),
 | speed | `perTick(px(15) / 2)` | 7.5 px a second: 120/256 of a pixel a tick |
 | pixel-tick | `step_most = px(1)` | a drag's internal step, at most 1 px; after each, every awake dog's step of at most that move (decision 15) |
 | dead zone | `px(1)` | 1 px |
-| awake (the sphere) | `awake_reach = px(800)` | within 800 px of the leashed dog, centre to centre, at the tick's start |
+| region's size | `awake_reach = px(800)` | sizes the region ("The region's size, derived"); awake is every critter in the region's tiles |
+| the walk | `walk_most = 40`, `walk_fan = 3` | at most 40 dogs a step; each visited dog lines up its 3 nearest |
 | wary of another breed | `wary = px(225)` | 225 px centre to centre |
 | follow: an anchor within | `follow = px(600)` | 600 px |
 | herd band, to the anchor | `band_inner`, `band_outer` | 60 to 100 px, centre to centre |
@@ -603,11 +602,9 @@ between. Every other move glides, however far a fast drag carried it.
 
 ## What "awake" means
 
-Both, as Steve decided: a critter is awake if the page has it *and* it is
-within **800 px of the leashed dog**, at the tick's start (the **sphere of
-influence**, `awake_reach`). Exactly: its point stands in a tile meeting
-the region (a tile the page always holds before it ticks), and it is
-within 800 px.
+**Every critter in the region's tiles** (Steve, 2026-10-14, decision 21):
+its point stands in a tile meeting the region, which the page always
+holds before it ticks. `awake_reach` (800 px) now only sizes the region.
 
 **The tiles are not the sphere** (decision 13). The checkerboard is how
 the page learns about critters; the sphere is what the physics acts on.
@@ -1478,3 +1475,15 @@ and the request numbering.
     the fan-out replaced it the same day. Two tests moved with the walk:
     the minimal scene's dog is 200 px off, and the blocked-step test
     blocks with a cow, since a dog in the way now steps aside first.
+21. **Dogs move only in a drag, and react only to dogs in motion** (Steve,
+    2026-10-14, by playing with the walk's visit numbers drawn under each
+    dog): no idle step; a dog's room from the other breeds and its anchor
+    come from the dogs the walk moved before it this step (the leashed dog
+    first), so still dogs neither attract nor repel (they are still never
+    pressed into); the anchor has no reach and no rank; a waiting dog
+    takes the nearer of two keys; the walk moves up to 40 dogs; awake is
+    every critter in the region's tiles. Dogs that liked each other
+    equally clumped and the leashed dog could not lead; now it leads. The
+    page labels each dog with its number and its place in the last walk.
+    Tests of the old wish rules (bands, wariness, rank anchors, the idle
+    speed, the shift of the laid-out herd) went; the properties stayed.
