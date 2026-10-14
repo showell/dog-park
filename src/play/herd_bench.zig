@@ -18,6 +18,9 @@
 //!   breeds' corners, let go.
 //! - `still`: leashed and held 30 s without a move, let go: herds that
 //!   form here formed on their own, not behind a drag.
+//! - `passed`: `through`, then dog 220 released and the nearest breed-2
+//!   dog led back up the diagonal past the herd for 600 px each way, let
+//!   go: does the first herd hold while another is led past it?
 //!
 //! **THE CENSUS AT THREE TIMES:** the let-go, 10 s after it, and 30 s after
 //! (the leash lets go `let_go_ticks` after the drag ends, 20 s as played,
@@ -49,7 +52,13 @@ const Leg = struct { ticks: u32, dx: i32, dy: i32 };
 const Script = struct {
     name: []const u8,
     legs: []const Leg,
+    /// After the let-go: release dog 220 at once and lead the nearest dog
+    /// of `breed` along `legs`, so the first herd is judged by whether it
+    /// holds while another passes it (`kept` at +10 s and +30 s).
+    then: ?Then = null,
 };
+
+const Then = struct { breed: u8, legs: []const Leg };
 
 const scripts = [_]Script{
     .{ .name = "line", .legs = &.{.{ .ticks = 200, .dx = 6, .dy = 0 }} },
@@ -57,6 +66,7 @@ const scripts = [_]Script{
     .{ .name = "swing", .legs = &.{ .{ .ticks = 100, .dx = 6, .dy = 0 }, .{ .ticks = 100, .dx = 0, .dy = -6 }, .{ .ticks = 100, .dx = -6, .dy = 0 } } },
     .{ .name = "through", .legs = &.{.{ .ticks = 250, .dx = 6, .dy = 6 }} },
     .{ .name = "still", .legs = &.{.{ .ticks = 30 * secs, .dx = 0, .dy = 0 }} },
+    .{ .name = "passed", .legs = &.{.{ .ticks = 250, .dx = 6, .dy = 6 }}, .then = .{ .breed = 2, .legs = &.{.{ .ticks = 100, .dx = -6, .dy = -6 }} } },
 };
 
 /// A census by each yardstick.
@@ -113,7 +123,37 @@ fn play(s: Script) Played {
     p.at_letgo = .of(&b);
     t += 1;
     _ = step(&b, t, if (regrab) &.{ .grab, .letgo } else &.{.letgo}, &.{});
-    for (1..30 * secs) |k| {
+    if (s.then) |then| {
+        // Released, and the nearest dog of the breed leashed.
+        var other: u16 = 0;
+        var best: i64 = std.math.maxInt(i64);
+        for (b.dogs, 0..) |q, n| {
+            if (n % physics.breeds != then.breed) continue;
+            const d2 = physics.len2(physics.delta(b.dogs[leashed], q));
+            if (d2 < best) {
+                best = d2;
+                other = @intCast(n);
+            }
+        }
+        t += 1;
+        _ = step(&b, t, &.{ .{ .release = leashed }, .{ .leash = other } }, &.{});
+        var k: u32 = 0;
+        regrab = false;
+        for (then.legs) |leg| for (0..leg.ticks) |_| {
+            t += 1;
+            k += 1;
+            const d: physics.Disp = .{ .dx = physics.px(leg.dx), .dy = physics.px(leg.dy) };
+            regrab = step(&b, t, if (regrab) &.{.grab} else &.{}, &.{d});
+            if (k == 10 * secs) p.after_10 = .of(&b);
+        };
+        t += 1;
+        _ = step(&b, t, if (regrab) &.{ .grab, .letgo } else &.{.letgo}, &.{});
+        while (k < 30 * secs) : (k += 1) {
+            t += 1;
+            _ = step(&b, t, &.{}, &.{});
+            if (k == 10 * secs) p.after_10 = .of(&b);
+        }
+    } else for (1..30 * secs) |k| {
         t += 1;
         _ = step(&b, t, &.{}, &.{});
         if (k == 10 * secs) p.after_10 = .of(&b);
