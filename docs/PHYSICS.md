@@ -61,12 +61,14 @@ Steve's rules, which everything here follows:
   clock: drags are displacements, and critters react to them at once,
   whatever their speed. Wall time paces the page and is recorded, never
   computed with.
-- **A dog's wishes look only up the cascade:** at the leashed dog, the
-  cows and more-alpha dogs, never at dogs further down. A beta never
-  pushes an alpha; the board has a direction, and is meant to settle.
-  How well it settles is for play to show, not for a proof.
+- **Every dog thinks at once:** at each step, every awake dog's wish
+  comes from the same positions, and only then do they move. A dog heeds
+  every stranger near it, above or below; it follows only a more-alpha
+  dog of its breed (its anchor), so a herd hangs off its most-alpha
+  member and the board has a direction. How well it settles is for play
+  to show, not for a proof.
 - **A dog wants three things, each with a comfortable band:**
-  - to keep its distance from dogs of other breeds above it;
+  - to keep its distance from dogs of other breeds;
   - to keep near, but not on top of, the nearest more-alpha dog of its
     own breed;
   - to keep clear of the leashed dog and the cows.
@@ -146,11 +148,16 @@ Within a tick, in this order:
    dog moves, then every awake dog takes a wish step of at most that
    move. Physics never moves the leashed dog otherwise. Cows ignore the
    other dogs, and push them (below).
-2. **Then, once per tick, every awake dog, by number, smallest first,**
-   takes its own step at the speed (7.5 px a second). Each wish step sees
-   the positions of everything above it *as already moved*: the leashed
-   dog's new place, the cows' new places, and the more-alpha dogs' new
-   places.
+2. **Then, once per tick, every awake dog** takes its own step at the
+   speed (7.5 px a second).
+
+**Everyone at once** (Steve, 2026-10-14), in each wish step, the
+pixel-tick's and the tick's own: every awake dog comes out from under a
+cow first, by number; then every dog's wish is worked out from the same
+positions (the cows' and the leashed dog's new places included); then
+the steps are swept, by number, smallest first. So a dog reacts to the
+dog beside it, not to its rank; rank decides only who follows whom and
+who yields when two steps meet.
 
 So the cows and the dogs both react to every pixel of a drag, and the
 dogs creep on at the speed once a tick, drag or not. A critter's report
@@ -159,14 +166,12 @@ line is its net move over the tick, however many steps it took.
 **What a pixel-tick lets a dog cover.** A tick's drag is capped at 100 px
 on each axis, so the leashed dog moves at most 200 px of path (100 along
 x, then 100 along y): its Manhattan length. A follower gets one wish step
-per pixel of that path, each at most a pixel *long* (Euclidean), so it
-can cover up to 200 px, plus the speed's 120/256. On a diagonal drag of
-(100, 100) the leashed dog ends 141 px from where it began, and a
-follower walking straight at it covers 200: about 1.4 times. That is
-deliberate (decision 15): the budget is the human's effort, not the
-leashed dog's displacement.
+per pixel of that path, each at most a pixel on each axis (distance is
+the larger axis), so it can cover up to 200 px on each axis, plus the
+speed's 120/256. That is deliberate (decision 15): the budget is the
+human's effort, not the leashed dog's displacement.
 
-Looking only up the cascade also gives followers for free, as Steve
+Following only up the ranks gives followers for free, as Steve
 wanted. A beta's anchor is
 always someone more alpha, so a herd forms as a chain or tree hanging off
 its most-alpha member. When the player pushes the alpha around, the herd trails
@@ -187,8 +192,9 @@ follows it:** those dogs can anchor on it, so their herd follows the
 player. Dogs of other breeds never follow it; they keep their wary
 distance and gather in herds of their own breed.
 
-**1. Room from other breeds above it.** For each dog of another breed
-above D (the leashed dog included), within the *wary* distance, D wants to be farther away. Its wish
+**1. Room from other breeds.** For each dog of another breed (the
+leashed dog included, and those below D as well as above), within the
+*wary* distance, D wants to be farther away. Its wish
 is a step straight away from that dog, as long as the shortfall. These
 add up, so a dog squeezed between two strangers is pushed out sideways.
 
@@ -208,23 +214,23 @@ anchor, it is the herd's head and only keeps its room. Against the anchor:
 leashed dog needs no rule of its own: other breeds keep their wary
 distance from it, and its own breed its herd band.)
 
-**Distances** are Euclidean, centre to centre, compared squared (no root
-needed to compare). **"Within N px" means at most N px,** everywhere in
+**Distance is the larger axis** (Chebyshev; Steve, 2026-10-14, after
+playing it beside the straight line), centre to centre: every reach is a
+square, as the critters are. No root is taken anywhere in the wishes. **"Within N px" means at most N px,** everywhere in
 this doc. **When two
 centres coincide** (an overlap slipped through), "away" has no direction:
 take east.
 
 **The wish arithmetic, in this order.** Each wish, per axis, is the axis
 of the centre-to-centre vector times the wish's length, divided by the
-distance (`isqrt`, rounded down), the product in `i64` and the quotient
-truncated toward zero. The wishes are summed per axis. The step is then
-the total if its squared length is at most the speed squared (exact, no
-root), else each axis of the total times the speed, divided by the total's
-length (`isqrt` of its squared length), truncated toward zero. **Every
-comparison of a length with a number is made squared,** the dead zone's
-too; `isqrt` appears as a divisor, and as a length in one place: a
-wish's length against an edge is `isqrt(d²) − edge` (the excess over a
-band's outer edge, or the shortfall inside a distance). The step's limit
+distance (the larger axis), the product in `i64` and the quotient
+truncated toward zero. So a wish keeps its direction; only its length is
+the larger axis. A wish's length against an edge is the distance − the
+edge (the excess over a band's outer edge, or the shortfall inside a
+distance). The wishes are summed per axis. The step is then the total if
+its larger axis is at most the step's limit, else each axis of the total
+times the limit, divided by the total's larger axis, truncated toward
+zero: a step at the limit may go that far on both axes. The step's limit
 is the speed for the once-a-tick step and the leashed dog's move for a
 pixel-tick's (`stepAtMost`). With today's numbers every limit is at most
 1 px, the dead zone's length, so the first branch runs only for a total
@@ -244,7 +250,7 @@ It's a little jump, and that's fine (Steve's call).
 
 **The step.**
 1. Add up the wishes.
-2. If the total's squared length is less than the **dead zone**'s squared
+2. If the total's larger axis is less than the **dead zone**
    (1 px to start), D stays put this tick: close enough.
 3. Otherwise D moves along the total, by the total's length or the
    step's limit (the speed, or a pixel-tick's move), whichever is less, and **stops where it would press into any
@@ -329,47 +335,15 @@ relations; `zig build slow` runs the physics' tests under it, so a test
 that pins a played value instead of a property fails there. The worked
 example's tests are the played knobs' and skip under alt.
 
-**The metric** (metal-vmm QUEUE 205(b)). `zig build -Dmetric=` picks how far
-apart two critters are, for every rule above that reaches: the sphere,
-`wary`, `follow`, the herd band, `cow_room`, the speed and the dead zone.
-- `euclid` (the default, the played one): the straight line, compared in
-  squares, with the one integer root for a wish's length.
-- `chebyshev`: the larger axis. Every reach is a square, as the critters
-  are, and a step at the speed may go that far on both axes at once (a
-  diagonal step is √2 longer than under euclid). No root anywhere.
-- `manhattan`: the axes added. Every reach is a diamond; a diagonal step
-  is half each axis. No root either.
-
-A wish keeps its direction under all three: its axes are the vector's,
-times its length, over the vector's length in the metric
-(`quotientAlong`). Not the metric's: the overlap test (squares'), the
-drag's budget (per axis), and a jump's nearest clear spot (by straight
-line, physics_jump.zig). The metric's name joins the physics hash, as the
-alt knobs' does, so a page and a server built with different metrics
-never agree. `zig build slow` runs the physics' tests and the identity
-test under each other metric; the worked example's tests are euclid's and
-skip under the others. `zig build herds` (herd_bench.zig) prints the
-herds' census on fixed play under the build's metric.
-
-**How the dogs think** (metal-vmm QUEUE 205(c), the essay's step 3).
-`zig build -Dthink=` picks it:
-- `ranked` (the default, the played one): the cascade above, each dog's
-  wish from the board as the dogs above it left it, wary only of the
-  strangers above it.
-- `together`: at each pixel-tick (and the tick's own step) every awake
-  dog comes out from under first, then every wish is worked out from the
-  same positions, then the steps are swept, in rank order. A dog is wary
-  of every stranger within `wary`, above it or below. Its anchor is still
-  the nearest dog of its breed above it. Rank decides only who yields
-  when two steps meet, which is invisible.
-
-Its name joins the physics hash too, and `zig build slow` runs the
-physics' tests and the identity test under the other one.
+`zig build herds` (herd_bench.zig) prints the herds' census on fixed play
+scripts: herds per breed, each herd's size and length (its diameter in
+hops), links a dog (2 a chain, 4 or more a clump), and how much of each
+herd holds 10 and 30 seconds after the let-go.
 
 **Arithmetic.** Every critter's position is an integer count of 256ths of
-a pixel, the cows' too, with an integer square root for distances. **Every product is `i64`:** squared distances
-(in 256ths, about 7·10^13 along one axis of the 64 × 64 world and
-1.3·10^14 on its diagonal, well inside `i64`; about 10^12 within a
+a pixel, the cows' too. **Every product is `i64`:** a jump's squared
+distances (in 256ths, about 7·10^13 along one axis of the 64 × 64 world
+and 1.3·10^14 on its diagonal, well inside `i64`; about 10^12 within a
 region), a wish's direction times its length
 (about 8·10^9 at the extremes), and a total scaled to the speed. Only a
 quotient comes back to `i32`, and every `i32` holds a position, a
@@ -925,15 +899,15 @@ req 4
 kept 1041
 differ 1042 dog 223 42ce.88,463c.00 > 42ce.10,463c.00
 state leash 219 drag on view 1280x800 (the 49 tiles) held (the same 49)
-board 1042 dog 219 4239.00,463c.00 cow 38 4362.00,4362.00 cow 43 416e.00,4554.80 cow 47 3f7a.00,474a.00 cow 48 4362.00,474a.00 dog 223 42ce.88,463c.00
+board 1042 dog 219 4239.00,463c.00 cow 37 3f7a.00,4362.00 cow 38 4362.00,4362.00 cow 43 416e.00,4554.80 cow 44 4556.00,4556.00 cow 47 3f7a.00,474a.00 cow 48 4362.00,474a.00 dog 223 42ce.88,463c.00
 ```
 
 In the second: ticks through 1041 are kept; the server's own line for
 1042; at the start of 1042, before its inputs, dog 219 leashed with the
 drag still on (the `letgo 1042` is an input of the unkept tick), the view
 from 1041 and all 49 tiles held (written out in full on the wire); the
-six awake critters, as tick 1041 left them: the three the report named,
-and cows 38, 47 and 48, which didn't move. No `input` lines: no earlier request kept an input for 1042.
+eight awake critters, as tick 1041 left them: the three the report named,
+and cows 37, 38, 44, 47 and 48, which didn't move. No `input` lines: no earlier request kept an input for 1042.
 No `tile` lines: every subscribed tile is held.
 
 | answer line | says |
@@ -1470,3 +1444,15 @@ and the request numbering.
     `physics_symmetry_test.zig` holds the transpose and a quarter turn
     exact. The drag still plays x then y (decision 9): its displacements
     are the human's, and the cows' grid rule is per axis.
+19. **Distance is the larger axis, and everyone thinks at once** (Steve,
+    2026-10-14, after playing both against the straight line and rank
+    order; metal-vmm QUEUE 205 measured them first): every reach (the
+    sphere, `wary`, `follow`, the herd band, `cow_room`, the speed, the
+    dead zone) is a square, as the critters are, and no root is taken in
+    the wishes; every awake dog's wish comes from the same positions and
+    heeds every stranger within `wary`, above or below, with rank left to
+    say who follows whom and who yields when steps meet. Measured on the
+    herd scripts (`zig build herds`): a straight drag through the park no
+    longer stalls on bumps (one script went from 122 bumps and 472 of
+    1,200 px to none), and herds grow longer. The straight line and rank
+    order were build switches while they were compared, and are gone.

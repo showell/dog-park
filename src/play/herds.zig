@@ -4,10 +4,9 @@
 //!
 //! - **The herd graph:** two dogs of one breed are linked when they are
 //!   within `link` of each other (the herd band's outer edge plus `slack`),
-//!   by a `Yardstick`: `.rules`, the physics' own metric (`-Dmetric`), so a
-//!   herd is held to the band it is held by; or `.eye`, the straight line
-//!   whatever the metric, as the screen shows it, so two metrics' herds
-//!   are compared on one ruler.
+//!   by a `Yardstick`: `.rules`, the physics' own distance (the larger
+//!   axis), so a herd is held to the band it is held by; or `.eye`, the
+//!   straight line, as the screen shows it.
 //! - **A herd** is a connected group of that graph of at least `least`
 //!   dogs. A dog alone, or two, is no herd.
 //! - **Its size** is its dogs; **its length** the most hops between two of
@@ -92,7 +91,7 @@ pub const Census = struct {
     }
 };
 
-/// What a link is measured by: the physics' metric, or the straight line.
+/// What a link is measured by: the physics' distance, or the straight line.
 pub const Yardstick = enum { rules, eye };
 
 fn linked(yard: Yardstick, a: physics.Point, b: physics.Point) bool {
@@ -311,8 +310,8 @@ test "stability: a census keeps all of itself; a herd split in half keeps a half
     try testing.expectEqual(@as(f64, 1), kept(&scattered, &whole));
 }
 
-test "a link is the band's edge plus the slack, in the physics' metric: a dog just inside is linked, just outside not" {
-    // On the diagonal, where the metrics differ most, and along an axis.
+test "a link is the band's edge plus the slack, in the physics' distance: a dog just inside is linked, just outside not" {
+    // On the diagonal, where the two rulers differ most, and along an axis.
     const p = at(16000, 16000);
     try testing.expect(linked(.rules, p, lineAt(p, link)));
     try testing.expect(!linked(.rules, p, lineAt(p, link + 256)));
@@ -320,13 +319,13 @@ test "a link is the band's edge plus the slack, in the physics' metric: a dog ju
         try testing.expect(linked(yard, p, .{ .x = p.x + link, .y = p.y }));
         try testing.expect(!linked(yard, p, .{ .x = p.x + link + 1, .y = p.y }));
     }
-    // The eye's diagonal is the straight line's under every metric.
+    // The eye's diagonal is the straight line's.
     const d = @divTrunc(link * 7, 10);
     try testing.expect(linked(.eye, p, .{ .x = p.x + d, .y = p.y + d }));
     try testing.expect(!linked(.eye, p, .{ .x = p.x + link * 3 / 4, .y = p.y + link * 3 / 4 }));
 }
 
-/// The point on the diagonal from `p` whose metric length is at most `len`
+/// The point on the diagonal from `p` whose physics length is at most `len`
 /// and as near it as a 256th allows.
 fn lineAt(p: physics.Point, len: i32) physics.Point {
     var k: i32 = 0;

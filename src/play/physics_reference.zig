@@ -136,36 +136,21 @@ pub fn len2(v: Point) i64 {
     return x * x + y * y;
 }
 
-/// The integer square root, rounded down.
-pub fn isqrt(v: i64) i64 {
-    std.debug.assert(v >= 0);
-    return std.math.sqrt(@as(u64, @intCast(v)));
-}
-
-/// **THE METRIC** (205(b)): physics.zig's (`-Dmetric`), written plainly
-/// here, each reach compared as `dist(v) <= reach` would be: under
-/// `euclid` in squares, under the others in lengths.
-const metric = physics.metric;
-
-/// A vector's length under the metric, as a key that orders as it does.
+/// A vector's length, written plainly: its larger axis (Chebyshev).
 fn measure(v: Point) i64 {
     const x: i64 = @intCast(@abs(v.x));
     const y: i64 = @intCast(@abs(v.y));
-    return switch (metric) {
-        .euclid => x * x + y * y,
-        .chebyshev => @max(x, y),
-        .manhattan => x + y,
-    };
+    return @max(x, y);
 }
 
-/// The key of a length `r`.
+/// A length `r` as `measure` gives it.
 fn measureOf(r: i64) i64 {
-    return if (metric == .euclid) r * r else r;
+    return r;
 }
 
-/// The length a key stands for, rounded down.
+/// The length a `measure` stands for.
 fn lengthOf(k: i64) i64 {
-    return if (metric == .euclid) isqrt(k) else k;
+    return k;
 }
 
 pub const Kind = physics.Kind;
@@ -690,30 +675,20 @@ fn outFromUnder(sc: *Scene, i: usize) void {
 /// `most`: once a tick at the speed, and once per pixel-tick of the drag at
 /// the leashed dog's own step.
 fn wishes(sc: *Scene, most: i32) void {
-    if (physics.think == .together) {
-        // Everyone at once (205(c)): out from under, then every wish from
-        // the same positions, then the steps, each pass in rank order.
-        for (sc.awakeOnes()) |w16| {
-            const s = sc.seen[w16];
-            if (s.who.kind == .dog and s.rank != 0) outFromUnder(sc, w16);
-        }
-        var steps: [critter_count]Point = undefined;
-        for (sc.awakeOnes()) |w16| {
-            const s = sc.seen[w16];
-            if (s.who.kind == .dog and s.rank != 0) steps[w16] = stepAtMost(wishTotal(sc, w16), most);
-        }
-        for (sc.awakeOnes()) |w16| {
-            const s = sc.seen[w16];
-            if (s.who.kind == .dog and s.rank != 0) stepSwept(sc, w16, steps[w16]);
-        }
-        return;
+    // Everyone at once: out from under, then every wish from the same
+    // positions, then the steps, each pass in rank order.
+    for (sc.awakeOnes()) |w16| {
+        const s = sc.seen[w16];
+        if (s.who.kind == .dog and s.rank != 0) outFromUnder(sc, w16);
+    }
+    var steps: [critter_count]Point = undefined;
+    for (sc.awakeOnes()) |w16| {
+        const s = sc.seen[w16];
+        if (s.who.kind == .dog and s.rank != 0) steps[w16] = stepAtMost(wishTotal(sc, w16), most);
     }
     for (sc.awakeOnes()) |w16| {
-        const i: usize = w16;
-        const s = sc.seen[i];
-        if (s.who.kind != .dog or s.rank == 0) continue;
-        outFromUnder(sc, i);
-        stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
+        const s = sc.seen[w16];
+        if (s.who.kind == .dog and s.rank != 0) stepSwept(sc, w16, steps[w16]);
     }
 }
 
@@ -910,11 +885,10 @@ pub fn wishTotal(sc: *const Scene, i: usize) Point {
                 add(&total, away(q, p, cow_room - @as(i32, @intCast(lengthOf(d2)))));
             },
             .dog => {
-                // Strangers above it, or every one under `together`; its
-                // anchor above it either way.
+                // Every stranger within `wary`; its anchor above it.
                 const above = o.rank < me.rank;
                 if (o.who.n % breeds != breed) {
-                    if ((above or physics.think == .together) and d2 <= measureOf(wary)) add(&total, away(q, p, wary - @as(i32, @intCast(lengthOf(d2)))));
+                    if (d2 <= measureOf(wary)) add(&total, away(q, p, wary - @as(i32, @intCast(lengthOf(d2)))));
                 } else if (above and d2 <= measureOf(follow) and (anchor == null or d2 < anchor_d2)) {
                     anchor = j;
                     anchor_d2 = d2;

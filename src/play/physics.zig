@@ -73,39 +73,21 @@ pub const tile: i32 = px(tiles.tile_px);
 pub const Knobs = @TypeOf(@import("physics_options").knobs);
 pub const knobs: Knobs = @import("physics_options").knobs;
 
-/// **THE METRIC** (metal-vmm QUEUE 205(b), `zig build -Dmetric`): how far
-/// apart two critters are, for every rule that reaches (awake, `wary`,
-/// `follow`, the herd band, `cow_room`, a step's `speed` and its
-/// `dead_zone`):
-/// - `euclid`, the straight line (the played one);
-/// - `chebyshev`, the larger axis: a reach is a square, as the critters
-///   are, and a step at the speed may go that far on both axes at once;
-/// - `manhattan`, the axes added: a reach is a diamond.
-/// A wish keeps its direction under all three; only its length is the
-/// metric's. Unchanged by it: the overlap test (squares'), the drag's
-/// budget (per axis), and a jump's nearest clear spot, by straight line
-/// (physics_jump.zig), so a jump has the same few ties under every metric.
-pub const Metric = @TypeOf(@import("physics_options").metric);
-pub const metric: Metric = @import("physics_options").metric;
-
-/// **HOW THE DOGS THINK** (metal-vmm QUEUE 205(c), the essay's step 3,
-/// `zig build -Dthink`):
-/// - `ranked` (the played one): in rank order, each dog's wish from the
-///   board as those above it left it, heeding only the strangers above it;
-/// - `together`: every awake dog's wish from the same positions, the
-///   pixel-tick's (`wishesTogether`), heeding every stranger within
-///   `wary`, above or below. The anchor is still the nearest dog of its
-///   breed above it (the essay's step 4 changes that), and the steps are
-///   swept in rank order, so rank decides only who yields on contact.
-pub const Think = @TypeOf(@import("physics_options").think);
-pub const think: Think = @import("physics_options").think;
-
-/// Whether dog `i` heeds stranger `j` (another breed's dog): one above it
-/// (`j < i`, `seen` being in rank order), or any under `together`.
-inline fn heedsStranger(i: usize, j: usize) bool {
-    return think == .together or j < i;
-}
-
+/// **DISTANCE IS THE LARGER AXIS** (Chebyshev; Steve, 2026-10-14, after
+/// playing it against the straight line): every rule that reaches (awake,
+/// `wary`, `follow`, the herd band, `cow_room`, a step's `speed` and its
+/// `dead_zone`) measures a reach as a square, as the critters are, and a
+/// step at the speed may go that far on both axes at once. A wish keeps
+/// its direction; only its length is the larger axis. Not a reach: the
+/// overlap test (squares'), the drag's budget (per axis), and a jump's
+/// nearest clear spot, by straight line (physics_jump.zig), so a jump has
+/// few ties.
+///
+/// **EVERYONE THINKS AT ONCE** (Steve, 2026-10-14; `wishes`): every awake
+/// dog's wish comes from the same positions, the pixel-tick's, and heeds
+/// every stranger within `wary`, above or below. The anchor is still the
+/// nearest dog of its breed above it, and the steps are swept in rank
+/// order, so rank decides only who follows whom and who yields on contact.
 fn tuned(comptime played: anytype, comptime alt: @TypeOf(played)) @TypeOf(played) {
     return switch (knobs) {
         .played => played,
@@ -271,65 +253,31 @@ pub fn len2(v: Point) i64 {
     return x * x + y * y;
 }
 
-/// The integer square root, rounded down: a float's guess, then corrected
-/// in integers until r² ≤ v < (r + 1)², so the float only makes it fast.
-///
-/// **BELOW 2⁵² THE GUESS IS EXACT** (202), and the correction is skipped:
-/// `v` converts exactly and the root is rounded correctly, so the guess is
-/// at least r (r is a double, and rounding keeps order). And √v ≤
-/// √((r + 1)² − 1), more than 1 / (2(r + 1)) short of r + 1, while near r +
-/// 1 ≤ 2²⁶ half a double's spacing is at most 2⁻²⁸ below a power of two
-/// and 2⁻²⁷ elsewhere: the root never rounds up to r + 1.
-pub inline fn isqrt(v: i64) i64 {
-    std.debug.assert(v >= 0);
-    const u: u64 = @intCast(v);
-    var r: u64 = @intFromFloat(@sqrt(@as(f64, @floatFromInt(u))));
-    if (u < 1 << 52) return @intCast(r);
-    while (r * r > u) r -= 1;
-    while ((r + 1) * (r + 1) <= u) r += 1;
-    return @intCast(r);
-}
-
-/// A vector's length under `metric`, as a key that orders as the length
-/// does: under `euclid` its square (no root is needed to compare), under
-/// the others the length itself. Every reach is compared in keys:
+/// A vector's length: its larger axis. Every reach is compared in it:
 /// `measure(v) <= measureOf(reach)`.
 pub inline fn measure(v: Point) i64 {
-    const x: i64 = v.x;
-    const y: i64 = v.y;
-    return switch (metric) {
-        .euclid => x * x + y * y,
-        .chebyshev => @max(@as(i64, @intCast(@abs(x))), @as(i64, @intCast(@abs(y)))),
-        .manhattan => @as(i64, @intCast(@abs(x))) + @as(i64, @intCast(@abs(y))),
-    };
+    return @max(@as(i64, @intCast(@abs(v.x))), @as(i64, @intCast(@abs(v.y))));
 }
 
-/// The key `measure` gives a vector `r` long, `r` ≥ 0.
+/// The `measure` of a vector `r` long, `r` ≥ 0: `r` itself.
 pub inline fn measureOf(r: i64) i64 {
-    return if (metric == .euclid) r * r else r;
+    return r;
 }
 
-/// The length a `measure` key stands for, rounded down: under `euclid`
-/// `isqrt`, the one root the physics takes; under the others the key.
-/// A vector's every axis is at most it, under all three (`quotientAlong`).
+/// The length a `measure` stands for: itself. A vector's every axis is at
+/// most it (`quotientAlong`).
 pub inline fn lengthOf(k: i64) i64 {
-    return if (metric == .euclid) isqrt(k) else k;
+    return k;
 }
 
 /// How many times `Scene.drift` (the most any critter moved on an axis)
-/// bounds how much nearer two critters can have come under `metric`: each
-/// moved at most √2 × drift by straight line (and 2√2 < 3), drift on its
-/// larger axis, 2 × drift on both added.
-pub const drift_nearer: i32 = switch (metric) {
-    .euclid => 3,
-    .chebyshev => 2,
-    .manhattan => 4,
-};
+/// bounds how much nearer two critters can have come: each moved at most
+/// drift on its larger axis.
+pub const drift_nearer: i32 = 2;
 
 /// **A WISH'S AXIS: `@divTrunc(c × length, l)`, FOR |c| ≤ l** (202), where
 /// `l` > 0 is the `lengthOf` length of the vector `c` is an axis of, so
-/// |c| ≤ `l` (under `euclid` c² ≤ the squared length, and |c| is whole;
-/// under the others an axis is at most their length), and `length` >
+/// |c| ≤ `l` (an axis is at most the larger axis), and `length` >
 /// minInt(i32). Truncated toward zero, it is the magnitudes' quotient with
 /// the product's sign, at most |`length`| < 2³¹: so it is worked in
 /// unsigned magnitudes, and the narrowings ReleaseSafe would check cannot
@@ -1154,7 +1102,7 @@ pub const Scene = struct {
                     var cx = wishCellOf(p.x - reach);
                     while (cx <= wishCellOf(p.x + reach)) : (cx += 1) {
                         var j = s.wg_head[wishBucket(@intCast(class), cx, cy)];
-                        while (j != wish_none and (if (class == breeds) j < i else heedsStranger(i, j))) : (j = s.wg_next[j]) {
+                        while (j != wish_none and (class != breeds or j < i)) : (j = s.wg_next[j]) {
                             if (measure(delta(s.pos(j), p)) > reach2) continue;
                             if (n == rooms_most) return;
                             s.rl[n] = j;
@@ -1479,22 +1427,12 @@ noinline fn jumpOut(sc: *Scene, i: usize) void {
 /// **THE DOGS' WISHES**, every awake dog by number, each step at most
 /// `most`: once a tick at the speed, and once per pixel-tick of the drag at
 /// the leashed dog's own step.
+///
+/// **EVERYONE AT ONCE**: every awake dog out from under first, in rank
+/// order; then every wish, from the same positions; then the steps, swept
+/// in rank order.
 fn wishes(sc: *Scene, most: i32) void {
     sc.refresh(most);
-    if (think == .together) return wishesTogether(sc, most);
-    for (sc.awakeOnes()) |w16| {
-        const i: usize = w16;
-        const s = sc.seen[i];
-        if (s.who.kind != .dog or s.rank == 0) continue;
-        outFromUnder(sc, i);
-        stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
-    }
-}
-
-/// **EVERYONE AT ONCE** (`think` = `together`): every awake dog out from
-/// under first, in rank order; then every wish, from the same positions;
-/// then the steps, swept in rank order.
-fn wishesTogether(sc: *Scene, most: i32) void {
     for (sc.awakeOnes()) |w16| {
         const s = sc.seen[w16];
         if (s.who.kind != .dog or s.rank == 0) continue;
@@ -1828,7 +1766,7 @@ fn addRoom(sc: *const Scene, total: *Point, i: usize, p: Point, class: u16, reac
             // In rank order: past the first not above dog `i`, none count
             // (under `together`, every stranger does).
             var j = sc.wg_head[wishBucket(class, cx, cy)];
-            while (j != wish_none and (if (class == breeds) j < i else heedsStranger(i, j))) : (j = sc.wg_next[j]) {
+            while (j != wish_none and (class != breeds or j < i)) : (j = sc.wg_next[j]) {
                 const v = delta(sc.pos(j), p);
                 const d2 = measure(v);
                 if (d2 > reach2) continue;
@@ -1856,11 +1794,9 @@ const room_lanes: comptime_int = std.simd.suggestVectorLength(f64) orelse 1;
 /// in integers. The vectors give the same pushes, term for term:
 /// - two points in the world are less than a world apart on each axis, so
 ///   the short way is one add or subtract of the world, in i32;
-/// - the axes (|v| ≤ `half_world` < 2²³) convert to f64 exactly, and their
-///   squares and sum (< 2⁴⁷) are exact;
-/// - below 2⁵² a double's square root, truncated, is `isqrt` (as there);
-///   under the other metrics the length is the axes' larger or sum, in
-///   i32 (each axis < 2²³), exactly `lengthOf`;
+/// - the axes (|v| ≤ `half_world` < 2²³) convert to f64 exactly;
+/// - the length is the larger axis, in i32 (each axis < 2²³), exactly
+///   `lengthOf`;
 /// - the shortfall `reach` − l and each axis times it (< 2⁴⁶) are exact;
 /// - a quotient of integers below 2⁵³, rounded once, truncates to the
 ///   integer one: if whole it is exact, and otherwise the true quotient is
@@ -1880,7 +1816,6 @@ fn addRoomsListed(sc: *const Scene, total: *Point, p: Point, list: []const u16, 
         const hw: VI = @splat(half_world);
         const zero: VI = @splat(0);
         const reach_v: VI = @splat(reach);
-        const reach2: VF = @splat(@as(f64, @floatFromInt(@as(i64, reach) * reach)));
         var sum_x: VI = zero;
         var sum_y: VI = zero;
         while (rest.len >= N) : (rest = rest[N..]) {
@@ -1899,13 +1834,8 @@ fn addRoomsListed(sc: *const Scene, total: *Point, p: Point, list: []const u16, 
             const fy: VF = @floatFromInt(vy);
             const ux: VI = @bitCast(@abs(vx));
             const uy: VI = @bitCast(@abs(vy));
-            const d2 = fx * fx + fy * fy;
-            const l: VI = switch (metric) {
-                .euclid => @intFromFloat(@sqrt(d2)),
-                .chebyshev => @max(ux, uy),
-                .manhattan => ux + uy,
-            };
-            const near = if (metric == .euclid) d2 <= reach2 else l <= reach_v;
+            const l: VI = @max(ux, uy);
+            const near = l <= reach_v;
             const short: VF = @floatFromInt(reach_v - l);
             const lf: VF = @floatFromInt(@max(l, @as(VI, @splat(1))));
             const ax: VI = @intFromFloat(fx * short / lf);
@@ -1945,7 +1875,7 @@ fn anchorOf(sc: *const Scene, i: usize, p: Point, breed: u16) ?Anchor {
     var k: i32 = 0;
     while (k <= wish_rings) : (k += 1) {
         if (k > 0) {
-            // Under every metric a length is at least the larger axis.
+            // A length is the larger axis.
             const least = measureOf(@as(i64, k - 1) * wish_cell);
             if (least > follow2) break;
             if (best) |b| if (least > b.d2) break;
@@ -1986,14 +1916,10 @@ pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
     var total: Point = .{ .x = 0, .y = 0 };
     var anchor: ?usize = null;
     var anchor_d2: i64 = 0;
-    // In rank order: past an unleashed dog, every awake one is a dog below
-    // it, and none of those count.
-    const past_me_none_count = think == .ranked and me.who.kind == .dog and me.rank != 0;
     for (sc.awakeOnes()) |j16| {
         const j: usize = j16;
         const o = sc.seen[j];
         if (j == i) continue;
-        if (past_me_none_count and j > i) break;
         const q = sc.pos(j);
         const v = delta(q, p);
         const d2 = measure(v);
@@ -2005,7 +1931,7 @@ pub fn wishTotalScanned(sc: *const Scene, i: usize) Point {
             .dog => {
                 const above = o.rank < me.rank;
                 if (o.who.n % breeds != breed) {
-                    if ((above or think == .together) and d2 <= measureOf(wary)) {
+                    if (d2 <= measureOf(wary)) {
                         const l = lengthOf(d2);
                         add(&total, awayRooted(v, l, wary - @as(i32, @intCast(l))));
                     }
@@ -2040,7 +1966,7 @@ inline fn awayRooted(v: Point, l: i64, length: i32) Point {
 }
 
 /// A wish `length` long along `v`: each axis of `v` times the length,
-/// divided by `v`'s length (`isqrt`), truncated toward zero.
+/// divided by `v`'s length (its larger axis), truncated toward zero.
 pub fn wishAlong(v: Point, length: i32) Point {
     return wishAlongRooted(v, lengthOf(measure(v)), length);
 }

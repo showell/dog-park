@@ -56,4 +56,4 @@ treat them as orientation.
 the physics' tests alone. The benches (`zig build physics-bench`,
 `zig build physics-server-bench`, `node tools/bench_page.mjs`) are in no
 tier, nor is `zig build herds`: the herds' census on fixed play scripts
-(src/play/herd_bench.zig), under the build's `-Dmetric` and `-Dknobs`.
+(src/play/herd_bench.zig), under the build's `-Dknobs`.

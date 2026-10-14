@@ -18,10 +18,8 @@ const Point = physics.Point;
 /// The worked example is the doc's, written under the played knobs: under
 /// another tuning (-Dknobs=alt) the same inputs play out otherwise, so its
 /// tests skip there, by name; the tests derived from no example still run.
-/// The worked example (docs/PHYSICS.md) is the played physics': Steve's
-/// knobs and the straight-line metric.
 fn playedOnly() !void {
-    if (physics.knobs != .played or physics.metric != .euclid) return error.SkipZigTest;
+    if (physics.knobs != .played) return error.SkipZigTest;
 }
 
 /// The doc's physics hash (a placeholder there): the judge takes it as its
@@ -198,7 +196,7 @@ const differ_answer = "req 4\n" ++
     " 30,37 31,37 32,37 33,37 34,37 35,37 36,37" ++
     " 30,38 31,38 32,38 33,38 34,38 35,38 36,38" ++
     "\n" ++
-    "board 1042 dog 219 4239.00,463c.00 cow 38 4362.00,4362.00 cow 43 416e.00,4554.80 cow 47 3f7a.00,474a.00 cow 48 4362.00,474a.00 dog 223 42ce.88,463c.00\n";
+    "board 1042 dog 219 4239.00,463c.00 cow 37 3f7a.00,4362.00 cow 38 4362.00,4362.00 cow 43 416e.00,4554.80 cow 44 4556.00,4556.00 cow 47 3f7a.00,474a.00 cow 48 4362.00,474a.00 dog 223 42ce.88,463c.00\n";
 
 test "the worked example, dog 223's step at 1042 a 256th off: the exact differ answer" {
     try playedOnly();
@@ -231,7 +229,7 @@ test "the worked example's region holds the viewport, and its awake critters are
         awake[n] = s.who;
         n += 1;
     };
-    try testing.expectEqualSlices(physics.Critter, &.{ .dog(leashed), .cow(38), .cow(43), .cow(47), .cow(48), .dog(follower) }, awake[0..n]);
+    try testing.expectEqualSlices(physics.Critter, &.{ .dog(leashed), .cow(37), .cow(38), .cow(43), .cow(44), .cow(47), .cow(48), .dog(follower) }, awake[0..n]);
 }
 
 /// The page's side: its board holds only the critters of the tiles it has.

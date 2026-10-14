@@ -278,15 +278,12 @@ test "a pack: exact under every symmetry" {
 }
 
 // **THE MINIMAL SCENE**: the leashed dog still, dog 4 (its breed) 400 px
-// off on the diagonal, closing on it at the speed, its step (−84, −84)
-// in 256ths; a cow just off its path, 40 and 20 256ths beyond touching.
-// Swept x then y, dog 4 would pass the cow on x and stop on y 20 short,
-// (−84, −20), and transposed end (−40, −84) in this frame: 64 256ths
-// apart. As one move (decision 18), the step overlaps the cow
-// on y at 20/84 of the way and presses into its x face at 40/84: cut
-// there to (−40, −40), it slides the rest of y to (−40, −84), and the
-// transpose gives the same. Under another metric (205(b)) the step and
-// the cow's room are other lengths, so only the orientations are held.
+// off on the diagonal, closing on it at the speed, its step (−120, −120)
+// in 256ths (the speed on both axes: distance is the larger axis); a cow
+// just off its path, 40 and 20 256ths beyond touching. As one move
+// (decision 18), the step overlaps the cow on y at 20/120 of the way and
+// presses into its x face at 40/120: cut there to (−40, −40), it slides
+// the rest of y to (−40, −120), and the transpose gives the same.
 test "the minimal scene: a dog's diagonal step meets a cow's face, not its corner, the same in every orientation" {
     // Its numbers are the played knobs' speed and halves.
     if (physics.knobs != .played) return error.SkipZigTest;
@@ -298,7 +295,7 @@ test "the minimal scene: a dog's diagonal step meets a cow's face, not its corne
     const one = [1]TickIn{.{}};
     var a = b;
     play(&a, null, 1, 0, one[0]);
-    if (physics.metric == .euclid) try testing.expectEqual(Point{ .x = dog.x - 40, .y = dog.y - 84 }, a.dogs[4]);
+    try testing.expectEqual(Point{ .x = dog.x - 40, .y = dog.y - 120 }, a.dogs[4]);
     for (std.enums.values(Sym)) |s| try expectExact(s, b, 0, &one);
     try expectShifted(b, 0, &one);
 }

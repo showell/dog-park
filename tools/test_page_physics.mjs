@@ -57,6 +57,13 @@ async function untilAsleep(rig, cap) {
   for (let n = 0; n < cap && rig.engine.debug().ticking; n++) await rig.ticks(1);
 }
 
+// Frames until every tick the page ran is reported and kept (no more than
+// `cap`): a page asleep still sends its last ticks, at the report spacing.
+async function untilAllKept(rig, cap) {
+  for (let n = 0; n < cap && (rig.engine.debug().cursor > 0 || rig.engine.debug().inFlight !== "none"); n++) await rig.ticks(1);
+  assert.equal(rig.engine.debug().cursor, 0, "every tick reported");
+}
+
 // Ticks until the server has kept tick `t` (no more than `cap`).
 async function untilKept(rig, t, cap) {
   for (let n = 0; n < cap && rig.engine.debug().K < t; n++) await rig.ticks(1);
@@ -118,6 +125,7 @@ test("sketch B, the first half: a leash, a drag and its let-go, every tick kept,
     await rig.ticks(4);
     const dog = await dragAbout(rig, 40, 3, 1);
     await untilAsleep(rig, letGo + 40);
+    await untilAllKept(rig, 40);
     assert.deepEqual(rig.warnings(), []);
     for (const a of wire.answers.filter((x) => x.path === "/report")) assert.match(a.text, /^req \d+\nkept \d+\n/, a.text);
     const d = rig.engine.debug();

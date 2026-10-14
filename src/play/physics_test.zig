@@ -721,15 +721,11 @@ test "a dog keeps its wary distance from other breeds above it, and its room fro
     sc = physics.Scene.of(&b).?;
     const both: Point = .{ .x = wary_wish.x, .y = -(physics.cow_room - cow_at) };
     try testing.expectEqual(both, physics.wishTotal(&sc, 2));
-    // Ranked, dogs below never count: dog 1 is not wary of dog 2 (another
-    // breed). Together (205(c)), every stranger does: dog 2, touching it
-    // east, pushes it west by the rest of `wary`.
+    // Every stranger counts, above or below: dog 2 (another breed),
+    // touching it east, pushes it west by the rest of `wary`.
     b.place(.dog(2), .{ .x = from.x + half_wary + 2 * physics.dog_half, .y = from.y });
     sc = physics.Scene.of(&b).?;
-    const below: Point = switch (physics.think) {
-        .ranked => both,
-        .together => .{ .x = both.x - (physics.wary - 2 * physics.dog_half), .y = both.y },
-    };
+    const below: Point = .{ .x = both.x - (physics.wary - 2 * physics.dog_half), .y = both.y };
     try testing.expectEqual(below, physics.wishTotal(&sc, 2));
 }
 
@@ -1047,20 +1043,10 @@ test "the wish arithmetic at the i64 extremes gives the same bits on every targe
         crc.update(std.mem.asBytes(&[_]i64{ w.x, w.y, s.x, s.y, r }));
     }
     // Golden: the first 20,000 samples' checksum, and all 200,000's.
-    // One golden per metric (205(b)): each is the same on every target.
-    try testing.expectEqual(@as(u32, switch (physics.metric) {
-        .euclid => switch (fuzz) {
-            .fast => 549483793,
-            .full => 2544406423,
-        },
-        .chebyshev => switch (fuzz) {
-            .fast => 2874612707,
-            .full => 1179115397,
-        },
-        .manhattan => switch (fuzz) {
-            .fast => 4177009382,
-            .full => 3631720777,
-        },
+    // The same on every target.
+    try testing.expectEqual(@as(u32, switch (fuzz) {
+        .fast => 2874612707,
+        .full => 1179115397,
     }), crc.final());
 }
 
@@ -1111,37 +1097,6 @@ test "shortWay is the @mod formula, at every edge and over a seeded fuzz of the 
         try testing.expectEqual(plain(v), physics.shortWay(v));
         const close = r.intRangeAtMost(i32, -w - h, w + h);
         try testing.expectEqual(plain(close), physics.shortWay(close));
-    }
-}
-
-test "isqrt is the root rounded down, either side of every square up to 2^26 squared and over a seeded fuzz of the i64 range (202)" {
-    const plain = struct {
-        fn f(v: i64) i64 {
-            var r: i64 = 0;
-            var bit: i64 = 1 << 31;
-            while (bit != 0) : (bit >>= 1) {
-                const t = r + bit;
-                if (t <= @divTrunc(v, t)) r = t;
-            }
-            return r;
-        }
-    }.f;
-    var k: i64 = 1;
-    while (k <= 1 << 26) : (k += if (k < 1 << 16) 1 else 4093) {
-        try testing.expectEqual(k - 1, physics.isqrt(k * k - 1));
-        try testing.expectEqual(k, physics.isqrt(k * k));
-        try testing.expectEqual(k, physics.isqrt(k * k + 1));
-    }
-    for ([_]i64{ (1 << 26) - 1, 1 << 26, (1 << 26) + 1 }) |m| {
-        try testing.expectEqual(m - 1, physics.isqrt(m * m - 1));
-        try testing.expectEqual(m, physics.isqrt(m * m));
-    }
-    for ([_]i64{ 0, (1 << 52) - 1, 1 << 52, (1 << 52) + 1, std.math.maxInt(i64) }) |v| try testing.expectEqual(plain(v), physics.isqrt(v));
-    var prng: std.Random.DefaultPrng = .init(2026);
-    const r = prng.random();
-    for (0..fuzzed(100_000)) |_| {
-        const v = r.intRangeAtMost(i64, 0, if (r.boolean()) 1 << 53 else std.math.maxInt(i64));
-        try testing.expectEqual(plain(v), physics.isqrt(v));
     }
 }
 
