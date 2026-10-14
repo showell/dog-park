@@ -224,8 +224,6 @@ fn nodeTest(b: *std.Build, file: []const u8) *std.Build.Step {
     return &run.step;
 }
 
-/// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
-/// lists, in its order; under a tuning other than `played`, its name too.
 /// The physics' build options, `physics_options`: its hash and its tuning.
 fn physicsOptions(b: *std.Build, knobs: Knobs) *std.Build.Module {
     const options = b.addOptions();
@@ -234,6 +232,8 @@ fn physicsOptions(b: *std.Build, knobs: Knobs) *std.Build.Module {
     return options.createModule();
 }
 
+/// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
+/// lists, in its order; under a tuning other than `played`, its name too.
 fn physicsHash(b: *std.Build, dir: []const u8, knobs: Knobs) u32 {
     const io = b.graph.io;
     const list_path = b.fmt("{s}/physics_sources.zon", .{dir});
