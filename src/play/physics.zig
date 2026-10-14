@@ -551,14 +551,49 @@ pub const skin: i32 = px(48);
 /// would hold more leaves every scan full.
 pub const neighbours_most = 16384;
 
-/// The neighbour lists' grid: cells folded onto a square this many a side
-/// (folding only adds candidates, each still measured).
+/// **A GRID ACROSS THE SEAM** (decision 14): the side of a grid's square
+/// cell that is at least `need`, divides the world exactly, and leaves a
+/// number of cells a side that `fold` divides, the smallest such. Then a
+/// cell's index mod `fold` is the same on both sides of the seam: the
+/// world's last cell and its first are neighbours in the fold too.
+fn seamCell(comptime need: i32, comptime fold: i32) i32 {
+    comptime {
+        if (need <= 0) @compileError("a grid's cell must be at least 1/256 px");
+        var n: i32 = @divFloor(@divFloor(world, need), fold) * fold;
+        while (n > 0) : (n -= fold) {
+            if (@mod(world, n) == 0) return @divExact(world, n);
+        }
+        @compileError(std.fmt.comptimePrint("no cell of at least {d}/256 px divides the world ({d}/256 px) into a multiple of {d} cells a side", .{ need, world, fold }));
+    }
+}
+
+/// The cell holding coordinate `v`, unfolded: floor division, so a
+/// coordinate below 0 or past the world (a difference taken the short way
+/// round, decision 14) lands in the cell next to the seam's other side
+/// once folded.
+fn cellOf(v: i32, comptime cell: i32) i32 {
+    return @divFloor(v, cell);
+}
+
+/// The neighbour lists' grid: a critter's neighbours are within `nb_reach`
+/// on either axis, so in its cell's 3 × 3 when a cell is at least that;
+/// the cells folded onto a square `grid_side` a side (folding only adds
+/// candidates, each still measured).
+const nb_reach: i32 = 2 * half_most + skin;
 const grid_side = 32;
+pub const nb_cell: i32 = seamCell(nb_reach, grid_side);
+comptime {
+    if (nb_cell < nb_reach) @compileError("the neighbour grid's cell is short of the neighbours' reach");
+    if (@mod(world, nb_cell) != 0) @compileError("the neighbour grid's cell must divide the world, or the seam splits a cell");
+    if (@mod(@divExact(world, nb_cell), grid_side) != 0) @compileError("the neighbour grid's fold must divide its cells a side, or neighbours across the seam fold apart");
+    // A 3 × 3 window never folds onto itself.
+    if (grid_side < 3) @compileError("the neighbour grid's fold must be at least 3");
+}
 
 /// The folded cell `(dx, dy)` cells from the one `p` stands in.
-fn gridCell(p: Point, side: i32, dx: i32, dy: i32) u16 {
-    const cx = @mod(@divFloor(p.x, side) + dx, grid_side);
-    const cy = @mod(@divFloor(p.y, side) + dy, grid_side);
+fn gridCell(p: Point, dx: i32, dy: i32) u16 {
+    const cx = @mod(cellOf(p.x, nb_cell) + dx, grid_side);
+    const cy = @mod(cellOf(p.y, nb_cell) + dy, grid_side);
     return @intCast(cy * grid_side + cx);
 }
 
@@ -566,15 +601,19 @@ fn gridCell(p: Point, side: i32, dx: i32, dy: i32) u16 {
 /// class (a dog's breed, or a cow), the cells folded onto a square
 /// `wish_grid` a side; kept current by `Scene.put`. A wish's sum reads only
 /// the cells its reach meets (`wishTotal`). A cost knob only: it changes no
-/// result.
-pub const wish_cell: i32 = wary;
+/// result. The cell follows `wary`, the reach most sums read, so they read
+/// 3 × 3 cells at most.
 const wish_grid = 16;
+pub const wish_cell: i32 = seamCell(wary, wish_grid);
 const wish_classes = breeds + 1;
 const wish_none: u16 = std.math.maxInt(u16);
 /// The anchor's search goes ring by ring to `wish_rings` cells out, where a
 /// ring's nearest point is past `follow`.
 const wish_rings: i32 = @divFloor(follow, wish_cell) + 1;
 comptime {
+    if (wish_cell < wary) @compileError("the wishes' grid's cell is short of `wary`");
+    if (@mod(world, wish_cell) != 0) @compileError("the wishes' grid's cell must divide the world, or the seam splits a cell");
+    if (@mod(@divExact(world, wish_cell), wish_grid) != 0) @compileError("the wishes' grid's fold must divide its cells a side, or neighbours across the seam fold apart");
     // A window of cells, the widest the wishes read, never folds onto
     // itself: no bucket is read twice. A reach r spans at most
     // 2 * ceil(r / wish_cell) + 1 cells a side; the anchor's rings, at most
@@ -592,7 +631,7 @@ fn wishClass(c: Critter) u16 {
 
 /// The grid's cell for a point, by axis, unfolded.
 fn wishCellOf(v: i32) i32 {
-    return @divFloor(v, wish_cell);
+    return cellOf(v, wish_cell);
 }
 
 /// The bucket for class `class` and unfolded cell (`cx`, `cy`).
@@ -755,15 +794,15 @@ pub const Scene = struct {
     /// `most`; a build measures every critter's `Overlap` afresh.
     pub fn refresh(s: *Scene, most: i32) void {
         if (s.lists == .built and 2 * s.drift + most <= skin) return;
-        const reach = 2 * half_most + skin;
+        const reach = nb_reach;
         var n: usize = 0;
         for (0..s.len) |i| s.overlap[i] = .clear;
-        // Each critter in a cell `reach` square, the cells folded onto a
+        // Each critter in an `nb_cell` square, the cells folded onto a
         // `grid_side` square; a critter's neighbours are in its cell's 3 × 3.
         var cell_len: [grid_side * grid_side]u16 = @splat(0);
         var cell_of: [critter_count]u16 = undefined;
         for (0..s.len) |i| {
-            const c = gridCell(s.pos(i), reach, 0, 0);
+            const c = gridCell(s.pos(i), 0, 0);
             cell_of[i] = c;
             cell_len[c] += 1;
         }
@@ -785,7 +824,7 @@ pub const Scene = struct {
             while (dy <= 1) : (dy += 1) {
                 var dx: i32 = -1;
                 while (dx <= 1) : (dx += 1) {
-                    const c = gridCell(p, reach, dx, dy);
+                    const c = gridCell(p, dx, dy);
                     for (by_cell[cell_from[c]..cell_from[c + 1]]) |j| {
                         cand[cand_len] = j;
                         cand_len += 1;

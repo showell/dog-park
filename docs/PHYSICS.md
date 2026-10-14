@@ -320,8 +320,11 @@ checked; the first three refuse to compile.
   derived".
 - **A cow's room is more than touching:** `cow_room > dog_half +
   cow_half`. Otherwise a cow lets a dog overlap it before it moves off.
-- **The wishes' grid fits:** `wary <= follow`, and `follow / wary` small
-  enough that the anchor's rings fit the grid's 16 cells.
+- **The wishes' grid fits:** `wary <= follow`, and `follow / wish_cell`
+  small enough that the anchor's rings fit the grid's 16 cells. Its cell
+  follows `wary`: the smallest at least `wary` that divides the world
+  into a multiple of 16 cells a side (250 px played, 400 px alt; decision
+  14), and a cell that can't be found doesn't compile.
 - **The scare box spans two lanes:** `scare_box >= 2 * lane`. Otherwise
   a cow on the dog's line can't get out of its way in time. The lane
   test states this as its precondition.
@@ -1374,10 +1377,21 @@ and the request numbering.
       landing spot must be wrapped back into the world.
     - **`inWorld`** and **`room()`** go: no axis is clamped, and every
       move (`Scene.put`, `moved`) wraps its result into [0, world).
-    - **The neighbour grid** (`gridCell`) folds absolute cells mod 32;
-      across the seam two neighbours land in unrelated cells unless the
-      cell's side (108 px) divides the world's and the fold (32) divides
-      the cells a side. Today neither holds.
+    - **The grids are seam-ready (done, 2026-10-14).** Both spatial
+      grids pick their cell with `seamCell(need, fold)`: the smallest
+      side at least `need` that divides the world exactly into a number
+      of cells a side the fold divides, so the world's last cell and its
+      first are neighbours in the fold too; comptime checks refuse a
+      cell that breaks either. The neighbour grid (`gridCell`): cell
+      125 px (need: the neighbours' reach, 2 × `half_most` + `skin` =
+      108 px), 256 cells a side, fold 32. The wishes' grid: cell 250 px
+      played, 400 px alt (need: `wary`), 128 and 80 cells a side, fold
+      16. A coordinate maps to its cell by floor division (`cellOf`) and
+      a cell to its bucket by `@mod`, so a coordinate past either edge
+      folds next to the other side's. The cost: the packed herd's drag
+      went from 25.4 to 29.5 ms a tick (bigger cells hold more far
+      candidates). The wrap itself is still to come: positions stay in
+      [0, world).
     - **The parse and the page:** positions stay in [0, world); the
       page's drawing, viewport and overview scroll across the seam.
 15. **Pixel-ticks** (Steve, 2026-10-13: the change that made it fun).
