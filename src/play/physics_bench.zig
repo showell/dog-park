@@ -84,6 +84,63 @@ fn packedHerd() Herd {
     return .{ .board = herd, .dogs = n, .cows = cow };
 }
 
+const Busiest = struct { board: Board, dog: u16, awake: usize };
+
+/// The laid-out park, the leashed dog the one with the most critters awake
+/// around it.
+fn busiestSpot() Busiest {
+    var park = Board.laidOut();
+    var busiest: u16 = 0;
+    var most: usize = 0;
+    for (0..physics.dog_count) |i| {
+        park.hold = .{ .leashed = .{ .dog = @intCast(i), .drag = .on } };
+        const n = awakeCount(&park);
+        if (n > most) {
+            most = n;
+            busiest = @intCast(i);
+        }
+    }
+    park.hold = .{ .leashed = .{ .dog = busiest, .drag = .on } };
+    return .{ .board = park, .dog = busiest, .awake = most };
+}
+
+/// A 32-tick report from the busiest spot, as the page would send it, and
+/// the server's kept state before it.
+fn busiestReport(spot: Busiest, w: *wire.Text) !judge.Kept {
+    const busiest = spot.dog;
+    var page = spot.board;
+    var lines: physics.Lines = .{};
+    try wire.write(w, .{ .header = .{ .language = 1, .physics = 1, .epoch = .{ .ms = 1, .count = 1 }, .req = 1 } });
+    try wire.write(w, .{ .from = .{ .tick = 0, .wall = 0 } });
+    // The view: every tile the region meets at some tick's start.
+    var view: wire.TileSet = .{};
+    var t: physics.Tick = 1;
+    while (t <= physics.most_ticks) : (t += 1) {
+        const span = physics.TileSpan.of(physics.region(page.dogs[busiest]));
+        var r = span.row_lo;
+        while (r <= span.row_hi) : (r += 1) {
+            var c = span.col_lo;
+            while (c <= span.col_hi) : (c += 1) try view.add(physics.TileSpan.at(c, r));
+        }
+        const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(20), .dy = physics.px(if (t % 8 < 4) 10 else -10) }});
+        const humans: []const physics.Human = if (page.hold.leashed.drag != .on) &.{.grab} else &.{};
+        for (humans) |h| try wire.write(w, switch (h) {
+            .grab => .{ .grab = t },
+            else => unreachable,
+        });
+        _ = physics.tick(&page, t, humans, drag.slice(), &lines);
+        try wire.write(w, .{ .t = .{ .tick = t, .ms = 0, .drag = drag } });
+        for (lines.slice()) |c| try wire.write(w, wire.checkedLine(t, c));
+    }
+    var kept: judge.Kept = .{ .tick = 0, .board = spot.board };
+    kept.board.hold = .none;
+    kept.pending[0] = .{ .leash = busiest };
+    kept.pending_len = 1;
+    kept.view.tiles = view;
+    kept.held = view;
+    return kept;
+}
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const full = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = physics.cap }});
@@ -102,20 +159,39 @@ pub fn main(init: std.process.Init) !void {
         std.mem.doNotOptimizeAway(sink);
         return;
     }
+    // `-- busiest`: the busiest spot's full drag, 20 runs; `-- rerun`: the
+    // server's re-run of its 32-tick report, 20 runs.
+    if (args.len > 1 and std.mem.eql(u8, args[1], "busiest")) {
+        const spot = busiestSpot();
+        var lines: physics.Lines = .{};
+        var sink: usize = 0;
+        for (0..20) |_| {
+            var b = spot.board;
+            _ = physics.tick(&b, 1, &.{}, full.slice(), &lines);
+            sink +%= lines.len;
+        }
+        std.mem.doNotOptimizeAway(sink);
+        return;
+    }
+    if (args.len > 1 and std.mem.eql(u8, args[1], "rerun")) {
+        var report: [65536]u8 = undefined;
+        var w: wire.Text = .{ .buf = &report };
+        const kept = try busiestReport(busiestSpot(), &w);
+        var answer: [65536]u8 = undefined;
+        var findings: judge.Findings = .{};
+        for (0..20) |_| {
+            var k = kept;
+            var out: wire.Text = .{ .buf = &answer };
+            if (try judge.judge(&k, 1, w.bytes(), &out, &findings) != .kept) return error.NotKept;
+        }
+        return;
+    }
 
     // The park's busiest spot.
-    var park = Board.laidOut();
-    var busiest: u16 = 0;
-    var most: usize = 0;
-    for (0..physics.dog_count) |i| {
-        park.hold = .{ .leashed = .{ .dog = @intCast(i), .drag = .on } };
-        const n = awakeCount(&park);
-        if (n > most) {
-            most = n;
-            busiest = @intCast(i);
-        }
-    }
-    park.hold = .{ .leashed = .{ .dog = busiest, .drag = .on } };
+    const spot = busiestSpot();
+    const park = spot.board;
+    const busiest = spot.dog;
+    const most = spot.awake;
     var lines: physics.Lines = .{};
     var probe = park;
     _ = physics.tick(&probe, 1, &.{}, full.slice(), &lines);
@@ -126,37 +202,9 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("a packed herd: {d} dogs and {d} cows placed, {d} awake: wishes alone {d:.1} us, the full drag {d:.1} us a tick\n", .{ herd.dogs, herd.cows, awakeCount(&herd.board), timeTick(io, &herd.board, &.{}, &.{}), timeTick(io, &herd.board, &.{}, full.slice()) });
 
     // A 32-tick report from the busiest spot, re-run by the server.
-    var page = park;
     var report: [65536]u8 = undefined;
     var w: wire.Text = .{ .buf = &report };
-    try wire.write(&w, .{ .header = .{ .language = 1, .physics = 1, .epoch = .{ .ms = 1, .count = 1 }, .req = 1 } });
-    try wire.write(&w, .{ .from = .{ .tick = 0, .wall = 0 } });
-    // The view: every tile the region meets at some tick's start.
-    var view: wire.TileSet = .{};
-    var t: physics.Tick = 1;
-    while (t <= physics.most_ticks) : (t += 1) {
-        const span = physics.TileSpan.of(physics.region(page.dogs[busiest]));
-        var r = span.row_lo;
-        while (r <= span.row_hi) : (r += 1) {
-            var c = span.col_lo;
-            while (c <= span.col_hi) : (c += 1) try view.add(physics.TileSpan.at(c, r));
-        }
-        const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(20), .dy = physics.px(if (t % 8 < 4) 10 else -10) }});
-        const humans: []const physics.Human = if (page.hold.leashed.drag != .on) &.{.grab} else &.{};
-        for (humans) |h| try wire.write(&w, switch (h) {
-            .grab => .{ .grab = t },
-            else => unreachable,
-        });
-        _ = physics.tick(&page, t, humans, drag.slice(), &lines);
-        try wire.write(&w, .{ .t = .{ .tick = t, .ms = 0, .drag = drag } });
-        for (lines.slice()) |c| try wire.write(&w, wire.checkedLine(t, c));
-    }
-    var kept: judge.Kept = .{ .tick = 0, .board = park };
-    kept.board.hold = .none;
-    kept.pending[0] = .{ .leash = busiest };
-    kept.pending_len = 1;
-    kept.view.tiles = view;
-    kept.held = view;
+    const kept = try busiestReport(spot, &w);
     var answer: [65536]u8 = undefined;
     var findings: judge.Findings = .{};
     var runs: usize = 0;
