@@ -912,7 +912,9 @@ pub const Scene = struct {
         s.wg_head = @splat(wish_none);
         s.rooms = .none;
         const span = TileSpan.of(s.region);
-        const sphere: i64 = measureOf(awake_reach);
+        // **AWAKE IS IN THE REGION'S TILES** (Steve, 2026-10-14): no
+        // sphere within them; `awake_reach` only sizes the region.
+        const sphere: i64 = std.math.maxInt(i64);
         s.add(.dog(l), .awake);
         for (0..cow_count) |i| s.consider(.cow(@intCast(i)), span, center, sphere);
         for (0..dog_count) |i| {
@@ -1446,8 +1448,8 @@ noinline fn jumpOut(sc: *Scene, i: usize) void {
 }
 
 /// **THE WALK'S SIZE**: the most dogs a wish step moves, the leashed dog
-/// aside (Steve, 2026-10-14: N = 30).
-pub const walk_most = 30;
+/// aside (Steve, 2026-10-14: N = 40).
+pub const walk_most = 40;
 /// **THE WALK'S FAN-OUT**: how many dogs each visited dog lines up, its
 /// nearest not yet lined up (Steve, 2026-10-14: 3).
 pub const walk_fan = 3;

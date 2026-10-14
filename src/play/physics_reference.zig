@@ -390,7 +390,9 @@ pub const Scene = struct {
         const center = b.dogs[l];
         var s: Scene = .{ .board = b, .leashed = l, .center = center, .region = region(center) };
         const span = TileSpan.of(s.region);
-        const sphere: i64 = measureOf(awake_reach);
+        // **AWAKE IS IN THE REGION'S TILES** (Steve, 2026-10-14): no
+        // sphere within them; `awake_reach` only sizes the region.
+        const sphere: i64 = std.math.maxInt(i64);
         s.add(.dog(l), .awake);
         for (0..cow_count) |i| s.consider(.cow(@intCast(i)), span, center, sphere);
         for (0..dog_count) |i| {
