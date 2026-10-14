@@ -314,15 +314,18 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
   const onScreen = (p) => viewportFromPark(viewport,
     nearest(p.parkX, viewport.parkX + viewport.width / 2), nearest(p.parkY, viewport.parkY + viewport.height / 2));
   // A dog's label: its number, and its place in the last walk (1 to 30)
-  // when it had one. A cow has none.
+  // when it had one. A cow shows only its place in the walk.
   const sprite = (id, critter, drawn, emoji, size, role, label = "none") => {
     const at = onScreen(drawn);
     out.push({ id, shape: "glyph", x: at.viewportX, y: at.viewportY, w: size, h: size,
       text: emoji, fill: "#000", role });
-    if (label !== "none") out.push({ id: `${id}:label`, shape: "text", x: at.viewportX, y: at.viewportY + size * 0.85, w: 0, h: 0,
+    if (label !== "none" && label !== "") out.push({ id: `${id}:label`, shape: "text", x: at.viewportX, y: at.viewportY + size * 0.85, w: 0, h: 0,
       text: label, font: "12px monospace", fill: "#333", role: "scenery" });
   };
-  for (const c of cows) sprite(`cow:${c.id}`, c, between(was.cows.get(c.id), c, alpha), cow_emoji, cow_px, "scenery");
+  for (const c of cows) {
+    const visit = visits.get(`cow:${c.id}`);
+    sprite(`cow:${c.id}`, c, between(was.cows.get(c.id), c, alpha), cow_emoji, cow_px, "scenery", visit === undefined ? "none" : `#${visit}`);
+  }
   for (const d of dogs) {
     const drawn = between(was.dogs.get(d.id), d, alpha);
     if (leashed.kind !== "none" && leashed.dogId === d.id) {
@@ -330,7 +333,7 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
       out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: at.viewportX, y: at.viewportY, w: 2 * (dog_px * 0.7), h: 2 * (dog_px * 0.7),
         stroke: leashed.kind === "in_hand" ? "#2a2" : "#d33", lineWidth: 3, role: "scenery" });
     }
-    const visit = visits.get(d.id);
+    const visit = visits.get(`dog:${d.id}`);
     sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target", visit === undefined ? `${d.id}` : `${d.id} #${visit}`);
   }
   return out;

@@ -1331,13 +1331,8 @@ fn playDrag(sc: *Scene, drag: []const Disp) ?Critter {
 fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Critter {
     const dog = sc.pos(0);
     if (inc == 0) return null;
-    const dog_after = moved(dog, axis, inc);
+    // **NO SCOOT** (Steve, 2026-10-14): the cows walk with the dogs.
     sc.refresh(step_most);
-    for (sc.list(), 0..) |s, i| {
-        if (s.who.kind != .cow or s.awake != .awake) continue;
-        outFromUnder(sc, i);
-        cowStep(sc, i, axis, sign(inc), mag(inc), dog_after);
-    }
     const r = sweep(sc, 0, axis, inc, .everyone);
     sc.put(0, moved(dog, axis, r.by));
     if (r.by != 0) wishes(sc, mag(r.by));
@@ -1483,12 +1478,7 @@ fn wishes(sc: *Scene, most: i32) void {
     var leashed: ?usize = null;
     for (sc.awakeOnes()) |w16| {
         const s = sc.seen[w16];
-        if (s.who.kind != .dog) continue;
-        if (s.rank == 0) {
-            leashed = w16;
-            continue;
-        }
-        outFromUnder(sc, w16);
+        if (s.who.kind == .dog and s.rank == 0) leashed = w16;
     }
     const root = leashed orelse return;
     sc.walk_len = 0;
@@ -1504,9 +1494,11 @@ fn wishes(sc: *Scene, most: i32) void {
         visited.set(i);
         sc.walk_seen[sc.walk_seen_len] = @intCast(i);
         sc.walk_seen_len += 1;
-        sc.walk[sc.walk_len] = sc.seen[i].who.n;
+        sc.walk[sc.walk_len] = @intCast(critterIndex(sc.seen[i].who));
         sc.walk_len += 1;
-        stepSwept(sc, i, stepAtMost(wishTotal(sc, i), most));
+        // A cow at half a dog's pace.
+        const limit = if (sc.seen[i].who.kind == .cow) @divTrunc(most, 2) else most;
+        stepVetoed(sc, i, stepAtMost(wishTotal(sc, i), limit));
         lineUp(sc, i, &waiting, &visited);
     }
 }
@@ -1561,7 +1553,7 @@ fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, visited: *const std.
     var n: usize = 0;
     for (sc.awakeOnes()) |j16| {
         const s = sc.seen[j16];
-        if (s.who.kind != .dog or s.rank == 0 or visited.isSet(j16)) continue;
+        if (s.rank == 0 or visited.isSet(j16)) continue;
         const d = measure(delta(sc.pos(j16), p));
         // `awakeOnes` is in rank order, so a tie keeps the one already in.
         if (n == walk_fan and d >= near_key[n - 1]) continue;
@@ -1856,29 +1848,55 @@ pub fn wishTotal(sc: *const Scene, i: usize) Point {
 pub fn wishTotalWalk(sc: *const Scene, i: usize) Point {
     const me = sc.seen[i];
     const p = sc.pos(i);
-    const breed = me.who.n % breeds;
     var total: Point = .{ .x = 0, .y = 0 };
-    for (sc.awakeOnes()) |j16| {
-        if (sc.seen[j16].who.kind != .cow) continue;
-        const v = delta(sc.pos(j16), p);
-        const d2 = measure(v);
-        if (d2 <= measureOf(cow_room)) {
-            const l = lengthOf(d2);
-            add(&total, awayRooted(v, l, cow_room - @as(i32, @intCast(l))));
+    if (me.who.kind == .cow) {
+        // **A COW** keeps `wary` from every dog in motion, as a dog does
+        // from another breed's; it follows no one.
+        for (sc.walk_seen[0..sc.walk_seen_len]) |j16| {
+            const j: usize = j16;
+            if (sc.seen[j].who.kind != .dog) continue;
+            addRoomFrom(&total, sc.pos(j), p, wary);
         }
+        return total;
     }
+    const breed = me.who.n % breeds;
     for (sc.walk_seen[0..sc.walk_seen_len]) |j16| {
         const j: usize = j16;
-        if (j == i or sc.seen[j].who.n % breeds == breed) continue;
-        const v = delta(sc.pos(j), p);
-        const d2 = measure(v);
-        if (d2 <= measureOf(wary)) {
-            const l = lengthOf(d2);
-            add(&total, awayRooted(v, l, wary - @as(i32, @intCast(l))));
+        if (j == i) continue;
+        const o = sc.seen[j].who;
+        switch (o.kind) {
+            .cow => addRoomFrom(&total, sc.pos(j), p, cow_room),
+            .dog => if (o.n % breeds != breed) addRoomFrom(&total, sc.pos(j), p, wary),
         }
     }
     if (walkAnchor(sc, i, p, breed)) |a| addAnchor(&total, p, sc.pos(a.j), a.d2);
     return total;
+}
+
+/// Room from a critter at `q` for the one at `p`: away, by the shortfall
+/// inside `reach`.
+fn addRoomFrom(total: *Point, q: Point, p: Point, reach: i32) void {
+    const v = delta(q, p);
+    const d2 = measure(v);
+    if (d2 > measureOf(reach)) return;
+    const l = lengthOf(d2);
+    add(total, awayRooted(v, l, reach - @as(i32, @intCast(l))));
+}
+
+/// **THE VETO** (Steve, 2026-10-14): critter `i` takes `step` whole, or,
+/// if its square there would overlap anyone the physics sees, not at all.
+/// No two critters overlap, by induction.
+fn stepVetoed(sc: *Scene, i: usize, step: Point) void {
+    if (step.x == 0 and step.y == 0) return;
+    const to = wrapped(.{ .x = sc.pos(i).x + step.x, .y = sc.pos(i).y + step.y });
+    const me = sc.seen[i];
+    for (sc.list(), 0..) |o, j| {
+        if (j == i) continue;
+        const v = delta(sc.pos(j), to);
+        const reach = me.half + o.half;
+        if (mag(v.x) < reach and mag(v.y) < reach) return;
+    }
+    sc.put(i, to);
 }
 
 /// The most awake critters whose wishes are cheaper scanned than read from
@@ -1920,7 +1938,7 @@ fn walkAnchor(sc: *const Scene, i: usize, p: Point, breed: u16) ?Anchor {
     var best: ?Anchor = null;
     for (sc.walk_seen[0..sc.walk_seen_len]) |j16| {
         const j: usize = j16;
-        if (j == i or sc.seen[j].who.n % breeds != breed) continue;
+        if (j == i or sc.seen[j].who.kind != .dog or sc.seen[j].who.n % breeds != breed) continue;
         const d2 = measure(delta(sc.pos(j), p));
         if (best) |b| if (d2 > b.d2 or (d2 == b.d2 and j > b.j)) continue;
         best = .{ .j = j, .d2 = d2 };

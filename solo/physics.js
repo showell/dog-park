@@ -62,8 +62,12 @@ export function createPhysics(x) {
     });
     return out;
   };
-  // The last tick's walk: the dogs it moved, by id, in visit order.
-  const takeWalk = () => [...new Uint16Array(x.memory.buffer, x.walkAt(), x.walkLen())];
+  // The last tick's walk: the critters it moved, in visit order, as
+  // "dog:ID" or "cow:ID".
+  const takeWalk = () => {
+    const nd = x.dogCount();
+    return [...new Uint16Array(x.memory.buffer, x.walkAt(), x.walkLen())].map((i) => (i < nd ? `dog:${i}` : `cow:${i - nd}`));
+  };
   const text = (len) => decoder.decode(bytes(x.outBuf(), len));
   const putLine = (line) => {
     const b = encoder.encode(line);

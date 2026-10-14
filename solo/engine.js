@@ -136,7 +136,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   // Whether the page ticks: a rest or a release stops it; the human's input
   // starts it.
   let ticking = false;
-  // The last walk's visit numbers, by dog id (1 to the walk's size).
+  // The last walk's visit numbers, by "dog:ID" or "cow:ID" (1 to the walk's size).
   let visits = new Map();
   // Whether the pointer holds the leashed dog (a grab or leash until a
   // letgo or a bump).
