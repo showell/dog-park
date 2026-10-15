@@ -37,6 +37,7 @@ import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px,
 import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
+import { pressedCritter, quipper } from "./quips.js";
 import { instantiatePhysics } from "./physics.js";
 
 // ── the wire ────────────────────────────────────────────────────────────────
@@ -142,10 +143,27 @@ async function start() {
   // The Map button: its label says what a press (or "m") does now.
   const mapButton = document.getElementById("map");
   mapButton?.addEventListener("click", () => handle({ type: "map" }));
+  // A press on a cow or a chicken: a word, and nothing moves.
+  const quips = quipper();
+  const toast = document.getElementById("toast");
+  let toastTimer = null;
+  function say(line) {
+    if (!toast) return;
+    toast.textContent = line;
+    toast.classList.add("shown");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("shown"), 3500);
+  }
   canvas.addEventListener("pointerdown", (e) => {
-    canvas.setPointerCapture(e.pointerId);
     const hitId = pressedOn(drawn, mode, e.offsetX, e.offsetY);
-    const dog = engine.view().dogs.get(dogOfTarget(hitId));
+    const v = engine.view();
+    const dog = v.dogs.get(dogOfTarget(hitId));
+    if (mode === "near" && dog === undefined) {
+      const critter = pressedCritter(v.viewport, e.offsetX, e.offsetY, v.cows, v.chickens ?? []);
+      if (critter !== null) return say(quips.say(critter));
+    }
+    if (dog !== undefined) quips.forgive();
+    canvas.setPointerCapture(e.pointerId);
     handle({ type: "down", x: e.offsetX, y: e.offsetY, dogAt: dog === undefined ? "none" : { parkX: dog.parkX, parkY: dog.parkY } }, hitId);
   });
   canvas.addEventListener("pointermove", (e) => handle({ type: "move", x: e.offsetX, y: e.offsetY }));

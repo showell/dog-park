@@ -686,3 +686,26 @@ test("in the map, a tap on the view's rectangle goes back to normal mode; a pres
   // The system took the pointer: no tap.
   assert.deepEqual(press(down.hand, { type: "cancel" }).intents, []);
 });
+
+test("tough love: a press on a cow or a chicken is named (a dog is the page's own hit), round the torus; the lines turn, never twice running, and persistence is noticed until a dog is grabbed", async () => {
+  const quips = await import("../solo/quips.js");
+  const view = { parkX: 100, parkY: 100, width: 800, height: 600 };
+  const cows = [{ parkX: 300, parkY: 300 }];
+  const chickens = [{ parkX: 500, parkY: 300 }, { parkX: 10, parkY: 10 }];
+  assert.equal(quips.pressedCritter(view, 200, 200, cows, chickens), "cow");
+  assert.equal(quips.pressedCritter(view, 200 + scene.cow_px / 2, 200, cows, chickens), "cow");
+  assert.equal(quips.pressedCritter(view, 200 + scene.cow_px / 2 + 1, 200, cows, chickens), null);
+  assert.equal(quips.pressedCritter(view, 400 + scene.chicken_px / 2 + 4, 200, cows, chickens), "chicken");
+  assert.equal(quips.pressedCritter(view, 300, 400, cows, chickens), null, "empty ground: the tablecloth");
+  // A chicken across the world's seam from the view's copy.
+  const seam = { parkX: scene.world_px - 50, parkY: scene.world_px - 50, width: 800, height: 600 };
+  assert.equal(quips.pressedCritter(seam, 60, 60, cows, chickens), "chicken");
+  const q = quips.quipper(() => 0);
+  const said = [q.say("cow"), q.say("cow"), q.say("chicken"), q.say("cow")];
+  assert.notEqual(said[0], said[1]);
+  assert.match(said[2], /chicken|BAWK|herd|union|dinosaur|poop/i);
+  const fifth = q.say("chicken");
+  assert.equal(fifth, "Okay, now you're just doing it on purpose.");
+  q.forgive();
+  assert.notEqual(q.say("cow"), "The critters have started a group chat about you.");
+});
