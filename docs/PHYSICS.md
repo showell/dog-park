@@ -697,11 +697,19 @@ snapshots alone are enough to start from.
   only GETs takes nothing.
 - **A game per account,** started at its player's first load, kept under
   `<data>/game-<slot>/physics` with its own log and snapshots.
-- **One player at a time.** A load or report from the account that
-  holds the turn is played. The turn is the first asker's, and lasts
-  20 s past its last request; while another holds it, the answer is
-  `503 busy N`. The page then shows "someone else is playing", asks
-  again in N seconds with the same bytes, and counts it as no failure.
+- **One player at a time, for play only** (Steve: "I'm just trying to
+  prevent contention from all the drags").
+  - A report with ticks in it needs the turn. The turn is the first
+    asker's, and lasts 20 s past its last such report.
+  - While another account holds it, the answer is `503 busy N`. The page
+    shows "someone else is playing" on screen, asks again in N seconds
+    with the same bytes, and counts it as no failure.
+  - A load, and a report of only a view or a held (a pan), never wait. A
+    second player gets their own game loaded at once, and can look
+    around.
+- **Each device remembers where it was looking** (localStorage), since a
+  load picks the game up. A new game, or Start over, opens on the park's
+  middle.
 - **No account, no game:** a load or report without a verifying cookie
   is a 403, and the page stops and says to go to the start page.
 - **Start over** (the page's button) is `POST /reset`. The account's next

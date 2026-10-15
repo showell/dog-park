@@ -58,11 +58,24 @@ async function loadPhysics() {
   return physics;
 }
 
-// **NO REMEMBERED VIEWPORT**: a load opens on the park's middle. (A load
-// picks the game up where it was, but a view kept from an older page could
-// show empty land: Steve, 2026-10-14, "9103 has no critters".) What an
-// older page kept is cleared.
-try { localStorage.removeItem("dogpark.viewport"); } catch { /* no storage */ }
+// **THE REMEMBERED VIEWPORT** (Steve, 2026-10-15): a load picks the
+// player's game up, so it opens where the player last looked. A new game,
+// or Start over, opens on the park's middle (the key is cleared). Storage
+// may be missing or refuse: then every load opens on the middle.
+const viewport_key = "dogpark.viewport";
+function savedViewport() {
+  try {
+    const v = JSON.parse(localStorage.getItem(viewport_key) ?? "null");
+    if (v && Number.isFinite(v.parkX) && Number.isFinite(v.parkY)) return { parkX: v.parkX, parkY: v.parkY };
+  } catch { /* none kept */ }
+  return "none";
+}
+function saveViewport(v) {
+  try { localStorage.setItem(viewport_key, JSON.stringify({ parkX: v.parkX, parkY: v.parkY })); } catch { /* not kept */ }
+}
+function forgetViewport() {
+  try { localStorage.removeItem(viewport_key); } catch { /* nothing kept */ }
+}
 
 // ── the page ────────────────────────────────────────────────────────────────
 
@@ -99,7 +112,10 @@ async function start() {
     canvas.height = Math.floor(height * ratio);
     return { width, height };
   }
-  await engine.load(fit);
+  await engine.load(fit, savedViewport());
+  // Kept at most twice a second, when it moved.
+  let savedAt = { parkX: NaN, parkY: NaN };
+  let savedMs = -Infinity;
 
   // The page does what an event means, in order: the mode and the
   // overview's window are the page's, the rest the engine's.
@@ -153,6 +169,11 @@ async function start() {
       : v.waitingS !== null ? `Someone else is playing right now. Your turn comes in about ${v.waitingS} s.`
       : "none";
     draw(ctx, note === "none" ? drawn.objects : [...drawn.objects, ...messageScene(v.viewport, note)]);
+    if (nowMs - savedMs >= 500 && (v.viewport.parkX !== savedAt.parkX || v.viewport.parkY !== savedAt.parkY)) {
+      savedAt = { parkX: v.viewport.parkX, parkY: v.viewport.parkY };
+      savedMs = nowMs;
+      saveViewport(savedAt);
+    }
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
@@ -163,6 +184,7 @@ async function start() {
     if (!confirm("Start over? Every critter goes back to where the game began.")) return;
     const r = await post("/reset", "");
     if (r.status !== 200) return console.error(`/reset: ${r.status} ${r.text}`);
+    forgetViewport();
     location.reload();
   });
 }

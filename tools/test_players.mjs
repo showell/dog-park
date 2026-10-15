@@ -61,15 +61,32 @@ test("Begin Game: a device with an account keeps it; four more get one; the sixt
   assert.match((await server.as(undefined, "POST", "/begin", "")).text, /The park is full/);
 });
 
-test("one player at a time: another account waits, told how long, while the first holds the turn", async () => {
+test("one player at a time: another account loads its own game and pans freely, but its ticks wait, told how long, while the first holds the turn", async () => {
+  const header = (epoch, req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\n`;
   const first = await server.as(server.cookie, "POST", "/load", loadLine());
   assert.equal(first.status, 200);
+  const e1 = first.text.match(/^epoch (\S+)\n/)[1];
+  const k1 = first.text.match(/\nkept (\d+)\n/)[1];
+  // The first player plays a tick: it holds the turn.
+  const played = await server.as(server.cookie, "POST", "/report", `${header(e1, 1)}from ${k1} wall 1\nt ${+k1 + 1} +0\n`);
+  assert.match(played.text, /^req 1\nkept /, played.text);
   const other = others[0];
-  const busy = await server.as(other, "POST", "/load", loadLine());
+  // The other loads its own game at once: the first layout, its own epoch.
+  const theirs = await server.as(other, "POST", "/load", loadLine());
+  assert.equal(theirs.status, 200);
+  const e2 = theirs.text.match(/^epoch (\S+)\n/)[1];
+  const k2 = theirs.text.match(/\nkept (\d+)\n/)[1];
+  // A pan (a report with no ticks) is answered.
+  const pan = await server.as(other, "POST", "/report", `${header(e2, 1)}from ${k2}\nview ${+k2 + 1} 640x480\n`);
+  assert.match(pan.text, /^req 1\nkept /, pan.text);
+  // A tick waits.
+  const busy = await server.as(other, "POST", "/report", `${header(e2, 2)}from ${k2} wall 1\nt ${+k2 + 1} +0\n`);
   assert.equal(busy.status, 503);
   assert.match(busy.text, /^busy (1\d|20)\n$/);
   // The holder plays on.
-  assert.equal((await server.as(server.cookie, "POST", "/load", loadLine())).status, 200);
+  const kept1 = played.text.match(/^req 1\nkept (\d+)\n/)[1];
+  const on = await server.as(server.cookie, "POST", "/report", `${header(e1, 2)}from ${kept1} wall 1\nt ${+kept1 + 1} +0\n`);
+  assert.match(on.text, /^req 2\nkept /, on.text);
 });
 
 test("Start over: the account's next load is answered, and a device with no account can't ask", async () => {

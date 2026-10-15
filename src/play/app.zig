@@ -23,9 +23,9 @@
 //!                    `PHYSICS_HASH` in the file is the hash when served
 //!   POST /load       the physics protocol's load line → its answer, text
 //!   POST /report     a physics report (docs/PHYSICS.md) → its answer, text
-//!                    Both for a device with an account (403 without), and
-//!                    while it holds the turn: 503 `busy N` (seconds) when
-//!                    another does
+//!                    Both for a device with an account (403 without). A
+//!                    report with ticks also needs the turn: 503 `busy N`
+//!                    (seconds) while another account holds it
 //!
 //! **THE PAGE IS READ FROM DISK** (`solo/`, from where the server runs: the
 //! checkout on Linux, the site disk on metal, where assets.zon's `.site`
@@ -115,6 +115,18 @@ pub fn game(io: Io, s: players.Slot) !*physics_server.Server {
     _ = try g.start(io, long_alloc, dir, &seed, nowMs(io));
     games[s] = g;
     return g;
+}
+
+/// Whether a report carries ticks: a `t T` line (never its first, the
+/// header).
+fn hasTicks(body: []const u8) bool {
+    return std.mem.indexOf(u8, body, "\nt ") != null;
+}
+
+test "a report has ticks when a line starts `t `, and only then" {
+    try std.testing.expect(hasTicks("dogpark 1 physics 0 page 1.1 req 2\nfrom 4 wall 9\nt 5 +0\n"));
+    try std.testing.expect(!hasTicks("dogpark 1 physics 0 page 1.1 req 2\nfrom 4\nview 5 1280x800 1,1\nheld 5 1,1\n"));
+    try std.testing.expect(!hasTicks("dogpark 1 physics 0 page 1.1 req 2\nfrom 4\n tile t 5\n"));
 }
 
 /// The `Cookie` request header's value naming slot `s`, as a browser
@@ -207,10 +219,13 @@ fn physicsAnswer(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator
     // The cookie first: a request's headers are gone once its body is read.
     const s = (try players.slotOfRequest(cookie_mode, io, alloc, req, auth_root, nowUnix(io))) orelse return plain(req, .forbidden, "no account\n");
     const body = (try http.readLimitedBody(req, alloc, physics_server.most_body)) orelse return;
-    switch (turn.ask(s, nowMs(io))) {
+    // **ONLY PLAY TAKES THE TURN** (Steve, 2026-10-15: "I'm just trying to
+    // prevent contention from all the drags"): a report with ticks in it.
+    // A load, and a report of only a view or a held (a pan), never wait.
+    if (which == .report and hasTicks(body)) switch (turn.ask(s, nowMs(io))) {
         .granted => {},
         .wait_s => |n| return plain(req, .service_unavailable, try std.fmt.allocPrint(alloc, "busy {d}\n", .{n})),
-    }
+    };
     const g = try game(io, s);
     const answer = switch (which) {
         .report => try g.report(io, alloc, body),
