@@ -1,6 +1,6 @@
 //! **THE WORKED EXAMPLE AS A GOLDEN FIXTURE** (docs/PHYSICS.md, "The report"):
 //! the doc's report, its `kept 1043` answer, and the exact `differ` answer
-//! to it with dog 223's step at 1041 a 256th off; and the
+//! to it with dog 23's step at 1041 a 256th off; and the
 //! page's side, writing that report from its own board. The two goldens
 //! pin the wire's form and the page and the server agreeing; a retune
 //! changes them, and their failures print the new text, which goes here
@@ -24,26 +24,10 @@ const doc_hash: u32 = 0x5e0c91a2;
 pub const example_report =
     \\dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4
     \\from 1040 wall 1791936000000
-    \\held 1041 30,32 31,32 32,32 33,32 34,32 35,32 36,32 30,33 31,33 32,33 33,33 34,33 35,33 36,33 30,34 31,34 32,34 33,34 34,34 35,34 36,34 30,35 31,35 36,35 30,36 31,36 36,36 30,37 31,37 32,37 33,37 34,37 35,37 36,37 30,38 31,38 32,38 33,38 34,38 35,38 36,38
     \\t 1041 +0 drag -1.00,0@3 -2.00,0@19
-    \\ dog 219 423c.00,463c.00 > 4239.00,463c.00
-    \\ cow 26 3b92.00,3f7a.00 > 3b93.80,3f7b.80
-    \\ cow 27 3f7a.00,3f7a.00 > 3f78.83,3f7b.80
-    \\ cow 28 4362.00,3f7a.00 > 4360.80,3f7b.7d
-    \\ cow 29 474a.00,3f7a.00 > 4748.80,3f7b.7d
-    \\ cow 32 3d86.00,416e.00 > 3d87.80,416f.80
-    \\ cow 33 416e.00,416e.00 > 416c.80,416c.83
-    \\ cow 34 4556.00,416e.00 > 4554.80,416c.83
-    \\ cow 36 3b92.00,4362.00 > 3b93.80,4360.83
-    \\ cow 37 3f7a.00,4362.00 > 3f7b.80,4363.80
-    \\ cow 38 4362.00,4362.00 > 4360.80,4363.80
-    \\ cow 39 474a.00,4362.00 > 4748.80,4360.83
-    \\ cow 42 3d86.00,4556.00 > 3d84.83,4554.80
-    \\ cow 44 4556.00,4556.00 > 4554.80,4557.80
-    \\ cow 46 3b92.00,474a.00 > 3b93.7d,4748.80
-    \\ cow 47 3f7a.00,474a.00 > 3f7b.80,4748.80
-    \\ cow 49 474a.00,474a.00 > 4748.80,4748.83
-    \\ dog 223 42d2.00,463c.00 > 42cf.00,463c.00
+    \\ dog 19 3e8.00,3e8.00 > 3e5.00,3e8.00
+    \\ cow 2 36b.00,36b.00 > 369.89,369.80
+    \\ dog 23 451.00,3e8.00 > 44e.00,3e8.00
     \\letgo 1042
     \\t 1042 +63
     \\t 1043 +125
@@ -54,28 +38,21 @@ fn px(x: i32, y: i32) Point {
     return .{ .x = physics.px(x), .y = physics.px(y) };
 }
 
-/// The leashed dog, where the example's played board has it.
-pub const leashed: u16 = 219;
-/// Dog 223, of 219's breed, 150 px east of it.
-pub const follower: u16 = 223;
+/// The leashed dog, and dog 23, of its breed, 105 px east of it.
+pub const leashed: u16 = 19;
+pub const follower: u16 = 23;
 
-/// The played board: today's park in the 64 x 64 world, dog 219 at
-/// (16956, 17980) and dog 223 150 px east of it; every other dog that was
-/// laid out in the tiles of 219's region (all awake) has wandered off (to
-/// empty ground far away); the cows where they were laid out.
+/// The played board: the park as laid out (the cows in the white tiles'
+/// middles, the chickens in the blue), dog 19 at (1000, 1000), 125 px from
+/// cow 2 at (875, 875), and dog 23 105 px east of it; every other dog gone
+/// from the board, so the example's walk stays small.
 pub fn exampleBoard() Board {
     var b = Board.laidOut();
-    const at219 = px(16956, 17980);
-    const span = physics.TileSpan.of(physics.region(at219));
-    var far: i32 = 0;
-    for (&b.dogs) |*d| {
-        if (span.holdsPoint(d.*)) {
-            d.* = px(1000 + 100 * far, 1000);
-            far += 1;
-        }
+    for (&b.dog_known, 0..) |*k, i| {
+        if (i != leashed and i != follower) k.* = .absent;
     }
-    b.dogs[leashed] = at219;
-    b.dogs[follower] = px(17106, 17980);
+    b.dogs[leashed] = px(1000, 1000);
+    b.dogs[follower] = px(1105, 1000);
     return b;
 }
 
@@ -89,51 +66,36 @@ fn tileSet(cols: [2]i32, rows: [2]i32) wire.TileSet {
     return s;
 }
 
-/// The region's tiles around dog 219: request 3's view.
+/// The region's tiles: the whole world, every tile once.
 pub fn exampleRegion() wire.TileSet {
     const span = physics.TileSpan.of(physics.region(exampleBoard().dogs[leashed]));
     return tileSet(.{ span.col_lo, span.col_hi }, .{ span.row_lo, span.row_hi });
 }
 
-/// The viewport's 8 tiles (columns 32 to 35, rows 35 and 36), held before
-/// the leash.
-pub fn exampleViewport() wire.TileSet {
-    return tileSet(.{ 32, 35 }, .{ 35, 36 });
-}
-
-/// The region's tiles the viewport's aren't: the report's `held 1041`, by
-/// row, then column.
-pub fn exampleHeld() wire.TileSet {
-    var s: wire.TileSet = .{};
-    const v = exampleViewport();
-    for (exampleRegion().slice()) |t| if (!v.holds(t)) s.add(t) catch unreachable;
-    return s;
-}
-
-/// The server at `kept 1040`, after request 3: `leash 1041 219` waiting for
-/// 1041, the view of the region's tiles in effect, the viewport's 8 held.
+/// The server at `kept 1040`, after request 3: `leash 1041 19` waiting for
+/// 1041; the page holds the whole world, as it always does, so the region
+/// is held already.
 pub fn exampleKept() judge_mod.Kept {
     var k: judge_mod.Kept = .{ .tick = 1040, .board = exampleBoard() };
     k.view = .{ .w = 1280, .h = 800, .tiles = exampleRegion() };
-    k.held = exampleViewport();
+    k.held = exampleRegion();
     k.pending[0] = .{ .leash = leashed };
     k.pending_len = 1;
-    // Request 3's answer sent the region's new tiles; the viewport's 8 went
-    // out before it.
-    for (k.view.tiles.slice()) |t| k.sent.add(t);
-    for (k.held.slice()) |t| k.named.add(t);
+    for (k.view.tiles.slice()) |t| {
+        k.sent.add(t);
+        k.named.add(t);
+    }
     return k;
 }
 
-/// The page's own run of the example: its board holds only the region's
-/// tiles' critters; it writes the header, from, the held, and the three
-/// ticks (the leash and a 3 px drag west at 1041, a letgo at 1042, 1043).
+/// The page's own run of the example: it writes the header, from, and the
+/// three ticks (the leash and a 3 px drag west at 1041, a letgo at 1042,
+/// 1043).
 pub fn examplePageRun(buf: []u8) ![]const u8 {
-    var b = pageBoard(exampleBoard(), exampleRegion());
+    var b = exampleBoard();
     var w: wire.Text = .{ .buf = buf };
     try wire.write(&w, .{ .header = .{ .language = 1, .physics = doc_hash, .epoch = .{ .ms = 1791935990000, .count = 3 }, .req = 4 } });
     try wire.write(&w, .{ .from = .{ .tick = 1040, .wall = 1791936000000 } });
-    try wire.write(&w, .{ .held = .{ .tick = 1041, .tiles = exampleHeld() } });
     var lines: physics.Lines = .{};
     const drag = physics.mergeAndCap(&.{ .{ .dx = -256, .dy = 0, .ms = 3 }, .{ .dx = -512, .dy = 0, .ms = 19 } });
     try testing.expectEqual(@as(?physics.Refusal, null), physics.tick(&b, 1041, &.{.{ .leash = leashed }}, drag.slice(), &lines));
@@ -181,12 +143,12 @@ fn exampleLine(t: physics.Tick, who: []const u8, buf: []u8) ![]const u8 {
     return std.fmt.bufPrint(buf, "{s}", .{example_report[at + 1 .. eol]});
 }
 
-test "the worked example, dog 223's step at 1041 a 256th off: differ at that line, the server's own line and its state and board at 1041" {
+test "the worked example, dog 23's step at 1041 a 256th off: differ at that line, the server's own line and its state and board at 1041" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     var line_buf: [128]u8 = undefined;
-    const right = try exampleLine(1041, " dog 223 ", &line_buf);
+    const right = try exampleLine(1041, " dog 23 ", &line_buf);
     const last = right[right.len - 1];
     const wrong = try std.fmt.allocPrint(a, "{s}{c}", .{ right[0 .. right.len - 1], @as(u8, if (last == '0') '1' else '0') });
     const tampered = try std.mem.replaceOwned(u8, a, example_report, try std.fmt.allocPrint(a, " {s}\n", .{right}), try std.fmt.allocPrint(a, " {s}\n", .{wrong}));
@@ -194,34 +156,17 @@ test "the worked example, dog 223's step at 1041 a 256th off: differ at that lin
     var buf: [8192]u8 = undefined;
     const answer = try judged(tampered, &buf, &k);
     try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.allocPrint(a, "req 4\nkept 1040\ndiffer 1041 {s}\nstate leash none drag none laid 0 ", .{right})));
-    try testing.expect(std.mem.indexOf(u8, answer, "\ninput leash 1041 219\nboard 1041 ") != null);
+    try testing.expect(std.mem.indexOf(u8, answer, "\ninput leash 1041 19\nboard 1041 ") != null);
     // Nothing of 1041 kept.
     try testing.expectEqual(@as(physics.Tick, 1040), k.tick);
 }
 
-test "the worked example's region holds the viewport, and its seen critters are every one in the region's tiles" {
+test "the worked example's region is the world, and every critter on the board is seen: the two dogs, the cows, the chickens" {
     var b = exampleBoard();
     b.hold = .{ .leashed = .{ .dog = leashed, .drag = .on } };
-    const region = exampleRegion();
-    for (exampleViewport().slice()) |t| try testing.expect(region.holds(t));
+    try testing.expectEqual(@as(usize, tiles.world_tiles * tiles.world_tiles), exampleRegion().slice().len);
     const sc = physics.Scene.of(&b).?;
-    // Every critter in the region's tiles is awake: here the leashed dog,
-    // dog 223 and the cows there.
-    const span = physics.TileSpan.of(physics.region(b.dogs[leashed]));
-    var n: usize = 0;
-    for (sc.list()) |s| {
-        try testing.expect(span.holdsPoint(b.at(s.who)));
-        if (s.who.kind == .dog) n += 1;
-    }
-    try testing.expectEqual(@as(usize, 2), n);
-}
-
-/// The page's side: its board holds only the critters of the tiles it has.
-pub fn pageBoard(server: Board, held: wire.TileSet) Board {
-    var b = server;
-    for (b.dogs, &b.dog_known) |d, *k| k.* = if (held.holds(physics.tileOf(d))) .present else .absent;
-    for (b.cows, &b.cow_known) |c, *k| k.* = if (held.holds(physics.tileOf(c))) .present else .absent;
-    return b;
+    try testing.expectEqual(@as(usize, 2 + physics.cow_count + physics.chicken_count), sc.len);
 }
 
 test "a report with no ticks is kept at its own from, its inputs waiting for the next tick" {
@@ -229,18 +174,21 @@ test "a report with no ticks is kept at its own from, its inputs waiting for the
     var buf: [1024]u8 = undefined;
     const report = "dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040\ngrab 1041\n";
     try testing.expectEqualStrings("req 4\nkept 1040\n", try judged(report, &buf, &k));
-    try testing.expectEqualSlices(physics.Human, &.{ .{ .leash = 219 }, .grab }, k.pendingSlice());
+    try testing.expectEqualSlices(physics.Human, &.{ .{ .leash = 19 }, .grab }, k.pendingSlice());
     try testing.expectEqual(physics.Hold.none, k.board.hold);
 }
 
 test "a tick whose region meets a tile not held is refused at its t line" {
+    // The page always holds the whole world; one that didn't hold a tile
+    // the physics sees is refused.
     var k = exampleKept();
+    k.held = .{};
     var buf: [4096]u8 = undefined;
     const report = "dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040 wall 1791936000000\nt 1041 +0\n";
     const answer = try judged(report, &buf, &k);
     try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1040\ndiffer 1041 none t 1041 +0\nstate leash none drag none laid 0 view 1280x800"));
     // The kept leash waits for 1041, and the answer says so.
-    try testing.expect(std.mem.indexOf(u8, answer, "\ninput leash 1041 219\n") != null);
+    try testing.expect(std.mem.indexOf(u8, answer, "\ninput leash 1041 19\n") != null);
 }
 
 test "the header: another language or physics reloads; an unreadable one gets req ? alone; another from, reload from K" {
@@ -255,12 +203,11 @@ test "the header: another language or physics reloads; an unreadable one gets re
 test "a held naming a tile never sent is refused at that line" {
     var k = exampleKept();
     k.sent = .{};
-    for (k.held.slice()) |t| k.sent.add(t);
+    k.held = .{};
     var buf: [4096]u8 = undefined;
-    const answer = try judged(example_report, &buf, &k);
-    var want: [64]u8 = undefined;
-    const first = exampleHeld().slice()[0];
-    try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.bufPrint(&want, "req 4\nkept 1040\ndiffer 1041 none held 1041 {d},{d} ", .{ first.col, first.row })));
+    const report = "dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040\nheld 1041 2,3\n";
+    const answer = try judged(report, &buf, &k);
+    try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1040\ndiffer 1041 none held 1041 2,3\n"));
 }
 
 test "a refused input: a leash while one is leashed is differ none at that line" {
@@ -276,21 +223,21 @@ test "a report missing a line the server's run has, and one with a line it doesn
     defer arena.deinit();
     const a = arena.allocator();
     var buf: [4096]u8 = undefined;
-    // Dog 223's line dropped: the server's is named.
+    // Dog 23's line dropped: the server's is named.
     {
         var k = exampleKept();
         var line_buf: [128]u8 = undefined;
-        const dog223 = try exampleLine(1041, " dog 223 ", &line_buf);
-        const report = try std.mem.replaceOwned(u8, a, example_report, try std.fmt.allocPrint(a, " {s}\n", .{dog223}), "");
+        const dog23 = try exampleLine(1041, " dog 23 ", &line_buf);
+        const report = try std.mem.replaceOwned(u8, a, example_report, try std.fmt.allocPrint(a, " {s}\n", .{dog23}), "");
         const answer = try judged(report, &buf, &k);
-        try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.allocPrint(a, "req 4\nkept 1040\ndiffer 1041 {s}\n", .{dog223})));
+        try testing.expect(std.mem.startsWith(u8, answer, try std.fmt.allocPrint(a, "req 4\nkept 1040\ndiffer 1041 {s}\n", .{dog23})));
     }
     // A rest the server's run doesn't have, after the last tick's lines.
     {
         var k = exampleKept();
         const report = example_report ++ "rest 1043\n";
         const answer = try judged(report, &buf, &k);
-        try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1042\ndiffer 1043 none rest 1043\nstate leash 219 drag ended 1042 laid 0 "));
+        try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1042\ndiffer 1043 none rest 1043\nstate leash 19 drag ended 1042 laid 0 "));
     }
 }
 

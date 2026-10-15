@@ -68,18 +68,18 @@ test "every kind of line round-trips: written, parsed, the same integers, writte
         .{ .header = .{ .language = 1, .physics = 0, .epoch = .{ .ms = 0, .count = 0 }, .req = 0 } },
         .{ .from = .{ .tick = 1040, .wall = 1791936000000 } },
         .{ .from = .{ .tick = 0, .wall = null } },
-        .{ .leash = .{ .tick = 1041, .dog = 219 } },
-        .{ .release = .{ .tick = 1121, .dog = 249 } },
+        .{ .leash = .{ .tick = 1041, .dog = 19 } },
+        .{ .release = .{ .tick = 1121, .dog = 49 } },
         .{ .grab = 7 },
         .{ .letgo = 1042 },
         .{ .rest = 9 },
-        .{ .held = .{ .tick = 1041, .tiles = tileSet(&.{ .{ 31, 34 }, .{ 0, 0 }, .{ 63, 63 } }) } },
-        .{ .view = .{ .tick = 1041, .w = 1280, .h = 800, .tiles = tileSet(&.{ .{ 31, 34 }, .{ 32, 34 } }) } },
+        .{ .held = .{ .tick = 1041, .tiles = tileSet(&.{ .{ 3, 4 }, .{ 0, 0 }, .{ 5, 5 } }) } },
+        .{ .view = .{ .tick = 1041, .w = 1280, .h = 800, .tiles = tileSet(&.{ .{ 3, 4 }, .{ 4, 4 } }) } },
         .{ .view = .{ .tick = 2, .w = 0, .h = 0, .tiles = .{} } },
         .{ .t = .{ .tick = 1041, .ms = 0, .drag = drag } },
         .{ .t = .{ .tick = 1042, .ms = 63, .drag = .{} } },
-        .{ .critter = .{ .who = .dog(223), .before = .{ .x = 0x42d200, .y = 0x46d200 }, .after = .{ .x = 0x42d1f0, .y = 0x46d200 } } },
-        .{ .critter = .{ .who = .cow(49), .before = .{ .x = 0, .y = physics.world - 1 }, .after = .{ .x = 1, .y = 255 } } },
+        .{ .critter = .{ .who = .dog(23), .before = .{ .x = 0x45100, .y = 0x3e800 }, .after = .{ .x = 0x450f0, .y = 0x3e800 } } },
+        .{ .critter = .{ .who = .cow(7), .before = .{ .x = 0, .y = physics.world - 1 }, .after = .{ .x = 1, .y = 255 } } },
         .{ .bump = .{ .tick = 5, .who = .{ .critter = .cow(0) } } },
         .{ .bump = .{ .tick = 6, .who = .{ .poop = 2047 } } },
         .{ .bump = .{ .tick = 5, .who = .{ .critter = .dog(17) } } },
@@ -176,21 +176,6 @@ test "every other spelling is refused: padding, upper case, +0.00, short or long
         "kept 1041",
         "release 1041 07",
     }) |text| try refused(text);
-}
-
-test "a view holds at most 64 tiles: 64 parse, 65 are refused" {
-    var buf: [2048]u8 = undefined;
-    var w: Text = .{ .buf = &buf };
-    try w.str("view 1 1920x1080");
-    for (0..64) |i| {
-        try w.char(' ');
-        try w.dec(i % 64);
-        try w.str(",3");
-    }
-    const v = try wire.parse(w.bytes());
-    try testing.expectEqual(@as(usize, 64), v.view.tiles.len);
-    try w.str(" 0,4");
-    try refused(w.bytes());
 }
 
 test "the lines of a text: split on \\n, a last line without one still a line, an empty line returned for the caller to refuse" {

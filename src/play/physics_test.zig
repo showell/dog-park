@@ -25,6 +25,10 @@ fn fuzzed(full: usize) usize {
     };
 }
 
+/// The world's middle, in whole pixels: scenes stand here, clear of the
+/// seam unless they mean it.
+const mid: i32 = tiles.world_px / 2;
+
 fn px(x: i32, y: i32) Point {
     return .{ .x = physics.px(x), .y = physics.px(y) };
 }
@@ -64,16 +68,17 @@ fn hasRest(lines: *const Lines) bool {
 // ------------------------------------------- overlaps that slipped through
 
 test "the leashed dog overlapping another: a bump only when the drag shrinks |Δ| on its axis or would carry it past; along it, away, or from Δ = 0, free" {
-    const b0 = 16000;
+    // Dog 1 overlapping the leashed dog (dogs are 2 * dog_half a side).
+    const b0 = mid;
     const Case = struct { other: Point, drag: physics.Disp, bump: bool };
     const cases = [_]Case{
-        .{ .other = px(b0 + 30, b0), .drag = d(5, 0), .bump = true },
-        .{ .other = px(b0 + 30, b0), .drag = d(-5, 0), .bump = false },
-        .{ .other = px(b0 + 30, b0), .drag = d(0, 5), .bump = false },
-        .{ .other = px(b0 + 30, b0 + 10), .drag = d(0, 5), .bump = true },
-        .{ .other = px(b0 + 30, b0 + 10), .drag = d(0, -5), .bump = false },
-        .{ .other = px(b0, b0 + 30), .drag = d(5, 0), .bump = false },
-        .{ .other = px(b0 + 3, b0), .drag = d(5, 0), .bump = true },
+        .{ .other = px(b0 + 21, b0), .drag = d(5, 0), .bump = true },
+        .{ .other = px(b0 + 21, b0), .drag = d(-5, 0), .bump = false },
+        .{ .other = px(b0 + 21, b0), .drag = d(0, 5), .bump = false },
+        .{ .other = px(b0 + 21, b0 + 7), .drag = d(0, 5), .bump = true },
+        .{ .other = px(b0 + 21, b0 + 7), .drag = d(0, -5), .bump = false },
+        .{ .other = px(b0, b0 + 21), .drag = d(5, 0), .bump = false },
+        .{ .other = px(b0 + 2, b0), .drag = d(5, 0), .bump = true },
     };
     for (cases) |c| {
         var b = leashedAt(px(b0, b0));
@@ -119,7 +124,7 @@ test "a bump ends the drag, not the leash: the dog stops just short, the rest of
     // Dog 5 touching the leashed dog's east side: the drag's first pixel
     // presses into it before it can get out of the way (there is no edge
     // to pin it against on the torus, decision 14).
-    const short = px(16000, 16000);
+    const short = px(mid, mid);
     var b = leashedAt(short);
     b.place(.dog(5), .{ .x = short.x + 2 * physics.dog_half, .y = short.y });
     const lines = ticked(&b, 10, &.{}, &.{ d(80, 0), d(0, 30) });
@@ -145,7 +150,7 @@ test "a bump ends the drag, not the leash: the dog stops just short, the rest of
 }
 
 test "a grab as the timer runs out beats the release; a letgo then starts the timer again" {
-    var b = leashedAt(px(16000, 16000));
+    var b = leashedAt(px(mid, mid));
     _ = ticked(&b, 10, &.{.letgo}, &.{});
     try testing.expectEqual(physics.Drag{ .ended = 10 }, b.hold.leashed.drag);
     const release = 10 + physics.let_go_ticks;
@@ -159,7 +164,7 @@ test "a grab as the timer runs out beats the release; a letgo then starts the ti
 }
 
 test "a bump that presses two critters at once names the higher-ranked" {
-    const from = px(16000, 16000);
+    const from = px(mid, mid);
     var b = leashedAt(from);
     // Two dogs touching the leashed dog's east side, one above the other's
     // top: the first pixel of the drag presses both.
@@ -171,21 +176,21 @@ test "a bump that presses two critters at once names the higher-ranked" {
 }
 
 test "grab, letgo, grab at one tick leaves a drag on, the displacements played; letgo with no drag on is a no-op" {
-    var b = leashedAt(px(16000, 16000));
+    var b = leashedAt(px(mid, mid));
     b.hold.leashed.drag = .{ .ended = 3 };
     _ = ticked(&b, 5, &.{ .grab, .letgo, .grab }, &.{d(5, 0)});
     try testing.expectEqual(physics.Drag.on, b.hold.leashed.drag);
-    try testing.expectEqual(px(16005, 16000), b.dogs[0]);
+    try testing.expectEqual(px(mid + 5, mid), b.dogs[0]);
     _ = ticked(&b, 6, &.{.letgo}, &.{d(5, 0)});
     try testing.expectEqual(physics.Drag{ .ended = 6 }, b.hold.leashed.drag);
-    try testing.expectEqual(px(16010, 16000), b.dogs[0]);
+    try testing.expectEqual(px(mid + 10, mid), b.dogs[0]);
     _ = ticked(&b, 7, &.{.letgo}, &.{});
     try testing.expectEqual(physics.Drag{ .ended = 6 }, b.hold.leashed.drag);
 }
 
 test "the inputs' preconditions: a leash while leashed, a release of another dog, a grab with nothing leashed, a 17th input" {
-    var b = leashedAt(px(16000, 16000));
-    b.place(.dog(1), px(17000, 16000));
+    var b = leashedAt(px(mid, mid));
+    b.place(.dog(1), px(mid + 900, mid));
     var lines: Lines = .{};
     try testing.expectEqual(@as(?physics.Refusal, .leash_while_leashed), physics.tick(&b, 1, &.{.{ .leash = 1 }}, &.{}, &lines));
     try testing.expectEqual(@as(?physics.Refusal, .release_not_leashed), physics.tick(&b, 1, &.{.{ .release = 1 }}, &.{}, &lines));
@@ -199,7 +204,7 @@ test "the inputs' preconditions: a leash while leashed, a release of another dog
 }
 
 test "rest: nothing moved, no input but a view or held, no timer running; the pointer held still rests too" {
-    var b = leashedAt(px(16000, 16000));
+    var b = leashedAt(px(mid, mid));
     var l = ticked(&b, 1, &.{}, &.{});
     try testing.expect(hasRest(&l));
     try testing.expectEqual(@as(usize, 1), l.len);
@@ -207,7 +212,7 @@ test "rest: nothing moved, no input but a view or held, no timer running; the po
     l = ticked(&b, 2, &.{.grab}, &.{});
     try testing.expect(!hasRest(&l));
     // Dogs move only in a drag: a dog out of its band, with no drag, rests.
-    b.place(.dog(4), px(16200, 16000));
+    b.place(.dog(4), px(mid + 200, mid));
     l = ticked(&b, 3, &.{}, &.{});
     try testing.expect(hasRest(&l));
     // Unleashed, nothing moves and nothing is timed.
@@ -239,178 +244,51 @@ test "merged and capped: past 16 displacements are added into the 16th; each axi
 }
 
 test "a tick's drag moves the leashed dog at most 100 px on each axis" {
-    var b = leashedAt(px(16000, 16000));
+    var b = leashedAt(px(mid, mid));
     // Nine tenths of the cap, twice, each way: the cap, each way.
     const most = @divExact(physics.cap, physics.px(10)) * 9;
     const c = physics.mergeAndCap(&.{ d(most, -most), d(most, -most) });
     _ = ticked(&b, 1, &.{}, c.slice());
-    try testing.expectEqual(Point{ .x = physics.px(16000) + physics.cap, .y = physics.px(16000) - physics.cap }, b.dogs[0]);
+    try testing.expectEqual(Point{ .x = physics.px(mid) + physics.cap, .y = physics.px(mid) - physics.cap }, b.dogs[0]);
 }
 
 test "across the seam the drag wraps, and carries on (decision 14: no edge)" {
-    var b = leashedAt(px(30, 16000));
+    var b = leashedAt(px(30, mid));
     const lines = ticked(&b, 1, &.{}, &.{ d(-50, 0), d(0, 20) });
     // 50 px west from 30 px: 20 px short of the world's east side.
-    try testing.expectEqual(Point{ .x = physics.world - physics.px(20), .y = physics.px(16020) }, b.dogs[0]);
+    try testing.expectEqual(Point{ .x = physics.world - physics.px(20), .y = physics.px(mid + 20) }, b.dogs[0]);
     try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
     try testing.expectEqual(physics.Drag.on, b.hold.leashed.drag);
 }
 
 // ------------------------------------------- what the physics sees (12, 14)
 
-test "a critter whose point stands in a tile not meeting the region is unseen, though its square pokes into one that does" {
-    // The leashed dog the region's reach west of a tile's west edge: the
-    // region ends on it.
-    const edge = physics.tile * 35;
-    const from: Point = .{ .x = edge - physics.region_reach, .y = edge - physics.region_reach };
-    try testing.expectEqual(edge, physics.region(from).hi.x);
-    var b = leashedAt(from);
-    // Cow 0 just past the edge (its square pokes back over it); cow 1 just
-    // short of it, far south: seen, as every critter in the region's tiles.
-    b.place(.cow(0), .{ .x = edge + physics.px(10), .y = from.y });
-    b.place(.cow(1), .{ .x = edge - physics.px(10), .y = from.y + physics.px(1000) });
-    const sc = physics.Scene.of(&b).?;
-    try testing.expectEqual(@as(usize, 2), sc.len);
-    try testing.expect(sc.list()[1].who.eql(.cow(1)));
-}
-
-test "the torus' tiles (decision 14): a region across x = 0, y = 0 and the corner spans the wrapped tiles; tileOf wraps a point" {
+test "the region is the world: its tiles are every tile once, from (0, 0), wherever the leashed dog stands; tileOf wraps a point" {
     const w = tiles.world_tiles;
-    const edge_in = physics.px(200);
-    const mid = physics.world / 2;
-    // Across x = 0: columns 61 to 63 and 0 to 3, named 61 to 67.
-    const west = physics.TileSpan.of(physics.region(.{ .x = edge_in, .y = mid }));
-    try testing.expectEqual(physics.TileSpan{ .col_lo = w - 3, .col_hi = w + 3, .row_lo = 29, .row_hi = 34 }, west);
-    for ([_]i32{ w - 3, w - 1, 0, 3 }) |c| try testing.expect(west.holds(.{ .col = c, .row = 32 }));
-    for ([_]i32{ w - 4, 4 }) |c| try testing.expect(!west.holds(.{ .col = c, .row = 32 }));
-    try testing.expect(!west.holds(.{ .col = 0, .row = 35 }));
-    // Across y = 0, the mirror.
-    const north = physics.TileSpan.of(physics.region(.{ .x = mid, .y = edge_in }));
-    try testing.expectEqual(physics.TileSpan{ .col_lo = 29, .col_hi = 34, .row_lo = w - 3, .row_hi = w + 3 }, north);
-    // Across the corner from the far side: 60 to 63 and 0 to 2 both ways.
-    const corner = physics.TileSpan.of(physics.region(.{ .x = physics.world - edge_in, .y = physics.world - edge_in }));
-    try testing.expectEqual(physics.TileSpan{ .col_lo = 60, .col_hi = 66, .row_lo = 60, .row_hi = 66 }, corner);
-    for ([_][2]i32{ .{ 63, 63 }, .{ 0, 0 }, .{ 63, 0 }, .{ 0, 63 }, .{ 2, 60 } }) |cr| try testing.expect(corner.holds(.{ .col = cr[0], .row = cr[1] }));
-    try testing.expect(!corner.holds(.{ .col = 3, .row = 0 }));
-    try testing.expectEqual(tiles.Tile{ .col = 2, .row = 0 }, physics.TileSpan.at(w + 2, w));
-    // tileOf: a point wrapped first.
+    for ([_]Point{ px(0, 0), px(mid, mid), .{ .x = physics.world - 1, .y = 0 } }) |at| {
+        try testing.expectEqual(physics.TileSpan{ .col_lo = 0, .col_hi = w - 1, .row_lo = 0, .row_hi = w - 1 }, physics.TileSpan.of(physics.region(at)));
+    }
     try testing.expectEqual(tiles.Tile{ .col = w - 1, .row = 0 }, physics.tileOf(.{ .x = -1, .y = physics.world }));
     try testing.expectEqual(tiles.Tile{ .col = 0, .row = w - 1 }, physics.tileOf(.{ .x = physics.world + physics.tile - 1, .y = -physics.tile }));
 }
 
-test "a critter across the seam from the leashed dog, in the region's wrapped tiles, is seen" {
-    const edge_in = physics.px(200);
-    var b = leashedAt(.{ .x = edge_in, .y = edge_in });
-    b.place(.cow(0), .{ .x = physics.world - edge_in, .y = physics.world - edge_in });
-    b.place(.cow(1), .{ .x = physics.world / 2, .y = edge_in });
+test "the physics sees every critter, wherever it stands: across the seam from the leashed dog, and on the far side of the world" {
+    var b = leashedAt(px(10, 10));
+    b.place(.cow(0), .{ .x = physics.world - physics.px(10), .y = physics.world - physics.px(10) });
+    b.place(.cow(1), px(mid, mid));
+    b.place(.dog(5), .{ .x = physics.world / 2 + physics.px(300), .y = physics.px(10) });
     const sc = physics.Scene.of(&b).?;
-    try testing.expectEqual(@as(usize, 2), sc.len);
-    try testing.expect(sc.list()[1].who.eql(.cow(0)));
+    try testing.expectEqual(@as(usize, 4), sc.len);
 }
 
-/// A page's board for test 12: the critters of the tiles it has.
-const PageBoard = struct {
-    board: Board,
-    held: [tiles.world_tiles][tiles.world_tiles]Held = @splat(@splat(.not_held)),
-
-    const Held = enum { not_held, held };
-
-    fn init(server: *const Board) PageBoard {
-        var p: PageBoard = .{ .board = server.* };
-        p.board.dog_known = @splat(.absent);
-        p.board.cow_known = @splat(.absent);
-        return p;
-    }
-
-    /// Holds the tiles of `span` it doesn't hold yet, taking their critters
-    /// as the server has them.
-    fn hold(p: *PageBoard, server: *const Board, span: physics.TileSpan) void {
-        var row = span.row_lo;
-        while (row <= span.row_hi) : (row += 1) {
-            var col = span.col_lo;
-            while (col <= span.col_hi) : (col += 1) {
-                const t = physics.TileSpan.at(col, row);
-                if (p.held[@intCast(t.row)][@intCast(t.col)] == .held) continue;
-                p.held[@intCast(t.row)][@intCast(t.col)] = .held;
-                for (server.dogs, 0..) |at, i| if (std.meta.eql(physics.tileOf(at), t)) p.board.place(.dog(@intCast(i)), at);
-                for (server.cows, 0..) |at, i| if (std.meta.eql(physics.tileOf(at), t)) p.board.place(.cow(@intCast(i)), at);
-            }
-        }
-    }
-};
-
-test "subscribing more tiles changes nothing: the server's board, a page holding only the region's tiles and one holding a large display's give the same lines, every tick" {
-    // Two walks, each with a letgo (the walk's dogs get out of the way, so
-    // these walks rarely bump; the bump tests hold the page to the server
-    // there). A hundred ticks each; four hundred in the slow tier.
-    const ticks: physics.Tick = switch (fuzz) {
-        .fast => 100,
-        .full => 400,
-    };
-    var moved: usize = 0;
-    var walks: usize = 0;
-    var seed: u64 = 1;
-    while (walks < 2 and seed <= 16) : (seed += 1) {
-        const walk = try walkCompared(seed, ticks);
-        moved += walk.moved;
-        if (walk.letgos > 0) walks += 1;
-    }
-    try testing.expectEqual(@as(usize, 2), walks);
-    try testing.expect(moved > 100);
-}
-
-const Walk = struct { bumps: usize = 0, letgos: usize = 0, moved: usize = 0 };
-
-fn walkCompared(seed: u64, ticks: physics.Tick) !Walk {
-    var walk: Walk = .{};
-    var server = Board.laidOut();
-    // Dog 112, in the park's middle.
-    const leashed: u16 = 112;
-    var small = PageBoard.init(&server);
-    var large = PageBoard.init(&server);
-    large.hold(&server, .{ .col_lo = 26, .col_hi = 37, .row_lo = 26, .row_hi = 37 });
-    var prng: std.Random.DefaultPrng = .init(seed);
-    const rand = prng.random();
-    var heading = d(30, 10);
-    var t: physics.Tick = 1;
-    var humans: [2]physics.Human = undefined;
-    var nh: usize = 1;
-    humans[0] = .{ .leash = leashed };
-    while (t <= ticks) : (t += 1) {
-        // The page holds the region's tiles before it runs the tick.
-        if (server.leashedDog() == null and nh == 0) {
-            humans[0] = .{ .leash = leashed };
-            nh = 1;
-        }
-        const at = server.dogs[leashed];
-        const span = physics.TileSpan.of(physics.region(at));
-        small.hold(&server, span);
-        large.hold(&server, span);
-        if (rand.uintLessThan(u32, 20) == 0) heading = d(rand.intRangeAtMost(i32, -40, 40), rand.intRangeAtMost(i32, -40, 40));
-        var raw: [3]physics.Disp = undefined;
-        const n: usize = rand.uintLessThan(u32, 4);
-        for (raw[0..n]) |*r| r.* = .{ .dx = @divTrunc(heading.dx, 2) + physics.px(rand.intRangeAtMost(i32, -3, 3)), .dy = @divTrunc(heading.dy, 2), .ms = 0 };
-        const drag = physics.mergeAndCap(raw[0..n]);
-        if (rand.uintLessThan(u32, 40) == 0 and server.leashedDog() != null) {
-            humans[nh] = .letgo;
-            nh += 1;
-            walk.letgos += 1;
-        }
-        const a = ticked(&server, t, humans[0..nh], drag.slice());
-        const b = ticked(&small.board, t, humans[0..nh], drag.slice());
-        const c = ticked(&large.board, t, humans[0..nh], drag.slice());
-        try testing.expectEqualSlices(physics.Checked, a.slice(), b.slice());
-        try testing.expectEqualSlices(physics.Checked, a.slice(), c.slice());
-        nh = 0;
-        if (bumpOf(&a) != null) walk.bumps += 1;
-        walk.moved += a.len;
-        // After a bump or a letgo, grab again now and then.
-        if (server.hold == .leashed and server.hold.leashed.drag != .on and rand.uintLessThan(u32, 4) == 0) {
-            humans[0] = .grab;
-            nh = 1;
-        }
-    }
-    return walk;
+test "the walk's neighbours wrap: a dog across the seam, nearer than one on this side, is visited first" {
+    // Dog 4 (the leashed dog's breed) 40 px west across x = 0; dog 8 60 px
+    // east. The ring search must find dog 4 the short way round.
+    var b = leashedAt(px(10, mid));
+    b.place(.dog(4), .{ .x = physics.world - physics.px(30), .y = physics.px(mid) });
+    b.place(.dog(8), px(70, mid));
+    const lines = ticked(&b, 1, &.{}, &.{d(0, 1)});
+    try testing.expectEqualSlices(u16, &.{ 4, 8 }, lines.walk[0..2]);
 }
 
 // ------------------------------------------- the arithmetic on every target
@@ -520,7 +398,7 @@ test "the walk: a dog already waiting takes a nearer dog's key (Steve's 172, 176
     // 180 (8) 139, 174 (2, another breed) 186, 184 (12) 240 but 101 from
     // 180. 176 lines up 184 first, far (207); 180, visited next, is
     // nearer it, so 184 comes before 174.
-    const at = px(16000, 16000);
+    const at = px(mid, mid);
     var b = leashedAt(at);
     b.place(.dog(4), .{ .x = at.x + physics.px(55), .y = at.y + physics.px(33) });
     b.place(.dog(8), .{ .x = at.x + physics.px(62), .y = at.y + physics.px(139) });
@@ -541,7 +419,7 @@ test "the invariant: seeded drags through the laid-out park, and no two critters
     const rand = prng.random();
     var b = Board.laidOut();
     var lines: Lines = .{};
-    try testing.expectEqual(@as(?physics.Refusal, null), physics.tick(&b, 1, &.{.{ .leash = 112 }}, &.{}, &lines));
+    try testing.expectEqual(@as(?physics.Refusal, null), physics.tick(&b, 1, &.{.{ .leash = 25 }}, &.{}, &lines));
     var found: [8][2]physics.Critter = undefined;
     var heading = d(10, 4);
     var shoved: usize = 0;
@@ -572,38 +450,26 @@ fn idleChicken(b: *const Board, c: Point, n: u16) bool {
     return true;
 }
 
-test "the edge (decision 23): a walked critter never steps within cow_half of the seen tiles' edge, so an unseen one poking in is never overlapped" {
-    // The leashed dog at 16250 sees x in [14500, 18000). Dog 4 (its breed)
-    // walks west toward it; dog 5 (another breed), 55 px east of dog 4, is
-    // pushed east, toward dog 9, unseen at 18004, touching it.
-    const at = px(16250, 16250);
+test "a cow heeds only its nearest moving critter: a cow within cow_pull, it closes in; a dog, it flees (decision 24)" {
+    // The leashed dog, dragged west, scares cow 0 (140 px off, inside
+    // `wary`) west. Cow 1, 70 px west of cow 0 and 210 from the dog, has
+    // cow 0 nearest, within `cow_pull`: it closes in, east, at half a dog's
+    // step. Cow 2 is inside the dog's `wary` (140 px) but cow 0 and cow 1
+    // are nearer (88 each, a tie the lower rank wins): it ignores the dog
+    // and closes in on cow 0, north. Cow 3, alone 260 px past cow 1 (past
+    // `cow_pull`), stays.
+    const at = px(mid, mid);
     var b = leashedAt(at);
-    b.place(.dog(4), px(17909, 16250));
-    b.place(.dog(5), px(17964, 16250));
-    b.place(.dog(9), px(18004, 16250));
-    const lines = ticked(&b, 1, &.{}, &.{d(1, 0)});
-    try testing.expectEqualSlices(u16, &.{ 4, 5 }, lines.walk[0..lines.walk_len]);
-    try testing.expectEqual(physics.px(17908), b.dogs[4].x);
-    try testing.expect(!physics.squaresOverlap(b.dogs[5], physics.dog_half, b.dogs[9], physics.dog_half));
-    try testing.expectEqual(px(17964, 16250), b.dogs[5]);
-}
-
-test "a cow heeds only its nearest moving critter: a cow, it closes in; a dog, it flees (decision 24)" {
-    // The leashed dog, dragged west, scares cow 0 (200 px off) west. Cow 1,
-    // 100 px west of cow 0 and 300 from the dog, has cow 0 nearest: it
-    // closes in, east, at half a dog's step. Cow 2 is inside the dog's
-    // `wary` (199 px) but cow 0 and cow 1 are nearer (125 each, a tie the
-    // lower rank wins): it ignores the dog and closes in on cow 0, north.
-    const at = px(16250, 16250);
-    var b = leashedAt(at);
-    b.place(.cow(0), px(16050, 16250));
-    b.place(.cow(1), px(15950, 16250));
-    b.place(.cow(2), px(16050, 16375));
+    b.place(.cow(0), px(mid - 140, mid));
+    b.place(.cow(1), px(mid - 210, mid));
+    b.place(.cow(2), px(mid - 140, mid + 88));
+    b.place(.cow(3), px(mid - 210, mid - 350));
     _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
-    try testing.expectEqual(physics.px(16050) - 128, b.cows[0].x);
-    try testing.expectEqual(physics.px(15950) + 128, b.cows[1].x);
-    try testing.expectEqual(px(16050, 16375 - 1).x, b.cows[2].x);
-    try testing.expectEqual(physics.px(16375) - 128, b.cows[2].y);
+    try testing.expectEqual(physics.px(mid - 140) - 128, b.cows[0].x);
+    try testing.expectEqual(physics.px(mid - 210) + 128, b.cows[1].x);
+    try testing.expectEqual(physics.px(mid - 140), b.cows[2].x);
+    try testing.expectEqual(physics.px(mid + 88) - 128, b.cows[2].y);
+    try testing.expectEqual(px(mid - 210, mid - 350), b.cows[3]);
 }
 
 test "the nudge (decision 25): a lone dog drives three touching cows west in unison; their pull on each other keeps them together" {
@@ -611,27 +477,31 @@ test "the nudge (decision 25): a lone dog drives three touching cows west in uni
     // touching the next. The dog scares the nearest; without the nudge the
     // cow in its way vetoes its step, and that cow, touching its nearest
     // moving kin, wants nothing: the row is stuck.
-    const at = px(16250, 16250);
+    const at = px(mid, mid);
+    const touch = 2 * physics.cow_half;
     var b = leashedAt(at);
-    b.place(.cow(0), px(16050, 16250));
-    b.place(.cow(1), px(15990, 16250));
-    b.place(.cow(2), px(15930, 16250));
+    b.place(.cow(0), px(mid - 140, mid));
+    b.place(.cow(1), .{ .x = physics.px(mid - 140) - touch, .y = physics.px(mid) });
+    b.place(.cow(2), .{ .x = physics.px(mid - 140) - 2 * touch, .y = physics.px(mid) });
     var t: physics.Tick = 1;
     while (t <= 20) : (t += 1) _ = ticked(&b, t, &.{}, &.{d(-10, 0)});
-    try testing.expect(b.cows[0].x < physics.px(16050 - 40));
-    try testing.expectEqual(b.cows[0].x - physics.px(60), b.cows[1].x);
-    try testing.expectEqual(b.cows[1].x - physics.px(60), b.cows[2].x);
-    for (b.cows[0..3]) |c| try testing.expectEqual(physics.px(16250), c.y);
+    try testing.expect(b.cows[0].x < physics.px(mid - 140 - 28));
+    try testing.expectEqual(b.cows[0].x - touch, b.cows[1].x);
+    try testing.expectEqual(b.cows[1].x - touch, b.cows[2].x);
+    for (b.cows[0..3]) |c| try testing.expectEqual(physics.px(mid), c.y);
 }
 
 test "the nudge stops at a critter not kin: a cow pressed against a dog vetoes the whole row" {
     // One pixel-tick: the dog flees the moving cow 1 only later in it.
-    const at = px(16250, 16250);
+    const at = px(mid, mid);
+    const touch = 2 * physics.cow_half;
     var b = leashedAt(at);
-    b.place(.cow(0), px(16050, 16250));
-    b.place(.cow(1), px(15990, 16250));
-    b.place(.dog(1), px(15940, 16250));
+    const c0: Point = px(mid - 140, mid);
+    const c1: Point = .{ .x = c0.x - touch, .y = c0.y };
+    b.place(.cow(0), c0);
+    b.place(.cow(1), c1);
+    b.place(.dog(1), .{ .x = c1.x - physics.cow_half - physics.dog_half, .y = c1.y });
     _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
-    try testing.expectEqual(px(16050, 16250), b.cows[0]);
-    try testing.expectEqual(px(15990, 16250), b.cows[1]);
+    try testing.expectEqual(c0, b.cows[0]);
+    try testing.expectEqual(c1, b.cows[1]);
 }

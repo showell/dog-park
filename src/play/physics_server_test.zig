@@ -225,7 +225,7 @@ fn regionOf(b: *const Board, dog: u16) wire.TileSet {
 }
 
 /// The dog leashed in these tests: in the park's middle, among others.
-const the_dog: u16 = 125;
+const the_dog: u16 = 25;
 
 /// **A LEASH, STEP BY STEP** (the doc's "A leash, step by step"): `leash
 /// K+1 D` and a view of the region, as inputs with no tick; the answer
@@ -282,13 +282,13 @@ test "1. an unleashed pan: a report with only a view gets its tile lines; the pa
     try expectKept(try rig.report(page.body()), 2, 0);
     // A pan one column east: only the new column's tiles come.
     var wider = view;
-    try wider.add(.{ .col = 30, .row = 27 });
-    try wider.add(.{ .col = 30, .row = 28 });
+    try wider.add(.{ .col = corner + 3, .row = corner });
+    try wider.add(.{ .col = corner + 3, .row = corner + 1 });
     try page.begin();
     try page.write(.{ .view = .{ .tick = page.last + 1, .w = 1280, .h = 800, .tiles = wider } });
     const b = try rig.report(page.body());
     try testing.expectEqual(@as(usize, 2), count(b, "tile "));
-    try testing.expect(std.mem.indexOf(u8, b, "\ntile 30,27 ") != null);
+    try testing.expect(std.mem.indexOf(u8, b, try std.fmt.bufPrint(&want, "\ntile {d},{d} ", .{ corner + 3, corner })) != null);
 }
 
 test "2. a differ at from + 1 is answered differ, with state and board, never reload" {
@@ -302,13 +302,13 @@ test "2. a differ at from + 1 is answered differ, with state and board, never re
     try page.tick(&.{.{ .dx = physics.px(3), .dy = 0 }});
     const right = try rig.arena.allocator().dupe(u8, page.body());
     // The leashed dog's line written a 256th off.
-    const at = std.mem.indexOf(u8, right, "\n dog 125 ").?;
+    const at = std.mem.indexOf(u8, right, "\n dog 25 ").?;
     const end = std.mem.indexOfScalarPos(u8, right, at + 1, '\n').?;
     const wrong = try std.mem.concat(rig.arena.allocator(), u8, &.{ right[0 .. end - 1], if (right[end - 1] == '0') "1" else "0", right[end..] });
     const a = try rig.report(wrong);
     var buf: [64]u8 = undefined;
-    try testing.expect(std.mem.startsWith(u8, a, try std.fmt.bufPrint(&buf, "req {d}\nkept {d}\ndiffer {d} dog 125 ", .{ page.req, page.from, page.from + 1 })));
-    try testing.expect(std.mem.indexOf(u8, a, "\nstate leash 125 drag on laid 0 view 1280x800 ") != null);
+    try testing.expect(std.mem.startsWith(u8, a, try std.fmt.bufPrint(&buf, "req {d}\nkept {d}\ndiffer {d} dog 25 ", .{ page.req, page.from, page.from + 1 })));
+    try testing.expect(std.mem.indexOf(u8, a, "\nstate leash 25 drag on laid 0 view 1280x800 ") != null);
     try testing.expect(std.mem.indexOf(u8, a, "\nboard ") != null);
     try testing.expect(std.mem.indexOf(u8, a, "reload") == null);
     // The page rewinds and sends its own run again: kept.
@@ -521,7 +521,7 @@ test "15. a lost answer and a trailing leash: the byte-identical resend gets the
     try again.begin();
     try again.write(.{ .held = .{ .tick = 1, .tiles = region } });
     try again.write(.{ .leash = .{ .tick = 1, .dog = the_dog } });
-    try testing.expect(std.mem.indexOf(u8, try rig.report(again.body()), "\ndiffer 1 none leash 1 125\n") != null);
+    try testing.expect(std.mem.indexOf(u8, try rig.report(again.body()), "\ndiffer 1 none leash 1 25\n") != null);
     // R + 2 without it: kept, the leash taken from the first request.
     page.req = again.req;
     try page.begin();
@@ -537,13 +537,13 @@ test "16. a reload, then req 1, while the old epoch's stored answer was also req
     defer rig.deinit();
     var old = try Page.loaded(&rig, try rig.load("1280x800"));
     try old.begin();
-    try old.write(.{ .view = .{ .tick = 1, .w = 1280, .h = 800, .tiles = tileSetOf(.{ 30, 30 }, .{ 30, 30 }) } });
+    try old.write(.{ .view = .{ .tick = 1, .w = 1280, .h = 800, .tiles = tileSetOf(.{ 1, 1 }, .{ 1, 1 }) } });
     _ = try rig.report(old.body());
     var page = try Page.loaded(&rig, try rig.load("640x480"));
     try page.begin();
-    try page.write(.{ .view = .{ .tick = 1, .w = 640, .h = 480, .tiles = tileSetOf(.{ 31, 31 }, .{ 31, 31 }) } });
+    try page.write(.{ .view = .{ .tick = 1, .w = 640, .h = 480, .tiles = tileSetOf(.{ 2, 2 }, .{ 2, 2 }) } });
     const a = try rig.report(page.body());
-    try testing.expect(std.mem.startsWith(u8, a, "req 1\nkept 0\ntile 31,31 "));
+    try testing.expect(std.mem.startsWith(u8, a, "req 1\nkept 0\ntile 2,2 "));
     // And the old page, now behind: taken over.
     try old.begin();
     try testing.expectEqualStrings("req 2\ntaken over\n", try rig.report(old.body()));
@@ -593,7 +593,7 @@ test "19. a torn log tail at restart: dropped, and the board is where the last w
     const was = rig.server.kept;
     const log = rig.server.log_path;
     // A crash mid-append: half an entry.
-    const torn = "entry report 400\ndogpark 1 physics 00000000 page 1.1 req 9\nfrom 6 wall 1\nt 7 +0\n dog 125 ";
+    const torn = "entry report 400\ndogpark 1 physics 00000000 page 1.1 req 9\nfrom 6 wall 1\nt 7 +0\n dog 25 ";
     _ = try webbox.store.append(rig.io(), rig.arena.allocator(), log, torn);
     try rig.restart(t0 + 1000);
     try testing.expectEqual(torn.len, rig.started.board.applied.torn_bytes);
@@ -637,64 +637,6 @@ test "21. thirty unleashed pans, each a view and a held for one tick: no refusal
     try testing.expectEqual(@as(u32, 0), rig.server.differs_in_a_row);
     try testing.expectEqual(@as(?Tick, null), rig.server.stuck);
     try testing.expectEqual(@as(Tick, 0), rig.server.kept.tick);
-}
-
-test "22. a replay that reaches a new tile before its held: a held of a tile never sent is refused; the view sends it, then the held is kept" {
-    var rig: Rig = undefined;
-    try rig.init(t0);
-    defer rig.deinit();
-    var page = try Page.loaded(&rig, try rig.load("1280x800"));
-    try leashUp(&rig, &page, the_dog);
-    var view = rig.server.kept.view.tiles;
-    const beyond: tiles.Tile = .{ .col = 40, .row = 40 };
-    try view.add(beyond);
-    const t = page.last + 1;
-    // Wrong: the held for the new tile in the same request as its view.
-    var bad = page;
-    try bad.begin();
-    try bad.write(.{ .view = .{ .tick = t, .w = 1280, .h = 800, .tiles = view } });
-    var all_held = view;
-    try bad.write(.{ .held = .{ .tick = t, .tiles = all_held } });
-    const refused = try rig.report(bad.body());
-    try testing.expect(std.mem.indexOf(u8, refused, "\ndiffer ") != null);
-    try testing.expect(std.mem.indexOf(u8, refused, " none held ") != null);
-    // Its answer still brings the tile: the view was... not kept. So the
-    // page writes the view and stops (a trailing input).
-    page.req = bad.req;
-    try page.begin();
-    try page.write(.{ .view = .{ .tick = t, .w = 1280, .h = 800, .tiles = view } });
-    const a = try rig.report(page.body());
-    try testing.expect(std.mem.indexOf(u8, a, "\ntile 40,40\n") != null);
-    try page.begin();
-    all_held = .{};
-    try all_held.add(beyond);
-    try page.write(.{ .held = .{ .tick = t, .tiles = all_held } });
-    try page.tick(&.{});
-    try expectKept(try rig.report(page.body()), page.req, t);
-}
-
-test "23. a tile sent again after a differ, its held never kept: the page's board keeps the critters it is running" {
-    var rig: Rig = undefined;
-    try rig.init(t0);
-    defer rig.deinit();
-    var page = try Page.loaded(&rig, try rig.load("1280x800"));
-    try leashUp(&rig, &page, the_dog);
-    var view = rig.server.kept.view.tiles;
-    try view.add(.{ .col = 40, .row = 40 });
-    try page.begin();
-    try page.write(.{ .view = .{ .tick = page.last + 1, .w = 1280, .h = 800, .tiles = view } });
-    try testing.expectEqual(@as(usize, 1), count(try rig.report(page.body()), "tile "));
-    // The held and a tick whose line is wrong: differ at that tick.
-    try page.begin();
-    var one: wire.TileSet = .{};
-    try one.add(.{ .col = 40, .row = 40 });
-    try page.write(.{ .held = .{ .tick = page.last + 1, .tiles = one } });
-    try page.write(.{ .t = .{ .tick = page.last + 1, .ms = 0, .drag = .{} } });
-    // The server's run rests there (the drag on, nothing moving).
-    try page.write(.{ .bump = .{ .tick = page.last + 1, .who = .{ .critter = .cow(0) } } });
-    const a = try rig.report(page.body());
-    try testing.expect(std.mem.indexOf(u8, a, "\ndiffer ") != null);
-    try testing.expect(std.mem.indexOf(u8, a, "\ntile 40,40\n") != null);
 }
 
 test "the torus' seam (decision 14): an unleashed view of the world's four corner tiles, named in the world, gets them, and its held is kept" {
@@ -777,7 +719,7 @@ test "a reused request number with another body is refused (differ K+1 none its 
     const a = try rig.report(other.body());
     var buf: [128]u8 = undefined;
     try testing.expect(std.mem.startsWith(u8, a, try std.fmt.bufPrint(&buf, "req {d}\nkept {d}\ndiffer {d} none dogpark 1 physics ", .{ page.req, page.from, page.from + 1 })));
-    try testing.expect(std.mem.indexOf(u8, a, "\nstate leash 125 ") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "\nstate leash 25 ") != null);
     try testing.expectEqual(@as(u32, 1), rig.server.differs_in_a_row);
     try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "refused, a reused request number with another body") != null);
     try testing.expectEqualStrings(stored, try rig.report(original));

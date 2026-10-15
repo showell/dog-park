@@ -577,7 +577,7 @@ fn putLine(text: []const u8) u32 {
     return @intCast(text.len);
 }
 
-const the_dog: u16 = 125;
+const the_dog: u16 = 25;
 
 /// The page's side of a leash and `n` ticks dragging east, on the laid-out
 /// board, written as one report; the judge's `Kept` ready for it (the
@@ -607,16 +607,16 @@ fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
     }
 }
 
-test "regionTiles across the world's corner: the region's 7 x 7 tiles, each named in the world" {
+test "regionTiles: the region is the world, every tile named once, wherever the leashed dog stands" {
     reset();
     boards[live] = physics.Board.laidOut();
     boards[live].place(.dog(the_dog), .{ .x = physics.px(200), .y = physics.px(200) });
     _ = human(live, @intFromEnum(HumanKind.leash), 1, the_dog);
     const n = regionTiles(live);
-    try testing.expectEqual(@as(u32, 49), n);
+    try testing.expectEqual(@as(u32, tiles.world_tiles * tiles.world_tiles), n);
     var named: wire.TileSet = .{};
     for (0..n) |i| try named.add(.{ .col = ints_buf[2 * i], .row = ints_buf[2 * i + 1] });
-    for ([_][2]i32{ .{ 61, 61 }, .{ 63, 0 }, .{ 0, 0 }, .{ 0, 63 }, .{ 3, 3 } }) |cr| try testing.expect(named.holds(.{ .col = cr[0], .row = cr[1] }));
+    try testing.expectEqual(@as(usize, n), named.slice().len);
     for (named.slice()) |t| try testing.expect(t.col >= 0 and t.col < tiles.world_tiles and t.row >= 0 and t.row < tiles.world_tiles);
     // And the page's view of them is a line the wire reads.
     try testing.expect(writeView(1, 1280, 800, n) > 0);
@@ -644,7 +644,7 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
     defer testing.allocator.destroy(k);
     try leashAndDrag(&report, k, 3);
     // The page's dog drifted: the judge refutes the first tick.
-    const moved = std.mem.indexOf(u8, report.items, " dog 125 ").?;
+    const moved = std.mem.indexOf(u8, report.items, " dog 25 ").?;
     const eol = std.mem.indexOfScalarPos(u8, report.items, moved, '\n').?;
     report.items[eol - 1] = if (report.items[eol - 1] == '0') '1' else '0';
     var buf: [8192]u8 = undefined;
@@ -654,7 +654,7 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
     var lines = std.mem.splitScalar(u8, answer.bytes(), '\n');
     try testing.expectEqualStrings("req 1", lines.next().?);
     try testing.expectEqualStrings("kept 0", lines.next().?);
-    try testing.expect(std.mem.startsWith(u8, lines.next().?, "differ 1 dog 125 "));
+    try testing.expect(std.mem.startsWith(u8, lines.next().?, "differ 1 dog 25 "));
     const state = lines.next().?;
     boards[scratch] = physics.Board.laidOut();
     try testing.expectEqual(@as(i32, 0), readState(putLine(state), scratch));
@@ -669,24 +669,24 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
     try testing.expectEqual(@as(f64, 1), lineTick());
 
     try testing.expectEqual(@as(i32, -1), readState(putLine("state leash 7 drag sideways laid 0 view 0x0 held"), scratch));
-    try testing.expectEqual(@as(i32, 0), readState(putLine("state leash 7 drag ended 12 laid 0 view 640x480 3,4 5,6 held 5,6"), scratch));
+    try testing.expectEqual(@as(i32, 0), readState(putLine("state leash 7 drag ended 12 laid 0 view 640x480 3,4 5,5 held 5,5"), scratch));
     try testing.expectEqual(@as(f64, 12), dragOf(scratch));
-    try testing.expectEqualSlices(i32, &.{ 640, 480, 2, 3, 4, 5, 6, 1, 5, 6 }, ints_buf[0..10]);
+    try testing.expectEqualSlices(i32, &.{ 640, 480, 2, 3, 4, 5, 5, 1, 5, 5 }, ints_buf[0..10]);
 
-    try testing.expectEqual(@as(i32, @intFromEnum(HumanKind.leash)), readInput(putLine("input leash 9 219")));
-    try testing.expectEqual(@as(i32, 219), ints_buf[0]);
+    try testing.expectEqual(@as(i32, @intFromEnum(HumanKind.leash)), readInput(putLine("input leash 9 19")));
+    try testing.expectEqual(@as(i32, 19), ints_buf[0]);
     try testing.expectEqual(@as(f64, 9), lineTick());
     try testing.expectEqual(@as(i32, -1), readInput(putLine("input view 9 1x1")));
 
     reset();
     boards[live].place(.dog(2), .{ .x = 5, .y = 5 });
-    try testing.expectEqual(@as(i32, 2), readTile(putLine("tile 27,27 dog 0 3557.00,361a.00 dog 2 1.00,1.00"), 0b011));
+    try testing.expectEqual(@as(i32, 2), readTile(putLine("tile 2,2 dog 0 355.00,361.00 dog 2 1.00,1.00"), 0b011));
     try testing.expectEqual(physics.Point{ .x = 5, .y = 5 }, boards[live].dogs[2]);
     try testing.expectEqual(physics.Point{ .x = 256, .y = 256 }, boards[kept].dogs[2]);
     try testing.expectEqual(physics.Known.present, boards[live].dog_known[0]);
     try testing.expectEqual(physics.Known.absent, boards[scratch].dog_known[0]);
-    try testing.expectEqualSlices(i32, &.{ 27, 27 }, ints_buf[0..2]);
-    try testing.expectEqual(@as(i32, -1), readTile(putLine("tile 27,27 dog 0 03557.00,361a.00"), 1));
+    try testing.expectEqualSlices(i32, &.{ 2, 2 }, ints_buf[0..2]);
+    try testing.expectEqual(@as(i32, -1), readTile(putLine("tile 2,2 dog 0 0355.00,361.00"), 1));
 }
 
 test "a refused input leaves the board and writes nothing" {

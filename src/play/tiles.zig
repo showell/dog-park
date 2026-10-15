@@ -47,9 +47,9 @@ test "a tile's edges: 349 is the last of tile 0, 350 the first of tile 1; -1 is 
     try testing.expectEqual(@as(i32, -2), Tile.of(0, -tile_px - 1).row);
 }
 
-test "a tile wraps into the world: 64 is 0, -1 is 63, 63 stays" {
-    try testing.expectEqual(Tile{ .col = 0, .row = 63 }, (Tile{ .col = world_tiles, .row = -1 }).wrapped());
-    try testing.expectEqual(Tile{ .col = 63, .row = 0 }, (Tile{ .col = 63, .row = 0 }).wrapped());
+test "a tile wraps into the world: world_tiles is 0, -1 is the last, the last stays" {
+    try testing.expectEqual(Tile{ .col = 0, .row = world_tiles - 1 }, (Tile{ .col = world_tiles, .row = -1 }).wrapped());
+    try testing.expectEqual(Tile{ .col = world_tiles - 1, .row = 0 }, (Tile{ .col = world_tiles - 1, .row = 0 }).wrapped());
 }
 
 test "the park sits a whole number of tiles in from the world's edge, its middle the world's" {
