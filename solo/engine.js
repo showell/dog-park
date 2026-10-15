@@ -57,8 +57,12 @@ export const window_ticks = 32;
 // A report goes at once at this much unsent text, and the physics freezes
 // there (the server's body limit is 64 KiB).
 export const budget_bytes = 48 * 1024;
-// No sooner than this after the last report went.
-export const spacing_ms = 250;
+// No sooner than this after the last report went: once a second (Steve,
+// 2026-10-15). Each report is its own connection (webbox's Linux host
+// answers one request a connection), and at 4 a second a home router's
+// source ports wrapped in minutes onto connections it still remembered,
+// dropping the server's replies. The 2 s window covers a 1 s rhythm.
+export const spacing_ms = 1000;
 // An exchange with no answer in this long is abandoned and tried again.
 export const answer_ms = 5000;
 // Between tries of one request: 5 s, then 10, 20, 40, and 60 for ever.
