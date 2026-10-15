@@ -49,8 +49,8 @@ One Linux droplet, with Caddy in front for HTTPS:
     (`players`). Each game's logs rotate at 1 MiB, and closed logs are kept
     for an hour, at most 25 MB a game ([docs/PHYSICS.md](docs/PHYSICS.md),
     "The log is rotated").
-  - The auth dir holds the site secret (`_session_secret`), made on the
-    first start.
+  - The auth dir holds the site secret (`_session_secret`) and the admin
+    key (`_admin_key`), both made on the first start.
   - To hand out the 80 accounts again, stop the server and delete
     `players` and `game-*`. To make every old cookie invalid as well,
     delete the secret too.
@@ -60,6 +60,11 @@ One Linux droplet, with Caddy in front for HTTPS:
   - `DOGPARK_TRUSTED_PROXY` (default 127.0.0.1).
 
   Never set `DOGPARK_INSECURE_COOKIE` behind HTTPS.
+- **The operator's pages:** `/admin/game` (accounts, turns, each game:
+  its last request, leash, tick, herd, poops, logs, findings) and
+  `/admin/host` (requests, errors, memory, the host's facts), by the admin
+  key. Either `curl -H "Authorization: Bearer $(cat <auth>/_admin_key)"`,
+  or `/admin`'s form in a browser, which sets an admin cookie.
 - **Caddy:** `reverse_proxy 127.0.0.1:9103` for the site's name. Nothing
   streams; every route is a plain request and answer.
 

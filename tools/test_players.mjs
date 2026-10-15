@@ -106,3 +106,31 @@ test("Start over: the account's next load is answered, and a device with no acco
   assert.equal((await server.as(server.cookie, "POST", "/load", loadLine())).status, 200);
   assert.equal((await server.as(undefined, "POST", "/reset", "")).status, 403);
 });
+
+test("the operator's pages: nothing without the admin key; the bearer or a login's cookie opens them", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const key = readFileSync(join(server.dir, "auth", "_admin_key"), "utf8").trim();
+  for (const path of ["/admin/game", "/admin/host"]) {
+    assert.equal((await server.as(undefined, "GET", path)).status, 403, path);
+    // A player's cookie is not the operator's.
+    assert.equal((await server.as(server.cookie, "GET", path)).status, 403, path);
+  }
+  const front = await server.as(undefined, "GET", "/admin");
+  assert.equal(front.status, 200);
+  assert.match(front.text, /<form method="post" action="\/admin\/login">/);
+  // The bearer, as curl sends it.
+  const bearer = await server.bearer(key, "GET", "/admin/game");
+  assert.equal(bearer.status, 200);
+  assert.match(bearer.text, /\d+ of 80 accounts handed out; \d+ of 5 turns held/);
+  assert.match(bearer.text, /<th>herd<\/th>/);
+  assert.equal((await server.bearer("0".repeat(64), "GET", "/admin/game")).status, 403);
+  assert.equal((await server.bearer(key, "GET", "/admin/host")).status, 200);
+  // A login: a wrong key is refused; the right one sets the cookie and goes to the game.
+  assert.equal((await server.as(undefined, "POST", "/admin/login", "key=" + "0".repeat(64))).status, 403);
+  const ok = await server.as(undefined, "POST", "/admin/login", `key=${key}`);
+  assert.equal(ok.status, 303);
+  assert.equal(ok.headers.location, "/admin/game");
+  const cookie = ok.headers["set-cookie"][0].split(";")[0];
+  assert.equal((await server.as(cookie, "GET", "/admin/game")).status, 200);
+});

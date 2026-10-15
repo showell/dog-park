@@ -77,9 +77,9 @@ async function start(dir) {
 }
 
 /** A request through node:http, with the account's cookie when there is one. */
-function request(port, method, path, body, cookie) {
+function request(port, method, path, body, cookie, headers = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port, method, path, headers: cookie ? { cookie } : {} }, (res) => {
+    const req = http.request({ host: "127.0.0.1", port, method, path, headers: { ...headers, ...(cookie ? { cookie } : {}) } }, (res) => {
       const chunks = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
@@ -126,6 +126,11 @@ export async function scratchServer() {
     /** A request as another device would send it: its own cookie, or none. */
     async as(cookie, method, path, text) {
       const r = await request(server.port, method, path, text, cookie);
+      return { status: r.status, headers: r.headers, text: r.body.toString() };
+    },
+    /** A request with the operator's bearer, as curl sends it. */
+    async bearer(key, method, path, text) {
+      const r = await request(server.port, method, path, text, undefined, { authorization: `Bearer ${key}` });
       return { status: r.status, headers: r.headers, text: r.body.toString() };
     },
     async get(path) {

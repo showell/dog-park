@@ -14,6 +14,8 @@
 //!   GET  /dogpark    solo/index.html, the game, for a device with an
 //!                    account; 303 to / for one without
 //!   POST /reset      this device's next load starts its game afresh
+//!   /admin, /admin/login, /admin/host, /admin/game: the operator's pages
+//!                    (admin.zig), by the admin key
 //!   GET  /NAME.js    solo/NAME.js, read from disk each time: the page's
 //!                    modules (park.js its entry), NAME `[a-z_]+`
 //!   GET  /physics-H.wasm  the physics for the page (physics_page.zig),
@@ -38,6 +40,7 @@ const http = webbox.http;
 const physics = @import("physics.zig");
 const physics_server = @import("physics_server.zig");
 const players = @import("players.zig");
+const admin = @import("admin.zig");
 
 /// Where the page lives, from the directory the server runs in.
 const page_dir = "solo";
@@ -47,6 +50,7 @@ const page_dir = "solo";
 /// page's own routes, which take no body.
 pub fn bodyLimit(path: []const u8) u64 {
     if (physicsRoute(path) != null) return physics_server.most_body;
+    if (std.mem.eql(u8, path, "/admin/login")) return admin.most_login_body;
     return 0;
 }
 
@@ -65,6 +69,9 @@ fn physicsRoute(path: []const u8) ?PhysicsRoute {
 var games: [players.most_players]?*physics_server.Server = @splat(null);
 /// A slot whose next load starts its game afresh (`POST /reset`).
 var reset_next: [players.most_players]bool = @splat(false);
+/// Each slot's last load or report, Unix ms (0: none this run), for the
+/// operator's page.
+var last_ms: [players.most_players]u64 = @splat(0);
 /// The accounts handed out (players.claimed_file), and the turn.
 var claimed: u8 = 0;
 var turn: players.Turn = .{};
@@ -78,6 +85,7 @@ pub var cookie_mode: players.CookieMode = .secure;
 pub const StartReport = struct {
     claimed: u8,
     secret: enum { found, made },
+    admin_key: @typeInfo(@typeInfo(@TypeOf(admin.ensureKey)).@"fn".return_type.?).error_union.payload,
     cookie_mode: players.CookieMode,
     data_dir: []const u8,
 };
@@ -101,7 +109,8 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
         try webbox.site_secret.create(io, base, auth_root);
         secret = .made;
     }
-    return .{ .claimed = claimed, .secret = secret, .cookie_mode = cookie_mode, .data_dir = data_root };
+    const admin_key = try admin.ensureKey(io, base, auth_root);
+    return .{ .claimed = claimed, .secret = secret, .admin_key = admin_key, .cookie_mode = cookie_mode, .data_dir = data_root };
 }
 
 /// Slot `s`'s game, started (from its snapshot and log, or the first
@@ -146,6 +155,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     if (std.mem.eql(u8, path, "/begin")) return begin(req, io, alloc);
     if (std.mem.eql(u8, path, "/dogpark")) return gamePage(req, io, alloc);
     if (std.mem.eql(u8, path, "/reset")) return resetGame(req, io, alloc);
+    if (std.mem.eql(u8, path, "/admin") or std.mem.startsWith(u8, path, "/admin/")) return adminRoute(req, io, alloc, path);
     if (physicsWasm(path)) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         return req.respond(@embedFile("physics.wasm"), .{ .extra_headers = &.{
@@ -203,6 +213,33 @@ fn gamePage(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !vo
     return indexPage(req, io, alloc);
 }
 
+/// The operator's pages: the key first (a bearer or the admin cookie),
+/// read before any body; the login form is the one way in without it.
+fn adminRoute(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, path: []const u8) !void {
+    const now = nowUnix(io);
+    const signed_in = try admin.isAdmin(req, cookie_mode, io, alloc, auth_root, now);
+    if (std.mem.eql(u8, path, "/admin")) {
+        if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
+        return admin.front(req, alloc, signed_in);
+    }
+    if (std.mem.eql(u8, path, "/admin/login")) {
+        if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+        return admin.login(req, cookie_mode, io, alloc, auth_root, now);
+    }
+    if (!signed_in) return admin.forbidden(req);
+    if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
+    if (std.mem.eql(u8, path, "/admin/host")) return admin.host(req, io, alloc);
+    if (std.mem.eql(u8, path, "/admin/game")) return admin.game(req, io, alloc, .{
+        .claimed = claimed,
+        .turn = &turn,
+        .games = &games,
+        .last_ms = &last_ms,
+        .data_dir = data_root,
+        .now_ms = nowMs(io),
+    });
+    return http.notFound(req);
+}
+
 /// `POST /reset`: this device's next load starts its game from the first
 /// layout. The page reloads after it.
 fn resetGame(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void {
@@ -219,6 +256,7 @@ fn physicsAnswer(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator
     // The cookie first: a request's headers are gone once its body is read.
     const s = (try players.slotOfRequest(cookie_mode, io, alloc, req, auth_root, nowUnix(io))) orelse return plain(req, .forbidden, "no account\n");
     const body = (try http.readLimitedBody(req, alloc, physics_server.most_body)) orelse return;
+    last_ms[s] = nowMs(io);
     // **ONLY PLAY TAKES THE TURN** (Steve, 2026-10-15: "I'm just trying to
     // prevent contention from all the drags"): a report with ticks in it.
     // A load, and a report of only a view or a held (a pan), never wait.
