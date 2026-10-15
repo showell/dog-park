@@ -14,7 +14,8 @@ It is meant to be the thing a person reads to make their own game: the
 park, its routes, its page and its JavaScript are here, and everything that
 serves them is the library's.
 
-**Where it runs:** not deployed. Today it runs on Linux; on the box,
+**Where it runs:** not deployed; [DEPLOY.md](DEPLOY.md) is the first
+deploy, step by step, to its own metal droplet. Today it runs on Linux; on the box,
 `zig build play` serves :9103 as a development server. The plan is its own
 droplet and data, sharing only the domain and the Caddy in front with
 lynrummy.com, for 80 accounts with up to 5 playing at once
@@ -22,7 +23,8 @@ lynrummy.com, for 80 accounts with up to 5 playing at once
 zig-metal-unikernel neither builds nor judges it (its 8af778b; the physics
 hash comes from this build.zig). This repo builds its own metal kernel,
 with `../zig-metal-unikernel` as a dependency (`zig build metal`, below;
-metal-vmm QUEUE 215): built, not yet booted or gated.
+metal-vmm QUEUE 215): built, and booted by the QEMU gate and by the
+droplet rehearsal (`droplet/rehearse.mjs`); not yet on a real droplet.
 
 **Status (2026-10-15):** played by Steve, and tuned by playing. The page
 (`solo/`) runs the physics (`src/play/physics*.zig`, compiled to wasm) and
@@ -42,6 +44,10 @@ localhost). A development server on plain http at an address sets
 `DOGPARK_INSECURE_COOKIE=yes`.
 
 ## Deploying
+
+**On metal, its own droplet: [DEPLOY.md](DEPLOY.md)** (`node
+droplet/image.mjs` builds and rehearses the boot image). What follows is
+the Linux route.
 
 One Linux droplet, with Caddy in front for HTTPS:
 - **The binary:** `zig build -Doptimize=ReleaseSafe`. The server reads the page

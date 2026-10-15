@@ -1,0 +1,147 @@
+# Deploying Dog Park to its own droplet
+
+One droplet, booted from a custom image this repo builds, with no Linux on
+it, as lynrummy.com's metal droplet is (zig-metal-unikernel's README, "Where
+lynrummy.com runs" and "A deploy"). Prod's Caddy (162.243.1.123) holds HTTPS
+for `dogpark.lynrummy.com` and forwards to it over the private network.
+
+**One disk, no volume.** The image holds the kernel, the page (`solo/`), the
+admin key and the machine's settings, and Dog Park writes its accounts and
+games onto that same disk. There is no data volume and no recovery-console
+step. **A new image starts Dog Park empty**: every account, game and cookie
+goes with the old one (accepted for now, Steve 2026-10-15).
+
+Steps marked **(box-verified)** are checked on the box by the build; the
+rest are clicks or commands on DigitalOcean or prod, which the box cannot
+check.
+
+## The first deploy
+
+1. **Build the image** (box-verified). From a clean, pushed tree:
+
+       cd ~/showell_repos/dog-park
+       zig build metal-gate            # the QEMU gate, ~6 s
+       node droplet/image.mjs
+
+   It builds `zig-out/bin/dogpark.elf`, writes
+   `~/dogpark-images/dogpark-<commit>.img` and `.img.gz` beside it (about
+   1 GiB raw, under 2 MiB gzipped), prints both sha256s, and then boots the
+   image on QEMU laid out as a droplet (`droplet/rehearse.mjs`, ~5 s): it
+   must end `ready to deploy`. It makes `~/.dogpark_admin_key` the first
+   time (mode 600; it never prints it). It refuses on a dirty tree.
+
+2. **Serve the .gz to DigitalOcean**, in a terminal on the box:
+
+       cd ~/dogpark-images && python3 -m http.server 9301
+
+   The URL is `http://143.244.172.148:9301/dogpark-<commit>.img.gz` (the
+   name step 1 printed). Leave it running until step 3 says the import is
+   done, then Ctrl-C it.
+
+3. **Import it as a custom image.** DigitalOcean: Backups & Snapshots →
+   Custom Images → Import via URL.
+   - URL: the one from step 2.
+   - Name: `dogpark-<commit>`.
+   - Distribution: **Unknown** (there is no Linux on it).
+   - Region: **prod's**, nyc2 (lynrummy.com's metal droplet is there too),
+     so the private network reaches it.
+
+   Wait until the image says it is ready (a few minutes).
+
+4. **Create the droplet.** Droplets → Create Droplet:
+   - Region: nyc2. VPC: **the one prod is in** (nyc2's default, unless prod
+     is in another).
+   - Image: Custom images → `dogpark-<commit>`.
+   - Size: Basic, Regular, the cheapest ($4/month, 512 MB, 10 GB). The
+     rehearsal boots it with 512 MB.
+   - Authentication: whatever the form insists on; nothing on the machine
+     reads it. No backups, no monitoring (there is no Linux for the agent).
+   - Hostname: `dogpark`.
+
+5. **Watch it boot**: the droplet's Access → Launch Recovery Console shows
+   the kernel's screen. The lines that matter:
+
+       no volume attached
+       Dog Park's data: the boot disk
+       network: the private card
+       listening on port 80
+
+   `stopped` instead means it refused something, and says what just above.
+
+6. **Read its private address**: the droplet's page, "Private IP" (a
+   `10.x.x.x`). Call it `<dogpark>` below. On prod, it answers:
+
+       curl -s http://<dogpark>/ | grep -c 'Begin Game'     # 1
+
+7. **DNS**: an A record `dogpark.lynrummy.com` → `162.243.1.123` (prod, not
+   the new droplet), wherever lynrummy.com's records live (DigitalOcean →
+   Networking → Domains, if that is where they are).
+
+8. **Caddy on prod.** The site block is
+   [`droplet/dogpark.lynrummy.com.caddy`](droplet/dogpark.lynrummy.com.caddy);
+   prod's Caddyfile already imports `/etc/caddy/sites/*.caddy`. On prod:
+
+       sudoedit /etc/caddy/sites/dogpark.lynrummy.com.caddy    # paste the file; <dogpark-private-address> → <dogpark>
+       sudo caddy validate --config /etc/caddy/Caddyfile
+       sudo systemctl reload caddy
+
+   The block, with the address filled in:
+
+       dogpark.lynrummy.com {
+       	encode gzip
+       	request_body {
+       		max_size 1MiB
+       	}
+       	header {
+       		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+       		X-Content-Type-Options "nosniff"
+       		Referrer-Policy "strict-origin-when-cross-origin"
+       		X-Frame-Options "SAMEORIGIN"
+       	}
+       	reverse_proxy <dogpark>:80
+       }
+
+   Caddy gets the certificate once step 7's record resolves.
+
+9. **Smoke test**, from the box:
+
+       curl -s https://dogpark.lynrummy.com/ | grep -c 'Begin Game'                    # 1
+       curl -s -o /dev/null -w '%{http_code}\n' \
+         -H "Authorization: Bearer $(cat ~/.dogpark_admin_key)" \
+         https://dogpark.lynrummy.com/admin/game                                       # 200
+       curl -s -o /dev/null -w '%{http_code}\n' https://dogpark.lynrummy.com/admin/game  # 403
+
+   Then in a browser: Begin Game, and play. `/admin` takes the same key
+   (`cat ~/.dogpark_admin_key` on the box) for the admin pages.
+
+## A new release
+
+Steps 1-3 again, then the droplet's Destroy → **Rebuild** from the new
+image. The private address stays, so Caddy needs nothing. Accounts and
+games start over.
+
+## The way back
+
+Destroy the droplet. Nothing else depends on it: remove
+`/etc/caddy/sites/dogpark.lynrummy.com.caddy` on prod and reload Caddy,
+delete the DNS record, and delete the custom images. lynrummy.com is not
+touched by any of it.
+
+## What the image holds, and why
+
+- **Partition 1**: `dogpark.elf`, the kernel (zig-metal-unikernel's
+  `droplet/image.sh` and its boot loader lay the disk out).
+- **Partition 2**, FAT16, 1 GiB: `solo/`, `auth/_admin_key`, and
+  `zig-metal-unikernel.conf`:
+
+      idle_timeout_ms = 10000
+      card = private
+      trusted_proxy = 10.100.0.2
+
+  `card = private`: nothing on the internet reaches it, only the private
+  network, prod among it. `trusted_proxy` is prod's private address, from
+  `droplet/trusted-proxy` (the kernel's own copy says the same): Caddy's
+  `X-Forwarded-For` is believed from it alone. With no `volume` line and no
+  volume attached, the kernel keeps `data/` and `auth/` on this partition
+  (its `probe/gopher.zig`, "the disks"; its README says what each conf key
+  does). The session secret is made there at the first start.

@@ -1,0 +1,25 @@
+# Dog Park, https://dogpark.lynrummy.com (DEPLOY.md, step 8). Installed on
+# prod as /etc/caddy/sites/dogpark.lynrummy.com.caddy, which angry-gopher's
+# deploy/Caddyfile imports beside lynrummy.com's site block. Caddy holds the
+# certificate and HTTPS; Dog Park's droplet listens only on its private card.
+#
+# <dogpark-private-address> is the droplet's private address (DEPLOY.md, step
+# 6). It is not an address, so left in, Caddy should refuse the file
+# (not tried: the box has no Caddy).
+#
+# The body cap is the app's own, 64 KiB (src/play/physics_server.zig's
+# most_body), with room: the app refuses past it either way. The headers are
+# lynrummy.com's.
+dogpark.lynrummy.com {
+	encode gzip
+	request_body {
+		max_size 1MiB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "SAMEORIGIN"
+	}
+	reverse_proxy <dogpark-private-address>:80
+}

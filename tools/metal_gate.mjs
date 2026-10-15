@@ -20,14 +20,13 @@
 // assets.zon at import, and its disk defaults to FAT32 for chat's volume),
 // and the kernel has no general disk builder yet.
 
-import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, rmSync, openSync, closeSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import http from "node:http";
-import net from "node:net";
 import { root } from "./lib/scratch_server.mjs";
 import { pageRig, letGoTicks } from "./lib/page_rig.mjs";
+import { bootGuest } from "./lib/metal_guest.mjs";
 
 const elf = join(root, "zig-out/bin/dogpark.elf");
 const wasm = join(root, "zig-out/web/physics.wasm");
@@ -43,14 +42,10 @@ const scratch = mkdtempSync(join(tmpdir(), "dogpark-metal-gate-"));
 const image = join(scratch, "disk.img");
 const times = [];
 let step = "start";
-let qemu = null;
-let serialPath = null;
-/** The requests sent to this boot: the kernel numbers its log lines by them. */
-let sent = 0;
 
 const ms = (t0) => Math.round(performance.now() - t0);
 function fail(why) {
-  throw new Error(`step "${step}": ${why}`);
+  throw new Error(why);
 }
 function expect(cond, why) {
   if (!cond) fail(why);
@@ -94,112 +89,42 @@ function diskNames(dir) {
   return out.split("\n").filter(Boolean).map((l) => l.replace(/^::\/.*\//, "").replace(/\/$/, ""));
 }
 
-// ── the machine ─────────────────────────────────────────────────────────────
+// ── the machine (tools/lib/metal_guest.mjs) ─────────────────────────────────
 
-function freePort() {
-  return new Promise((resolve) => {
-    const s = net.createServer();
-    s.listen(0, "127.0.0.1", () => {
-      const { port } = s.address();
-      s.close(() => resolve(port));
-    });
-  });
-}
-
-const serial = () => readFileSync(serialPath, "latin1");
+let guest = null;
 
 /** Boots the kernel on the scratch disk; resolves with its port once the serial log says it is listening. */
 async function boot(n) {
-  const port = await freePort();
-  sent = 0;
-  serialPath = join(scratch, `serial-${n}.log`);
-  const out = openSync(serialPath, "w");
-  // Spawned as one process and stopped by its PID (no shell between).
-  qemu = spawn("qemu-system-x86_64", [
-    // rtc=on: under KVM microvm leaves the CMOS clock out unless asked, and the kernel reads it.
-    "-M", "microvm,rtc=on,pit=on", "-kernel", elf, "-enable-kvm",
-    "-nographic", "-no-reboot", "-m", "512",
-    "-global", "virtio-mmio.force-legacy=false",
-    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
-    // cache=unsafe: a guest flush is not a sync of the box's disk; the bytes still reach the file.
-    "-drive", `id=d,file=${image},format=raw,if=none,cache=unsafe`,
-    "-device", "virtio-blk-device,drive=d",
-    "-cpu", "max", "-device", "virtio-rng-device",
-    "-netdev", `user,id=n0,hostfwd=tcp:127.0.0.1:${port}-:80`,
-    "-device", "virtio-net-device,netdev=n0",
-  ], { stdio: ["ignore", out, out] });
-  closeSync(out);
-  let exited = null;
-  qemu.once("exit", (code, sig) => { exited = `${code ?? sig}`; });
-  const deadline = performance.now() + boot_deadline_ms;
-  while (!/\n  listening on port 80\n/.test(serial())) {
-    if (exited !== null) fail(`QEMU exited (${exited}) before the kernel listened`);
-    if (performance.now() > deadline) fail(`no "listening on port 80" in ${boot_deadline_ms} ms`);
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  return port;
-}
-
-/** Stops QEMU by its PID and waits for it to go. */
-async function stopQemu() {
-  if (!qemu || qemu.exitCode !== null || qemu.signalCode !== null) return;
-  const gone = new Promise((r) => qemu.once("exit", r));
-  process.kill(qemu.pid, "SIGTERM");
-  await gone;
-}
-
-/**
- * **AN ERROR LINE IN THE GUEST'S LOG**: a panic, a request whose outcome is
- * not `ok` (an error's name in its place), a disk check with a leak or a
- * problem, a restart after a fatal stop, or a line naming an error or a
- * failure. Expected refusals (303, 403) are `ok` outcomes.
- */
-function errorLines(log) {
-  return log.split("\n").map((l) => l.replace(/\r$/, "")).filter((l) =>
-    /PANIC|fatal/i.test(l) ||
-    (/ request \d+: /.test(l) && !/ -> ok, /.test(l)) ||
-    (/disk check/.test(l) && !/ 0 leaked, 0 problems$/.test(l)) ||
-    /\berror\b|\bfailed\b|\bfailure\b/i.test(l.replace(/\b0 (failed|failures)\b/g, "")));
-}
-
-/**
- * **THE LOG LAGS THE ANSWERS**: the kernel writes a request's line to the
- * console after the response, so the log is judged once it holds the last
- * request's line whole, and only its whole lines.
- */
-async function checkSerial() {
-  const last = new RegExp(` request ${sent}: [^\n]*\n`);
-  const deadline = performance.now() + 5000;
-  while (!last.test(serial())) {
-    if (performance.now() > deadline) fail(`the guest's log never got request ${sent}'s line`);
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  const whole = serial().slice(0, serial().lastIndexOf("\n") + 1);
-  const bad = errorLines(whole);
-  expect(bad.length === 0, `the guest's log has error lines:\n  ${bad.join("\n  ")}`);
-}
-
-// ── HTTP to the guest ───────────────────────────────────────────────────────
-
-/** One request to the guest: { status, headers, body (Buffer), text }. */
-function request(port, method, path, { body, cookie, headers = {} } = {}) {
-  sent++;
-  return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port, method, path, agent: false, headers: { ...headers, ...(cookie ? { cookie } : {}) } }, (res) => {
-      const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => {
-        const b = Buffer.concat(chunks);
-        resolve({ status: res.statusCode, headers: res.headers, body: b, text: b.toString() });
-      });
-      res.on("error", reject);
-    });
-    req.setTimeout(10_000, () => req.destroy(new Error(`${method} ${path}: no answer in 10 s`)));
-    req.on("error", reject);
-    if (body !== undefined) req.setHeader("content-length", Buffer.byteLength(body));
-    req.end(body);
+  guest = null;
+  guest = await bootGuest({
+    serialPath: join(scratch, `serial-${n}.log`),
+    deadlineMs: boot_deadline_ms,
+    launch: (port) => ({
+      command: "qemu-system-x86_64",
+      args: [
+        // rtc=on: under KVM microvm leaves the CMOS clock out unless asked, and the kernel reads it.
+        "-M", "microvm,rtc=on,pit=on", "-kernel", elf, "-enable-kvm",
+        "-nographic", "-no-reboot", "-m", "512",
+        "-global", "virtio-mmio.force-legacy=false",
+        "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
+        // cache=unsafe: a guest flush is not a sync of the box's disk; the bytes still reach the file.
+        "-drive", `id=d,file=${image},format=raw,if=none,cache=unsafe`,
+        "-device", "virtio-blk-device,drive=d",
+        "-cpu", "max", "-device", "virtio-rng-device",
+        "-netdev", `user,id=n0,hostfwd=tcp:127.0.0.1:${port}-:80`,
+        "-device", "virtio-net-device,netdev=n0",
+      ],
+    }),
   });
+  return guest.port;
 }
+
+async function stopQemu() {
+  if (guest) await guest.stop();
+}
+
+const request = (_port, method, path, opts) => guest.request(method, path, opts);
+const checkSerial = () => guest.checkSerial();
 
 function status(r, want, what) {
   expect(r.status === want, `${what}: ${r.status}, want ${want}\n${r.text.slice(0, 400)}`);
@@ -391,11 +316,8 @@ try {
   rmSync(scratch, { recursive: true, force: true });
 } catch (e) {
   await stopQemu().catch(() => {});
-  console.error(`metal-gate FAIL: ${e.message}`);
-  if (serialPath) {
-    const tail = serial().split("\n").slice(-40).join("\n");
-    console.error(`\nthe guest's log (${serialPath}), its tail:\n${tail}`);
-  }
+  console.error(`metal-gate FAIL: step "${step}": ${e.message}`);
+  if (guest) console.error(`\nthe guest's log (${guest.serialPath}), its tail:\n${guest.tail()}`);
   console.error(`\nthe scratch disk and logs are kept: ${scratch}`);
   process.exitCode = 1;
 }
