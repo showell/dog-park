@@ -79,6 +79,13 @@ export function axisScroll(viewportAt, length, reachPx) {
 
 export const resting = { kind: "resting" };
 
+// **A TAP ON THE MAP'S VIEW GOES BACK** (Steve, 2026-10-15: "if I'm in the
+// Map and click inside the rectangle, that should also take me back to
+// normal mode"). The rectangle is also dragged, so a press on it moves
+// nothing until the pointer has gone `tap_slop_px` from where it went
+// down (a finger's tap jitters); let go before that, it was a tap.
+export const tap_slop_px = 6;
+
 // What `event` means to a hand in `mode`, the press on `hitId` (what
 // blit.js's `hit` answered over the list last drawn, null for nothing) with
 // the viewport as it is and the overview's window at `overviewAt` (its
@@ -92,7 +99,7 @@ export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX
         // The view's rectangle moves only when it is pressed; a scrollbar's
         // thumb is held where pressed, and a press on its track jumps the
         // thumb there, then holds it.
-        if (hitId === view_target) return { hand: { kind: "panning", lastX: event.x, lastY: event.y }, intents: [] };
+        if (hitId === view_target) return { hand: { kind: "tapping", downX: event.x, downY: event.y }, intents: [] };
         const bar = scrollOfTarget(hitId);
         if (bar === "none") return { hand: resting, intents: [] };
         const hand2 = { kind: "scrolling", axis: bar.axis, lastX: event.x, lastY: event.y };
@@ -108,6 +115,12 @@ export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX
       };
     }
     case "move": {
+      if (hand.kind === "tapping") {
+        // Still a tap within the slop; past it, a drag of the view from
+        // where the press went down.
+        if (Math.max(Math.abs(event.x - hand.downX), Math.abs(event.y - hand.downY)) <= tap_slop_px) return { hand, intents: [] };
+        return meaning({ kind: "panning", lastX: hand.downX, lastY: hand.downY }, event, hitId, mode, viewport, overviewAt);
+      }
       if (hand.kind === "panning") {
         // Near, the park moves with the pointer, so the viewport moves
         // against it; in the overview, the view's rectangle moves with it.
@@ -139,7 +152,10 @@ export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX
       return { hand: { ...hand, lastX: event.x, lastY: event.y }, intents: [{ kind: "drag", dogId: hand.dogId, dx, dy }] };
     }
     case "up":
+      if (hand.kind === "tapping") return { hand: resting, intents: [{ kind: "mode", mode: "near" }] };
+      return { hand: resting, intents: hand.kind === "dragging" ? [{ kind: "letgo" }] : [] };
     case "cancel":
+      // A cancelled press is no tap: the system took the pointer.
       return { hand: resting, intents: hand.kind === "dragging" ? [{ kind: "letgo" }] : [] };
     case "wheel":
       // The overview's window scrolls with the wheel, as a page's content

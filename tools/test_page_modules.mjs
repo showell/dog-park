@@ -665,3 +665,24 @@ test("across the seam, the overview: dots and the view at their copies in the wi
   assert.equal(blit.hit(over, thumbs[1].x + 1, thumbs[1].y + 1), scene.thumbTarget("x"));
   assert.equal(blit.hit(over, thumbs[0].x + 1, thumbs[0].y + 1), scene.thumbTarget("x"));
 });
+
+test("in the map, a tap on the view's rectangle goes back to normal mode; a press that travels past the slop drags it; a cancel is no tap", () => {
+  const view = { parkX: scene.world_px / 2, parkY: scene.world_px / 2, width: 1280, height: 800 };
+  const at = { parkX: 0, parkY: 0 };
+  const press = (hand, event) => pointer.meaning(hand, event, scene.view_target, "overview", view, at);
+  const slop = pointer.tap_slop_px;
+  // A clean tap, and one that jitters within the slop.
+  let down = press(pointer.resting, { type: "down", x: 300, y: 200, dogAt: "none" });
+  assert.deepEqual(down.intents, []);
+  assert.deepEqual(press(down.hand, { type: "up" }).intents, [{ kind: "mode", mode: "near" }]);
+  const jitter = press(down.hand, { type: "move", x: 300 + slop, y: 200 - slop });
+  assert.deepEqual(jitter.intents, [], "within the slop the view stays put");
+  assert.deepEqual(press(jitter.hand, { type: "up" }).intents, [{ kind: "mode", mode: "near" }]);
+  // Past the slop: a drag, from where the press went down, and no mode on letting go.
+  const dragged = press(down.hand, { type: "move", x: 300 + slop + 1, y: 200 });
+  assert.equal(dragged.intents[0].kind, "pan");
+  assert.equal(dragged.intents[0].parkX, scene.wrapped(view.parkX + (slop + 1) / scene.overviewFrame(view.width, view.height, at).scale));
+  assert.deepEqual(press(dragged.hand, { type: "up" }).intents, []);
+  // The system took the pointer: no tap.
+  assert.deepEqual(press(down.hand, { type: "cancel" }).intents, []);
+});
