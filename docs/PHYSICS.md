@@ -1,6 +1,6 @@
 # Dog Park's physics, and the report that carries it
 
-**Status: played by Steve** (2026-10-15). The board, the tick, the wire
+**Status: played by Steve** (2026-10-15, the small world). The board, the tick, the wire
 and the server's re-run are `src/play/physics*.zig`, with the first
 layout in `layout.zig`; the server speaks only `GET /`, the page's
 scripts, `/physics-<hash>.wasm`, `POST /load` and `POST /report`, and
@@ -35,7 +35,9 @@ playing, not by unit tests.
 - **No randomness, no clock.** A tick is a function of the board and the
   player's inputs; drags are displacements.
 - **Positions in 256ths of a pixel; 16 ticks a second;** the world is a
-  64 × 64-tile torus (decision 14), the park its middle 10 × 10.
+  6 × 6-tile torus of 350 px tiles, 2,100 px a side (decision 14,
+  made small 2026-10-15), the park its middle 4 × 4 with a ring of empty
+  tiles round it.
 - **Distance is the larger axis** (Chebyshev, decision 19): every reach
   is a square, as the critters are.
 - **Nothing moves unless the leashed dog is dragged** (decision 21).
@@ -86,11 +88,11 @@ and cows: chickens have left the walk (decision 31) and take none of its
 **A critter reacts only to critters in motion:** the leashed dog and the
 critters the walk visited before it this pixel-tick, where they now
 stand.
-- **A dog** keeps `wary` (225 px) from each moving dog of another breed,
-  `cow_room` (90 px) from each moving cow, and its place in the herd: its
+- **A dog** keeps `wary` (158 px) from each moving dog of another breed,
+  `cow_room` (63 px) from each moving cow, and its place in the herd: its
   **anchor** is the nearest moving dog of its own breed (the leashed dog
-  leads its breed). Past the band's outer edge (100 px) it wants to close
-  the excess; inside the inner edge (60 px) to open the shortfall; in the
+  leads its breed). Past the band's outer edge (70 px) it wants to close
+  the excess; inside the inner edge (42 px) to open the shortfall; in the
   band it is content.
 - **A cow** heeds only its **nearest** moving critter (ties to the lower
   rank), at any distance: a cow within `cow_pull` (245 px), it closes the
@@ -102,10 +104,8 @@ Each wish is a step straight away from (or toward) the other, as long as
 the shortfall (or the excess); they add up. The step is the total, cut to
 the pixel-tick's move for a dog and half of it for a cow; a total under
 the **dead zone** (1 px) is no step. **The veto:** a critter takes its
-step whole, or not at all if its square there would overlap anyone the
-physics sees who isn't kin, or come within `cow_half` (30 px, the most a
-square pokes past its point) of the edge of the region's tiles: a critter
-just outside them is unseen but may poke in (decision 23). **The nudge**
+step whole, or not at all if its square there would overlap anyone who
+isn't kin. **The nudge**
 (decision 25): kin in the way (a cow for a cow, a dog of its breed for a
 dog, never the leashed dog) take the same step with it, and nudge their
 own kin in turn, up to `nudge_most` (8) in all; if any of them is
@@ -205,21 +205,21 @@ Tuned by playing; each is a constant in `physics.zig`.
 | pixel-tick | `step_most`, at most 1 px |
 | a tick's drag | `cap`, at most 100 px on each axis |
 | the walk | `walk_most` 48 critters, `walk_fan` 3 each |
-| wary | 225 px |
-| herd band | 60 to 100 px |
-| a dog's room from a cow | 90 px |
+| wary | 158 px |
+| herd band | 42 to 70 px |
+| a dog's room from a cow | 63 px |
 | a cow closes on its nearest moving cow | to touching, only within `cow_pull` 245 px |
 | the nudge | `nudge_most` 8 critters, kin only |
-| the edge | no step within 30 px of the seen tiles' edge |
 | dead zone | 1 px |
-| the region | `region_reach`, 1500 px each way |
+| the region | the whole world, always |
 | the leash off | 320 ticks (20 s) after the drag ends |
-| the squares | dogs 40 px, cows 60 px, chickens 20 px, poop 12 px |
+| the squares | dogs 28 px, cows 42 px, chickens 20 px, poop 12 px |
 | poop | every 700 px the leashed dog walks, by the herd's deepest dog, 30 px behind it; else on rings 4 px apart out to 200 px; 2048 slots, in turn; all ripe but the newest |
 | the leashed dog stopped by poop or a chicken | slides 1 px sideways; shoves a chicken first |
 | a shove | the step, plus as much again sideways |
 | a chicken | once a tick; sees ripe poop 500 px off; steps at most half the leashed dog's net move, and 8 px; goes home past 32 px off |
-| the first layout | `layout.zig`: 400 dogs, four to a tile, one breed per corner; 50 cows in the white tiles; 100 chickens, two side by side in the middle of each blue tile |
+| the first layout | `layout.zig`: 64 dogs, four to a tile, one breed per corner; 8 cows, one in each white tile; 16 chickens, two side by side in the middle of each blue tile |
+| the goal | the 8 cows in one herd: linked when within two cow-widths (84 px), round the torus (`scene.js`'s `largestHerd`) |
 
 **Arithmetic.** Positions are integer 256ths; every product is `i64`, and
 only a quotient comes back to `i32`. A wish's axis is the vector's axis
@@ -230,11 +230,11 @@ compiled code. On the wire a position is hex with a point: `d80.40` is
 
 ## What the physics sees
 
-**Every critter whose point stands in a tile meeting the region:** the
-3000 px square centred on the leashed dog at the tick's start (after that
-tick's `leash`, if any), at most 49 tiles. All of them take part; there is
-no sphere within it (decision 21). A critter outside is drawn but not
-seen.
+**Every critter in the world, always** (2026-10-15). The world is 36
+tiles; the region (`physics.region`) is all of them, wherever the leashed
+dog stands, so no critter is ever unseen and there is no edge for a step
+to keep clear of. The neighbour searches (the walk's rings, the cells, the
+poops by tile) wrap round the torus.
 
 **Subscriptions are not the physics** (decision 13). The checkerboard is
 how the page learns about critters; the region is what the physics acts
@@ -364,52 +364,29 @@ physics hash `5e0c91a2` in the examples is a placeholder; the real one is
 ```
 dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4
 from 1040 wall 1791936000000
-held 1041 30,32 31,32 32,32 33,32 34,32 35,32 36,32 30,33 31,33 32,33 33,33 34,33 35,33 36,33 30,34 31,34 32,34 33,34 34,34 35,34 36,34 30,35 31,35 36,35 30,36 31,36 36,36 30,37 31,37 32,37 33,37 34,37 35,37 36,37 30,38 31,38 32,38 33,38 34,38 35,38 36,38
 t 1041 +0 drag -1.00,0@3 -2.00,0@19
- dog 219 423c.00,463c.00 > 4239.00,463c.00
- cow 26 3b92.00,3f7a.00 > 3b93.80,3f7b.80
- cow 27 3f7a.00,3f7a.00 > 3f78.83,3f7b.80
- cow 28 4362.00,3f7a.00 > 4360.80,3f7b.7d
- cow 29 474a.00,3f7a.00 > 4748.80,3f7b.7d
- cow 32 3d86.00,416e.00 > 3d87.80,416f.80
- cow 33 416e.00,416e.00 > 416c.80,416c.83
- cow 34 4556.00,416e.00 > 4554.80,416c.83
- cow 36 3b92.00,4362.00 > 3b93.80,4360.83
- cow 37 3f7a.00,4362.00 > 3f7b.80,4363.80
- cow 38 4362.00,4362.00 > 4360.80,4363.80
- cow 39 474a.00,4362.00 > 4748.80,4360.83
- cow 42 3d86.00,4556.00 > 3d84.83,4554.80
- cow 44 4556.00,4556.00 > 4554.80,4557.80
- cow 46 3b92.00,474a.00 > 3b93.7d,4748.80
- cow 47 3f7a.00,474a.00 > 3f7b.80,4748.80
- cow 49 474a.00,474a.00 > 4748.80,4748.83
- dog 223 42d2.00,463c.00 > 42cf.00,463c.00
+ dog 19 3e8.00,3e8.00 > 3e5.00,3e8.00
+ cow 2 36b.00,36b.00 > 369.89,369.80
+ dog 23 451.00,3e8.00 > 44e.00,3e8.00
 letgo 1042
 t 1042 +63
 t 1043 +125
 ```
 
 The numbers follow the rules (the report and its `kept` answer are the
-code's own: the golden fixtures in `physics_judge_test.zig`). Before the
-leash, nothing was leashed and the page held its viewport's tiles: 1280 ×
-800 at x 16316 to 17596 px and y 17700 to 18500 px, columns 32 to 35 and
-rows 35 and 36. Request 3 carried the leash and its view as inputs with
-no tick: `leash 1041 219` and `view 1041 1280x800` with the region's 49
-tiles. The region is the 3000 px square around dog 219 (at 16956, 17980
-px), columns 30 to 36 and rows 32 to 38, which contains the viewport's 8.
-The page can't run 1041 until it holds all 49, so it froze until request
-3's answer, `kept 1040` with the 41 new tiles' critters; then it wrote
-the `held 1041` above and ran the tick. In this played board every dog
-but 219 and 223 has wandered out of the region, and the cows stand where
-they were laid out. The drag is 3 px west: three pixel-ticks. In each,
-dog 219 steps 1 px west, then the walk visits its nearest critters: dog
-223, of 219's breed, stands 150 px east, 50 past the band's outer edge,
-so it steps the full pixel west after 219. The walk goes on to the cows
-(the chickens are no part of it, decision 31): each heeds only its
-nearest moving critter (decision 24), for most of them a cow the walk
-moved before it, and closes on it at half a pixel-tick's step, so 16
-cows shift by a fraction of a pixel. 1042 and 1043 have no drag,
-so nothing moves; the let-go timer (320 ticks) runs from 1042.
+code's own: the golden fixtures in `physics_judge_test.zig`). The board:
+the park as laid out (the cows in the white tiles' middles, the chickens
+in the blue), with dog 19 at (1000, 1000) and dog 23, of its breed, 105 px
+east of it; the other dogs are off the board, so the example stays small.
+Request 3 carried `leash 1041 19` as an input with no tick; the page holds
+the whole world already, so it runs 1041 at once. The drag is 3 px west:
+three pixel-ticks. In each, dog 19 steps 1 px west, then the walk visits
+its nearest critters: dog 23 stands 105 px east, 35 past the band's outer
+edge, so it steps the full pixel west after 19; cow 2, at (875, 875), is
+125 px from dog 19, inside `wary`, and it is its nearest moving critter,
+so it backs away (decision 24) at half a pixel-tick's step, along the
+line from the dog. 1042 and 1043 have no drag, so nothing moves; the
+let-go timer (320 ticks) runs from 1042.
 
 | line | says |
 |---|---|
@@ -493,7 +470,7 @@ So a lost answer costs one resend, and the page never meets an answer to
 anything but what it last asked.
 
 **The server's answers.** The answer to the example report, when all is
-well, and had the page written dog 223's step at 1041 a 256th off:
+well, and had the page written dog 23's step at 1041 a 256th off:
 
 ```
 req 4
@@ -502,10 +479,10 @@ kept 1043
 ```
 req 4
 kept 1040
-differ 1041 dog 223 42d2.00,463c.00 > 42cf.00,463c.00
-state leash none drag none laid 0 view 1280x800 (the 49 tiles) held (the viewport's 8)
-input leash 1041 219
-board 1041 dog 219 423c.00,463c.00 dog 223 42d2.00,463c.00
+differ 1041 dog 23 451.00,3e8.00 > 44e.00,3e8.00
+state leash none drag none laid 0 view 1280x800 (the 36 tiles) held (the 36 tiles)
+input leash 1041 19
+board 1041 (every critter, as it stood: the two dogs, the cows, the chickens)
 ```
 
 In the second: nothing of the report is kept (it differs at its first
@@ -738,8 +715,10 @@ snapshots alone are enough to start from.
    critters in motion** (decision 21), and **cows walk with the dogs**
    (decision 22, 2026-10-14): no scoot, no pushing, no jumps; every step
    is vetoed whole if it would overlap. Rank only breaks ties.
-9. **The edge is vetoed** (decision 23, 2026-10-14): no step comes
-   within 30 px of the seen tiles' edge.
+9. **A small world, seen whole** (2026-10-15, replacing decision 23's
+   edge veto): 6 × 6 tiles, the park the middle 4 × 4, the physics seeing
+   every critter, the page holding every tile; dogs and cows at 70%, the
+   spacings with them. The goal: herd the 8 cows together.
 10. **A cow heeds its nearest moving critter** (decision 24, 2026-10-14):
    a cow, it closes in; a dog, it flees.
 11. **The nudge** (decision 25, 2026-10-14): a step blocked by kin

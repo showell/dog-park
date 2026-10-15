@@ -292,7 +292,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   function syncSubscription() {
     if (cursor !== record.length || status.kind !== "playing") return;
     const t = nextTick();
-    const want = subscription(physics.region(LIVE), viewport);
+    const want = subscription();
     const wantKey = `${Math.round(viewport.width)}x${Math.round(viewport.height)} ${want.map(tileKey).sort().join(" ")}`;
     if (wantKey !== lastWanted) {
       lastWanted = wantKey;

@@ -16,11 +16,6 @@ import { offset, tile_px, world_px, world_tiles } from "../solo/scene.js";
 // A position on the wire, from whole px.
 const hex = (px) => `${px.toString(16)}.00`;
 
-// **THE CADENCE IS NOT WHAT THESE TESTS PROVE**: the page sends a report
-// at most every `spacing` ms (once a second on the box); these scripted
-// exchanges take a report every 250 ms, so a few ticks bring the next.
-const spacing = 250;
-
 // The page's wire, scripted: each request waits in `waiting` until answered.
 function script() {
   const waiting = [];
@@ -46,7 +41,7 @@ const loadAnswer = (k = 10) => `epoch 1791935990000.1\nkept ${k}\nstate leash no
 
 // A loaded page: the load answered, the first report (its view) waiting.
 async function loadedPage(s, answer = loadAnswer()) {
-  const rig = await pageRig({ post: s.post, spacing });
+  const rig = await pageRig({ post: s.post });
   const loading = rig.engine.load(() => ({ width: 1280, height: 800 }));
   await rig.settle();
   await s.answer(rig, "/load", answer);
@@ -156,7 +151,7 @@ test("a load answered stuck, reload physics or req ? stops the page with its rea
     ["req ?\n", /can't read this page's load line/],
   ]) {
     const s = script();
-    const rig = await pageRig({ post: s.post, spacing });
+    const rig = await pageRig({ post: s.post });
     const loading = rig.engine.load(() => ({ width: 1280, height: 800 }));
     await rig.settle();
     await s.answer(rig, "/load", answer);
@@ -281,7 +276,7 @@ async function onWorld(critters, budget) {
   const s = script();
   const w = world(critters);
   // Dog 0 (at 1120, 1120) in the screen's middle, clear of the edge bands.
-  const rig = await pageRig({ post: s.post, spacing, screen: { width: 200, height: 200 }, at: { parkX: 1020, parkY: 1020 }, budget });
+  const rig = await pageRig({ post: s.post, screen: { width: 200, height: 200 }, at: { parkX: 1020, parkY: 1020 }, budget });
   const loading = rig.engine.load(() => ({ width: 200, height: 200 }), { parkX: 1020, parkY: 1020 });
   await rig.settle();
   await s.answer(rig, "/load", loadAnswer());

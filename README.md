@@ -69,9 +69,9 @@ landing anyone on anything
 ([docs/PHYSICS.md](docs/PHYSICS.md) lists them). How the critters move is
 tested by playing. A test that no longer proves anything goes.
 
-    zig build test       # after every edit, ~12 s
-    zig build check      # before a commit, ~30 s
-    zig build slow       # the slow tier, ~50 s
+    zig build test       # after every edit, ~4 s
+    zig build check      # before a commit, ~14 s
+    zig build slow       # the slow tier, ~20 s
 
 Wall times after an edit to `src/play/physics.zig`, on the box
 (2026-10-15).

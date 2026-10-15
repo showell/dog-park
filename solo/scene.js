@@ -77,11 +77,6 @@ export function wrapTile(t) {
   return { col: wrapped(t.col, world_tiles), row: wrapped(t.row, world_tiles) };
 }
 
-// How far past the viewport's edges the page subscribes, so a scroll finds
-// its dogs already known: the widest of these that keeps a screen within
-// `most_tiles`.
-const tile_margins_px = [tile_px / 2, tile_px / 4, 0];
-
 export function tileOf(parkX, parkY) {
   return { col: Math.floor(parkX / tile_px), row: Math.floor(parkY / tile_px) };
 }
@@ -111,31 +106,12 @@ export function tilesMeeting(parkX, parkY, width, height) {
   return [...out.values()];
 }
 
-// The tiles the page wants: those within the widest margin of the viewport
-// that keeps them within `most_tiles`.
-export function wantedTiles(viewport) {
-  for (const m of tile_margins_px) {
-    const near = tilesMeeting(viewport.parkX - m, viewport.parkY - m, viewport.width + 2 * m, viewport.height + 2 * m);
-    if (near.length <= most_tiles) return near;
-  }
-  // A screen this big shows more than a page may subscribe: the
-  // subscription keeps those nearest its centre.
-  return tilesMeeting(viewport.parkX, viewport.parkY, viewport.width, viewport.height);
-}
-
-// **WHAT THE PAGE SUBSCRIBES** (docs/PHYSICS.md item 11, decision 13): the
-// region's tiles first (while a dog is leashed: the physics can't tick
-// without them), then the display's (`wantedTiles`), nearest the
-// viewport's centre first (the square metric, from each tile's centre the
-// short way round; ties by row, then column, as the tiles lie around the
-// centre: north before south, west before east, across the seam too), at
-// most `most_tiles` in all. Every tile wrapped: a region's range across the
-// seam may come in either naming.
-export function subscription(_regionTiles, _viewport) {
-  // **THE WHOLE WORLD, ALWAYS** (Steve, 2026-10-15: "at this scale we would
-  // almost be sending the whole world down"): every tile, so the page knows
-  // every critter whether or not a dog is leashed, and the goal's count is
-  // the park's, never what one screen shows.
+// **WHAT THE PAGE SUBSCRIBES** (decision 13): every tile of the world,
+// always (Steve, 2026-10-15: "at this scale we would almost be sending the
+// whole world down"), so the page knows every critter whether or not a dog
+// is leashed, and the goal's count is the park's, never what one screen
+// shows. The region (the world) is among them, so the physics never waits.
+export function subscription() {
   const out = [];
   for (let row = 0; row < world_tiles; row++) for (let col = 0; col < world_tiles; col++) out.push({ col, row });
   return out;
@@ -202,6 +178,8 @@ export function overviewCentredOn(viewport) {
 // window's centre: a dragged view's rectangle carries the window with it
 // at the window's edge.
 export function overviewShowing(o, viewport) {
+  // A window that is the whole world shows every view: it stays.
+  if (o.span.parkW >= world_px && o.span.parkH >= world_px) return o.at;
   const axis = (a, len, v, vlen) => Math.min(Math.max(a, v + vlen - len), v);
   const vx = nearest(viewport.parkX + viewport.width / 2, o.at.parkX + o.span.parkW / 2) - viewport.width / 2;
   const vy = nearest(viewport.parkY + viewport.height / 2, o.at.parkY + o.span.parkH / 2) - viewport.height / 2;

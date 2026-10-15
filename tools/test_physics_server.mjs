@@ -39,15 +39,15 @@ test("a load: a new epoch, kept 0, nothing leashed, no tiles", async () => {
 const header = (req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\nfrom 0\n`;
 
 test("an unleashed pan: a view gets its tiles' critters; the resend gets the same bytes", async () => {
-  const body = header(1) + "view 1 1280x800 27,27 26,27\n";
+  const body = header(1) + "view 1 1280x800 1,1 0,1\n";
   const a = await post("/report", body);
   // The empty ground west of the park, then the park's corner tile: its
   // cows, then its dogs, by number (the layout is the Zig tests' to pin).
   const pos = "[0-9a-f]+\\.[0-9a-f]{2},[0-9a-f]+\\.[0-9a-f]{2}";
-  assert.match(a.text, new RegExp(`^req 1\\nkept 0\\ntile 26,27\\ntile 27,27( cow \\d+ ${pos})+( dog \\d+ ${pos})+\\n$`));
+  assert.match(a.text, new RegExp(`^req 1\\nkept 0\\ntile 0,1\\ntile 1,1( cow \\d+ ${pos})+( dog \\d+ ${pos})+\\n$`));
   const again = await post("/report", body);
   assert.equal(again.text, a.text);
-  const held = await post("/report", header(2) + "held 1 27,27 26,27\n");
+  const held = await post("/report", header(2) + "held 1 1,1 0,1\n");
   assert.equal(held.text, "req 2\nkept 0\n");
 });
 

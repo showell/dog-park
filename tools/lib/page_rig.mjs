@@ -21,7 +21,13 @@ export const wasmBytes = () => readFileSync(join(root, process.env.DOGPARK_WASM 
  * whose promise is marked `held` (a script's, answered when the test says)
  * is never waited for.
  */
-export async function pageRig({ post, screen = { width: 1280, height: 800 }, at = "none", budget, spacing }) {
+// **THE RIG'S CADENCE**: a report every 250 ms unless a test says
+// otherwise. The page's own is once a second (engine.js's spacing_ms);
+// when reports go is not what these tests prove, and a few ticks should
+// bring the next.
+const rig_spacing_ms = 250;
+
+export async function pageRig({ post, screen = { width: 1280, height: 800 }, at = "none", budget, spacing = rig_spacing_ms }) {
   const physics = await instantiatePhysics(wasmBytes());
   const tick_ms = 1000 / physics.ticksPerSecond();
   const sent = [];
@@ -102,7 +108,7 @@ export async function pageRig({ post, screen = { width: 1280, height: 800 }, at 
     },
     reload: (why) => reloads.push(why),
     ...(budget === undefined ? {} : { budget }),
-    ...(spacing === undefined ? {} : { spacing }),
+    spacing,
   });
   rig.engine = engine;
   rig.load = async () => {
