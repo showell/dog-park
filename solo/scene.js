@@ -42,6 +42,11 @@ export function parkFromViewport(viewport, viewportX, viewportY) {
 export const tile_px = 350;
 export const most_tiles = 64;
 export const world_tiles = 6;
+if (world_tiles * world_tiles > most_tiles) throw new Error("the page holds the whole world: it must fit in a view");
+// The populated park, 4 x 4 tiles in the world's middle, a cow in each
+// white tile (the server's layout.zig).
+export const park_tiles = 4;
+export const cow_count = (park_tiles * park_tiles) / 2;
 export const world_px = world_tiles * tile_px;
 
 // **EVERY PARK POINT HAS ONE NAME IN [0, world_px)**, and many copies a
@@ -126,19 +131,14 @@ export function wantedTiles(viewport) {
 // centre: north before south, west before east, across the seam too), at
 // most `most_tiles` in all. Every tile wrapped: a region's range across the
 // seam may come in either naming.
-export function subscription(regionTiles, viewport) {
-  const out = new Map(regionTiles.map((t) => [tileKey(wrapTile(t)), wrapTile(t)]));
-  const cx = viewport.parkX + viewport.width / 2;
-  const cy = viewport.parkY + viewport.height / 2;
-  const dx = (t) => offset(cx, (t.col + 0.5) * tile_px);
-  const dy = (t) => offset(cy, (t.row + 0.5) * tile_px);
-  const away = (t) => Math.max(Math.abs(dx(t)), Math.abs(dy(t)));
-  const display = wantedTiles(viewport).sort((a, b) => away(a) - away(b) || dy(a) - dy(b) || dx(a) - dx(b));
-  for (const t of display) {
-    if (out.size >= most_tiles) break;
-    out.set(tileKey(t), t);
-  }
-  return [...out.values()];
+export function subscription(_regionTiles, _viewport) {
+  // **THE WHOLE WORLD, ALWAYS** (Steve, 2026-10-15: "at this scale we would
+  // almost be sending the whole world down"): every tile, so the page knows
+  // every critter whether or not a dog is leashed, and the goal's count is
+  // the park's, never what one screen shows.
+  const out = [];
+  for (let row = 0; row < world_tiles; row++) for (let col = 0; col < world_tiles; col++) out.push({ col, row });
+  return out;
 }
 
 // ── the overview's frame ────────────────────────────────────────────────────

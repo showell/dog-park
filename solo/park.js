@@ -33,7 +33,7 @@
 // wires the DOM to it, and runs the frame loop and the drawing. It starts
 // only where there is a DOM, so node can import every module.
 
-import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px, largestHerd } from "./scene.js";
+import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px, largestHerd, cow_count } from "./scene.js";
 import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
@@ -173,12 +173,14 @@ async function start() {
       : "none";
     draw(ctx, note === "none" ? drawn.objects : [...drawn.objects, ...messageScene(v.viewport, note)]);
     // The goal, shown when it changes.
+    // Out of the park's cows, never the ones this page happens to know.
     if (v.cows.length > 0) {
       const herd = largestHerd(v.cows);
-      const text = herd === v.cows.length ? `All ${herd} cows herded together! 🎉` : `Herd: ${herd} of ${v.cows.length} cows`;
+      const won = herd === cow_count;
+      const text = won ? `All ${cow_count} cows herded together! 🎉` : `Herd: ${herd} of ${cow_count} cows`;
       if (score && score.textContent !== text) {
         score.textContent = text;
-        score.classList.toggle("won", herd === v.cows.length);
+        score.classList.toggle("won", won);
       }
     }
     if (nowMs - savedMs >= 500 && (v.viewport.parkX !== savedAt.parkX || v.viewport.parkY !== savedAt.parkY)) {
