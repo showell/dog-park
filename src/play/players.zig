@@ -50,7 +50,10 @@ pub fn parseClaimed(text: []const u8) ?u8 {
 
 pub fn writeClaimed(io: Io, alloc: std.mem.Allocator, data_dir: []const u8, n: u8) !void {
     const path = try std.fs.path.join(alloc, &.{ data_dir, claimed_file });
-    try webbox.store.write(io, alloc, path, try std.fmt.allocPrint(alloc, "{d}\n", .{n}), .{});
+    // A replace, never a write: on metal a write removes the old entry
+    // before the new one is whole, so a stop between would lose the count
+    // and hand the accounts out again.
+    try webbox.store.replace(io, alloc, path, try std.fmt.allocPrint(alloc, "{d}\n", .{n}), .{});
 }
 
 /// What a device that asks to begin gets.
