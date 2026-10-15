@@ -65,8 +65,8 @@ the cheapest droplet at about 80 playing at once.
 **Dog Park will go live at https://dogpark.lynrummy.com** on its own
 droplet, booted from an image with no Linux on it. The image is the
 [zig-metal-unikernel](https://github.com/showell/zig-metal-unikernel)
-kernel with Dog Park built in, the same way lynrummy.com is served. Prod's Caddy will hold HTTPS and forward to it over the
-private network. The image is built and rehearsed under QEMU on a
+kernel with Dog Park built in, the same way lynrummy.com is served.
+Prod's Caddy will hold HTTPS and forward to it over the private network. The image is built and rehearsed under QEMU on a
 droplet-sized machine. [DEPLOY.md](DEPLOY.md) is the deploy, step by step.
 
 Today it is played on the development box: `zig build play` serves
