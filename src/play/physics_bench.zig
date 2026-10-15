@@ -3,6 +3,9 @@
 //!   with the most critters seen around it, dragged the cap's 100 px on
 //!   both axes (200 pixel-ticks, a walk after each);
 //! - **a packed herd:** a tick with the full drag;
+//! - **the busiest spot strewn with poop:** the same, with `strewn_poops`
+//!   poops on free spots of the region (metal-vmm QUEUE 207: every blocked
+//!   step scans every poop in view);
 //! - **a server's re-run** of a 8-tick report from the busiest spot.
 //! Each is the mean of as many runs from the same board as fit in about a
 //! second (at least ten), so a retune that makes a tick dearer doesn't
@@ -99,6 +102,48 @@ fn busiestSpot() Busiest {
     return .{ .board = park, .dog = busiest, .awake = most };
 }
 
+/// How many poops the strewn spot has, about what a long session's trails
+/// leave in one region.
+const strewn_poops = 500;
+
+/// The busiest spot, with `strewn_poops` poops in the region, on a 100 px
+/// grid's free spots (wide enough for a cow to pass between) outward from the leashed dog (none on a critter or
+/// another poop), all ripe but the last.
+fn strewnSpot(spot: Busiest) Board {
+    var b = spot.board;
+    const sc = physics.Scene.of(&b).?;
+    const at = b.dogs[spot.dog];
+    var n: u16 = 0;
+    var ring: i32 = 1;
+    while (n < strewn_poops and ring < 30) : (ring += 1) {
+        var gy: i32 = -ring;
+        while (gy <= ring) : (gy += 1) {
+            var gx: i32 = -ring;
+            while (gx <= ring) : (gx += 1) {
+                if (@max(@abs(gx), @abs(gy)) != ring or n == strewn_poops) continue;
+                const q = physics.wrapped(.{ .x = at.x + physics.px(100 * gx), .y = at.y + physics.px(100 * gy) });
+                if (!free(&sc, &b, q, n)) continue;
+                b.poops[n] = q;
+                b.poop_known[n] = .present;
+                n += 1;
+            }
+        }
+    }
+    b.laid = n;
+    return b;
+}
+
+fn free(sc: *const physics.Scene, b: *const Board, q: Point, n: u16) bool {
+    for (sc.list(), 0..) |o, j| if (physics.squaresOverlap(q, physics.poop_half, sc.pos(j), o.half)) return false;
+    for (b.poops[0..n]) |p| if (physics.squaresOverlap(q, physics.poop_half, p, physics.poop_half)) return false;
+    return true;
+}
+
+fn poopsSeen(b: *Board) usize {
+    const sc = physics.Scene.of(b) orelse return 0;
+    return sc.poops_len;
+}
+
 /// The report's ticks: the page sends a report at its byte budget, and a
 /// tick here moves many critters, so 32 would pass the 64 KiB body.
 const report_ticks = 8;
@@ -172,6 +217,19 @@ pub fn main(init: std.process.Init) !void {
         std.mem.doNotOptimizeAway(sink);
         return;
     }
+    // `-- strewn`: the busiest spot strewn with poop, its full drag, 20 runs.
+    if (args.len > 1 and std.mem.eql(u8, args[1], "strewn")) {
+        const strewn = strewnSpot(busiestSpot());
+        var lines: physics.Lines = .{};
+        var sink: usize = 0;
+        for (0..20) |_| {
+            var b = strewn;
+            _ = physics.tick(&b, 1, &.{}, full.slice(), &lines);
+            sink +%= lines.len;
+        }
+        std.mem.doNotOptimizeAway(sink);
+        return;
+    }
     if (args.len > 1 and std.mem.eql(u8, args[1], "rerun")) {
         var report: [65536]u8 = undefined;
         var w: wire.Text = .{ .buf = &report };
@@ -195,6 +253,14 @@ pub fn main(init: std.process.Init) !void {
     var probe = park;
     _ = physics.tick(&probe, 1, &.{}, full.slice(), &lines);
     std.debug.print("park's busiest spot: dog {d}, {d} seen (itself included), the full drag: {d} lines, {d:.1} us a tick\n", .{ busiest, most, lines.len, timeTick(io, &park, &.{}, full.slice()) });
+
+    var strewn = strewnSpot(spot);
+    const east = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = 0 }});
+    probe = strewn;
+    _ = physics.tick(&probe, 1, &.{}, full.slice(), &lines);
+    std.debug.print("the busiest spot strewn with {d} poops in view: the full drag (the leashed dog {d} px, {s}): {d} lines, {d:.1} us a tick; 100 px east, {d:.1} us\n", .{ poopsSeen(&strewn), @divTrunc(physics.measure(physics.delta(strewn.dogs[busiest], probe.dogs[busiest])), physics.unit), if (probe.hold.leashed.drag == .on) "no bump" else "bumped", lines.len, timeTick(io, &strewn, &.{}, full.slice()), timeTick(io, &strewn, &.{}, east.slice()) });
+    probe = park;
+    std.debug.print("the busiest spot, no poop, 100 px east: {d:.1} us a tick\n", .{timeTick(io, &probe, &.{}, east.slice())});
 
     var herd = packedHerd();
     std.debug.print("a packed herd: {d} dogs and {d} cows placed, {d} seen: the full drag {d:.1} us a tick\n", .{ herd.dogs, herd.cows, awakeCount(&herd.board), timeTick(io, &herd.board, &.{}, full.slice()) });

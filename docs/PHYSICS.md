@@ -43,21 +43,31 @@ playing, not by unit tests.
 2. **The drag, if one is on,** as its x part then its y part, cut into
    **pixel-ticks** of at most 1 px (decision 15). In each:
    - **the leashed dog** takes the step, swept against everyone it sees,
-     stopping just short of pressing into anyone. **A bump ends the drag,
-     not the leash:** the rest of the tick's drag is dropped, the pointer
-     is let go, and the let-go timer starts;
-   - **then the walk** (below), if the leashed dog moved.
-3. **The timer:** the leash comes off 320 ticks (20 s) after the drag
+     stopping just short of pressing into anyone. Stopped by a chicken, it
+     shoves it; stopped by a poop, or a chicken it can't shove, it slides
+     the step's size sideways (decision 30). **A bump ends the drag, not
+     the leash:** a dog or a cow in the way, or a slide that fails too;
+     the rest of the tick's drag is dropped, the pointer is let go, and
+     the let-go timer starts;
+   - **then the walk** (below), if the leashed dog moved;
+   - **then the poops due:** one for each 700 px its walk passed in the
+     step, laid by the herd's deepest dog (below).
+3. **The chickens' turn** (decision 31), once, after the drag, bumped or
+   not, if the leashed dog's net move over the tick is more than nothing
+   (below).
+4. **The timer:** the leash comes off 320 ticks (20 s) after the drag
    ended, unless a `grab` came first. Unleashing puts the park to sleep.
-4. **The checked lines:** every critter whose place changed over the
+5. **The checked lines:** every critter whose place changed over the
    tick, then a `bump`, a `release`, or a `rest` (nothing moved, no input
    but a `view` or `held`, no timer running: the page stops ticking until
    the human acts).
 
-## The walk (decisions 20-22)
+## The walk (decisions 20-22, 30, 31)
 
 After each pixel-tick of the leashed dog, up to **40** critters move, one
-at a time, out from the leashed dog, **shortest link first:**
+at a time, out from the leashed dog, **shortest link first.** Only dogs
+and cows: chickens have left the walk (decision 31) and take none of its
+40.
 - the leashed dog lines up its **3** nearest critters, dogs or cows,
   each waiting keyed by its distance from the critter that lined it up;
 - the walk visits the waiting critter with the least key (ties to the
@@ -96,35 +106,79 @@ own kin in turn, up to `nudge_most` (8) in all; if any of them is
 blocked, none moves. Nobody is ever pressed into, and still critters
 never attract or repel.
 
-## Poop and chickens (decisions 26-28)
+**Going around** (decision 30):
+- **The shove.** A chicken in the way of a dog or a cow of the step is
+  knocked by the step plus as much again sideways, away from that
+  critter's centre line (on the line: south, or east for a step north or
+  south). It counts only if every chicken shoved lands clear of every
+  critter (where the step leaves each one: still, nudged or shoved), of
+  every poop and of the edge; all is checked before anyone moves, and
+  then all move or none. So a chicken slides off the front of a dog
+  within about 30 px instead of being plowed ahead. A chicken shoves
+  nobody.
+- **The sidestep.** A step vetoed by a poop, or by a chicken it can't
+  shove, is tried once more: zero the step on the axis where the blocker
+  is farther off (a tie zeroes x); on the other, keep the step's own
+  part, or, if it has none, go the step's whole size away from the
+  blocker (on the line, +). Vetoed again, the critter stays.
+- **The leashed dog** is swept, not vetoed: stopped by a chicken, it
+  shoves it with the rest of its step; stopped by a poop or a chicken it
+  can't shove, it slides the step's size (1 px) sideways, away from it,
+  whole or not at all. It bumps only when the slide fails too. There is
+  no setback.
 
-**Only the leashed dog poops** (decision 28), each time its walk (every
-step it takes, counted by the step's larger axis) passes another 700 px.
-The poop lands at the nearest spot where its 12 px square overlaps no
-critter and no poop the physics sees and keeps 6 px from the leashed dog:
-rings 4 px apart out from the dog, each walked clockwise from the point
-straight to the right of its step (beside it: a dog following in its
-track passes the poop by), out to 200 px (none fits: no poop). **Poop stays until a chicken eats it.** The park's poops
-take 2048 slots in turn, counted since the load (`laid`, on the `state`
-line), so only the 2049th would take the first one's slot. **Poop is an
-obstacle to dogs and cows** (decision 28): a walked step onto one is
-vetoed like a step onto a critter, and the leashed dog bumps it.
+## Poop and chickens (decisions 29-31): trails without obstruction
 
-**A chicken** (two to each blue tile, a 20 px square) is part of the
-walk (decision 27): it moves only when the walk visits it, so only while
-you drag and only near the leashed dog's cascade. On its turn it steps
-toward the nearest poop it sees within half a tile (250 px), up to 3
-times the leashed dog's step, whole or not at all (the veto; a chicken
-has no kin, so it neither nudges nor is nudged). Then it eats every poop
-its square overlaps. It heeds no critter and plans nothing: three
-chickens chase the same poop until it's gone. Every other critter treats
-a chicken as an obstacle and nothing more: no dog or cow reacts to a
-moving one.
+Layer 1 of three (the essay "Dog Park: trails, ducks, and an ecosystem in
+layers"): it adds no state.
 
-**A bump into a chicken or a poop** (decision 28) ends the drag as any
-bump does, and then sets the leashed dog back 6 px the way it came (as
-far as that way is clear), so the next drag has 6 px of room toward it
-before it bumps again: a grab's jitter doesn't end the drag at once.
+**The trail** (decision 29):
+- **When:** each time the leashed dog's walk (every step it takes,
+  counted by its larger axis) passes another 700 px, after that
+  pixel-tick's walk.
+- **Who:** the deepest dog of the leashed dog's breed in that walk. The
+  leashed dog has depth 0; a visited dog whose anchor is dog j has j's
+  depth + 1; the greatest depth wins, ties to the dog visited later; with
+  no follower, the leashed dog. Depth lives only for that walk.
+- **Where:** 30 px (centre to centre) **behind** the pooper: away from its
+  anchor; for the leashed dog, back along its step. That spot taken, the
+  spots on rings 4 px apart around it, out to 200 px, each ring walked
+  clockwise from its north-west corner. A spot must overlap no critter
+  and no poop the physics sees, and keep clear of the seen tiles' edge as
+  a step must. None fits: no poop.
+- **Poop stays until a chicken eats it.** The park's poops take 2048
+  slots in turn, counted since the load (`laid`, on the `state` line), so
+  only the 2049th would take the first one's slot.
+- **Poop blocks dogs and cows;** nothing pushes it. A step onto one is
+  vetoed, then sidestepped; the leashed dog slides around it.
+- **Ripe:** every poop is ripe but the park's newest, the one in slot
+  `laid − 1` mod 2048 (`ripe(laid, n)`): it comes free from the slot
+  counter.
+
+**Chickens** (two to each blue tile, a 20 px square; decision 31) are no
+part of the walk. Every other critter treats one as an obstacle it may
+shove (above) and nothing more: no dog or cow reacts to one.
+- **The chickens' turn:** once a tick, after the drag, and only if the
+  leashed dog's net move over the tick (its larger axis) is more than
+  nothing. Every chicken the physics sees, in number order, steps at
+  most half that move and at most 8 px:
+  - **forage:** toward the nearest ripe poop within 500 px (ties to the
+    lower slot), going around what blocks it (the sidestep);
+  - **else go home:** toward its spot in the first layout
+    (`layout.chickenHome`) when more than 32 px from it, whole or not at
+    all: blocked, it waits;
+  - **else it stays put,** and writes no line, so the report stays small.
+- **Eating:** after its step, a chicken eats every ripe poop its square
+  overlaps.
+- **No critter ever stands on poop** (`onPoops`, in the server's
+  invariant): a dog's or a cow's step never lands on one; a chicken's own
+  step is vetoed only by the newest, and it eats a ripe one it lands on
+  there and then; a shove lands clear of every poop.
+
+**The cost:** every square that asks about poop asks only the tiles of
+the span it could reach (the Scene keeps a list of its poops by tile). A
+full drag at the park's busiest spot with 500 poops in view costs what
+it does with none (`zig build physics-bench`).
 
 **On the wire:** a tick's checked lines add ` poop N x,y` (slot N holds a
 new poop) and ` eaten N` (a poop the region's tiles held is gone), by
@@ -153,9 +207,10 @@ Tuned by playing; each is a constant in `physics.zig`.
 | the region | `region_reach`, 1500 px each way |
 | the leash off | 320 ticks (20 s) after the drag ends |
 | the squares | dogs 40 px, cows 60 px, chickens 20 px, poop 12 px |
-| poop | the leashed dog's, every 700 px walked; 2048 slots, in turn; within 200 px of it, 6 px clear |
-| the bump room | 6 px: a bump into a chicken or a poop sets the leashed dog back this far |
-| a chicken | sees 250 px (half a tile); steps 3 times the leashed dog's |
+| poop | every 700 px the leashed dog walks, by the herd's deepest dog, 30 px behind it; else on rings 4 px apart out to 200 px; 2048 slots, in turn; all ripe but the newest |
+| the leashed dog stopped by poop or a chicken | slides 1 px sideways; shoves a chicken first |
+| a shove | the step, plus as much again sideways |
+| a chicken | once a tick; sees ripe poop 500 px off; steps at most half the leashed dog's net move, and 8 px; goes home past 32 px off |
 | the first layout | `layout.zig`: 400 dogs, four to a tile, one breed per corner; 50 cows in the white tiles; 100 chickens, two side by side in the middle of each blue tile |
 
 **Arithmetic.** Positions are integer 256ths; every product is `i64`, and
@@ -304,15 +359,20 @@ from 1040 wall 1791936000000
 held 1041 30,32 31,32 32,32 33,32 34,32 35,32 36,32 30,33 31,33 32,33 33,33 34,33 35,33 36,33 30,34 31,34 32,34 33,34 34,34 35,34 36,34 30,35 31,35 36,35 30,36 31,36 36,36 30,37 31,37 32,37 33,37 34,37 35,37 36,37 30,38 31,38 32,38 33,38 34,38 35,38 36,38
 t 1041 +0 drag -1.00,0@3 -2.00,0@19
  dog 219 423c.00,463c.00 > 4239.00,463c.00
- cow 32 3d86.00,416e.00 > 3d84.83,416f.80
- cow 33 416e.00,416e.00 > 416c.83,416f.80
- cow 36 3b92.00,4362.00 > 3b93.80,4363.7d
+ cow 26 3b92.00,3f7a.00 > 3b93.80,3f7b.80
+ cow 27 3f7a.00,3f7a.00 > 3f78.83,3f7b.80
+ cow 28 4362.00,3f7a.00 > 4360.80,3f7b.7d
+ cow 29 474a.00,3f7a.00 > 4748.80,3f7b.7d
+ cow 32 3d86.00,416e.00 > 3d87.80,416f.80
+ cow 33 416e.00,416e.00 > 416c.80,416c.83
+ cow 34 4556.00,416e.00 > 4554.80,416c.83
+ cow 36 3b92.00,4362.00 > 3b93.80,4360.83
  cow 37 3f7a.00,4362.00 > 3f7b.80,4363.80
  cow 38 4362.00,4362.00 > 4360.80,4363.80
- cow 39 474a.00,4362.00 > 4748.80,4363.80
- cow 42 3d86.00,4556.00 > 3d87.80,4557.7d
+ cow 39 474a.00,4362.00 > 4748.80,4360.83
+ cow 42 3d86.00,4556.00 > 3d84.83,4554.80
  cow 44 4556.00,4556.00 > 4554.80,4557.80
- cow 46 3b92.00,474a.00 > 3b93.80,4748.83
+ cow 46 3b92.00,474a.00 > 3b93.7d,4748.80
  cow 47 3f7a.00,474a.00 > 3f7b.80,4748.80
  cow 49 474a.00,474a.00 > 4748.80,4748.83
  dog 223 42d2.00,463c.00 > 42cf.00,463c.00
@@ -336,8 +396,11 @@ but 219 and 223 has wandered out of the region, and the cows stand where
 they were laid out. The drag is 3 px west: three pixel-ticks. In each,
 dog 219 steps 1 px west, then the walk visits its nearest critters: dog
 223, of 219's breed, stands 150 px east, 50 past the band's outer edge,
-so it steps the full pixel west after 219; the nearest cows are more than
-`wary` from every moving dog, so they stay. 1042 and 1043 have no drag,
+so it steps the full pixel west after 219. The walk goes on to the cows
+(the chickens are no part of it, decision 31): each heeds only its
+nearest moving critter (decision 24), for most of them a cow the walk
+moved before it, and closes on it at half a pixel-tick's step, so 16
+cows shift by a fraction of a pixel. 1042 and 1043 have no drag,
 so nothing moves; the let-go timer (320 ticks) runs from 1042.
 
 | line | says |
@@ -637,10 +700,18 @@ snapshots alone are enough to start from.
    a cow, it closes in; a dog, it flees.
 11. **The nudge** (decision 25, 2026-10-14): a step blocked by kin
    carries them along, up to 8 critters.
-12. **Poop and chickens** (decisions 26-28, 2026-10-14): only the
-   leashed dog poops, every 700 px, beside itself, and poop stays until
-   eaten, an obstacle to dogs and cows; chickens walk in the cascade,
-   chase the nearest poop within 250 px at triple a dog's pace, and eat
-   it; a bump into a chicken or a poop sets the leashed dog back 6 px.
+12. **Trails without obstruction** (decisions 29 and 31, 2026-10-14,
+   replacing 26-28: "the poop and chickens are still way too much of an
+   obstacle"): the herd poops every 700 px, its deepest dog, 30 px behind
+   itself, and poop stays until eaten, an obstacle to dogs and cows;
+   chickens leave the walk and take one turn a tick, foraging the
+   nearest ripe poop within 500 px or walking home, at most half the
+   leashed dog's net move and 8 px; every poop but the newest is ripe.
+13. **The sidestep and the shove** (decision 30, 2026-10-14): what's in
+   the way is gone around, not stopped at. A step vetoed by a poop or a
+   chicken that can't be shoved is tried once more, sideways; a dog or
+   cow shoves a chicken by the step plus as much sideways, all checked
+   before anyone moves; the leashed dog slides 1 px, and bumps only when
+   that fails. No setback.
 
 The history behind each is in git.

@@ -581,22 +581,46 @@ test "the walk: a dog already waiting takes a nearer dog's key (Steve's 172, 176
     try testing.expectEqualSlices(u16, &.{ 4, 8, 12, 2 }, lines.walk[0..lines.walk_len]);
 }
 
-test "the invariant: seeded drags through the laid-out park, and no two critters the physics sees ever overlap" {
-    // The veto keeps it by induction (decision 22); this is the induction's
-    // check over the whole park: long drags, bumps, let-gos and grabs.
+test "the invariant: seeded drags through the laid-out park, and no two critters the physics sees ever overlap, and none stands on poop, through poops laid, eaten, and chickens shoved" {
+    // The veto keeps it by induction (decisions 22, 30); this is the
+    // induction's check over the whole park: drags along a heading that
+    // turns now and then, bumps, let-gos and grabs. It runs on until the
+    // herd has laid a few poops (so some are ripe) and the drag has shoved
+    // a chicken: one that moved in a tick it had no reason of its own to
+    // (at home, no ripe poop in sight).
     var prng: std.Random.DefaultPrng = .init(22);
     const rand = prng.random();
     var b = Board.laidOut();
     var lines: Lines = .{};
     try testing.expectEqual(@as(?physics.Refusal, null), physics.tick(&b, 1, &.{.{ .leash = 112 }}, &.{}, &lines));
     var found: [8][2]physics.Critter = undefined;
+    var heading = d(10, 4);
+    var shoved: usize = 0;
     var t: physics.Tick = 2;
-    while (t < 2 + fuzzed(400)) : (t += 1) {
-        const drag = [1]physics.Disp{.{ .dx = physics.px(rand.intRangeAtMost(i32, -12, 12)), .dy = physics.px(rand.intRangeAtMost(i32, -12, 12)) }};
+    while (t < 2 + fuzzed(400) or b.laid < 3 or shoved == 0) : (t += 1) {
+        try testing.expect(t < 2000);
+        if (rand.uintLessThan(u32, 16) == 0) heading = d(rand.intRangeAtMost(i32, -12, 12), rand.intRangeAtMost(i32, -12, 12));
+        const drag = [1]physics.Disp{.{ .dx = heading.dx + physics.px(rand.intRangeAtMost(i32, -3, 3)), .dy = heading.dy + physics.px(rand.intRangeAtMost(i32, -3, 3)) }};
         const humans: []const physics.Human = if (b.hold == .leashed and b.hold.leashed.drag != .on) &.{.grab} else &.{};
+        var idle: [physics.chicken_count]bool = undefined;
+        for (&idle, b.chickens) |*i, c| i.* = idleChicken(&b, c, @intCast(&i.* - &idle[0]));
+        const before = b.chickens;
         try testing.expectEqual(@as(?physics.Refusal, null), physics.tick(&b, t, humans, &drag, &lines));
         try testing.expectEqual(@as(usize, 0), physics.overlaps(&b, &found));
+        for (idle, before, b.chickens) |i, was, now| {
+            if (i and (was.x != now.x or was.y != now.y)) shoved += 1;
+        }
     }
+}
+
+/// Whether chicken `n` at `c` has no step of its own to take: at home and
+/// no ripe poop within its sight.
+fn idleChicken(b: *const Board, c: Point, n: u16) bool {
+    if (physics.measure(physics.delta(c, @import("layout.zig").chickenHome(n))) > physics.home_band) return false;
+    for (b.poops, b.poop_known, 0..) |p, k, slot| {
+        if (k == .present and physics.ripe(b.laid, @intCast(slot)) and physics.measure(physics.delta(c, p)) <= physics.chicken_sight) return false;
+    }
+    return true;
 }
 
 test "the edge (decision 23): a walked critter never steps within cow_half of the seen tiles' edge, so an unseen one poking in is never overlapped" {
@@ -661,94 +685,4 @@ test "the nudge stops at a critter not kin: a cow pressed against a dog vetoes t
     _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
     try testing.expectEqual(px(16050, 16250), b.cows[0]);
     try testing.expectEqual(px(15990, 16250), b.cows[1]);
-}
-
-test "poop (decisions 26-28): only the leashed dog poops, at each 700 px it walks, beside it (to its step's right) and clear of the bump room, into the park's next slot" {
-    // The leashed dog dragged east 1400 px over 14 ticks, dog 4 (its
-    // breed) following, closing onto its row and walking as far, past
-    // both: two poops, the leashed dog's, slots 0 and 1, each 32 px south
-    // of it (20 + 6 + 6: its half, the bump room, the poop's half); both
-    // still there.
-    var b = leashedAt(px(15000, 16250));
-    b.place(.dog(4), px(15000, 16400));
-    var t: physics.Tick = 1;
-    var laid: [4]physics.PoopLine = undefined;
-    var n: usize = 0;
-    while (t <= 14) : (t += 1) {
-        const lines = ticked(&b, t, &.{}, &.{d(100, 0)});
-        for (lines.slice()) |c| if (c == .poop) {
-            laid[n] = c.poop;
-            n += 1;
-        };
-    }
-    try testing.expect(b.dogs[4].x > physics.px(16200));
-    try testing.expectEqual(@as(usize, 2), n);
-    try testing.expectEqual(@as(u16, 0), laid[0].n);
-    try testing.expectEqual(px(15700, 16250 + 32), laid[0].at);
-    try testing.expectEqual(@as(u16, 1), laid[1].n);
-    try testing.expectEqual(px(16400, 16250 + 32), laid[1].at);
-    try testing.expectEqual(@as(u32, 2), b.laid);
-    try testing.expectEqual(physics.Known.present, b.poop_known[0]);
-    try testing.expectEqual(@as(u32, 0), b.walked[4]);
-}
-
-test "poop is an obstacle (decision 28): a dog the walk moves never steps onto it, and the leashed dog bumps it with the bump room to spare" {
-    // Dog 4 follows the leashed dog west; a poop sits right in front of
-    // it, touching: it stays.
-    var b = leashedAt(px(16000, 16250));
-    b.place(.dog(4), px(16200, 16250));
-    b.poops[9] = px(16174, 16250);
-    b.poop_known[9] = .present;
-    _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
-    try testing.expectEqual(px(16200, 16250), b.dogs[4]);
-    // The leashed dog dragged east at the poop: it stops touching it, then
-    // is set back 6 px (16174 - 6 - 20 - 6), and the drag ends.
-    var c = leashedAt(px(16100, 16250));
-    c.poops[9] = px(16174, 16250);
-    c.poop_known[9] = .present;
-    const lines = ticked(&c, 1, &.{}, &.{d(60, 0)});
-    try testing.expectEqual(@as(?physics.Bumped, .{ .poop = 9 }), bumpOf(&lines));
-    try testing.expectEqual(px(16142, 16250), c.dogs[0]);
-}
-
-test "a bump into a chicken sets the leashed dog back 6 px, so the next drag has room: up to 6 px more toward it, sideways and away freely" {
-    var b = leashedAt(px(16100, 16250));
-    b.place(.chicken(0), px(16200, 16250));
-    var lines = ticked(&b, 1, &.{}, &.{d(90, 0)});
-    try testing.expectEqual(@as(?physics.Bumped, .{ .critter = .chicken(0) }), bumpOf(&lines));
-    // Touching at 16170 (16200 - 10 - 20), set back to 16164.
-    try testing.expectEqual(px(16164, 16250), b.dogs[0]);
-    // A grab and a jitter of 4 px toward it: no bump.
-    lines = ticked(&b, 2, &.{.grab}, &.{d(4, 0)});
-    try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
-    try testing.expectEqual(px(16168, 16250), b.dogs[0]);
-    lines = ticked(&b, 3, &.{}, &.{d(0, 30)});
-    try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
-    lines = ticked(&b, 4, &.{}, &.{d(-30, -30)});
-    try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
-    try testing.expectEqual(px(16138, 16250), b.dogs[0]);
-}
-
-test "a chicken the walk reaches steps three times the leashed dog's step toward the nearest poop it sees, and eats it; poop past half a tile it doesn't see" {
-    var b = leashedAt(px(16250, 16250));
-    b.place(.chicken(0), px(17000, 16250));
-    b.poops[5] = px(17100, 16250);
-    b.poop_known[5] = .present;
-    b.poops[6] = px(17000, 16520);
-    b.poop_known[6] = .present;
-    var t: physics.Tick = 1;
-    var eaten: ?u16 = null;
-    while (t <= 10) : (t += 1) {
-        const lines = ticked(&b, t, &.{}, &.{d(0, 10)});
-        for (lines.slice()) |c| if (c == .eaten) {
-            eaten = c.eaten;
-        };
-    }
-    // 3 px a pixel-tick: 28 steps to 84 px (touching poop 5, 16 px off),
-    // a 29th to 87 (overlapping it): eaten. Poop 6, 270 px south, it never
-    // saw.
-    try testing.expectEqual(@as(?u16, 5), eaten);
-    try testing.expectEqual(physics.Known.absent, b.poop_known[5]);
-    try testing.expectEqual(physics.Known.present, b.poop_known[6]);
-    try testing.expectEqual(px(17087, 16250), b.chickens[0]);
 }
