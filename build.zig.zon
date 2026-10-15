@@ -8,5 +8,9 @@
         // The web-server-in-a-box library: zig-webbox, a sibling checkout
         // (../zig-webbox), modules `webbox`, `webbox_linux` and `host_io`.
         .webbox = .{ .path = "../zig-webbox" },
+        // The kernel Dog Park runs on as a machine of its own (`zig build
+        // metal`): zig-metal-unikernel, a sibling checkout, through its
+        // public `addAppKernel`.
+        .zig_metal_unikernel = .{ .path = "../zig-metal-unikernel" },
     },
 }

@@ -61,6 +61,27 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| play_run.addArgs(args);
     b.step("play", "Serve the played Dog Park (solo/) on localhost:9103").dependOn(&play_run.step);
 
+    // **DOG PARK ON METAL** (metal-vmm QUEUE 215): zig-metal-unikernel's
+    // kernel, a sibling checkout, hosting hosted.zig's `site` in place of
+    // main.zig's Linux host. The module names no target or optimize mode
+    // (the kernel's) and imports neither webbox nor host_io (the kernel
+    // supplies its own); the physics hash and the wasm are this build's, so
+    // the kernel never embeds a stale zig-out/web/physics.wasm. Its cookie
+    // is Secure (app.cookie_mode's default: nothing on metal reads
+    // DOGPARK_INSECURE_COOKIE). Installed to zig-out/bin/dogpark.elf.
+    const metal_app = b.createModule(.{
+        .root_source_file = b.path("src/play/hosted.zig"),
+        .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
+    });
+    metal_app.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
+    const dogpark_elf = @import("zig_metal_unikernel").addAppKernel(b, b.dependency("zig_metal_unikernel", .{}), .{
+        .name = "dogpark.elf",
+        .module = metal_app,
+        .assets = b.path("assets.zon"),
+        .optimize = .ReleaseSafe,
+    });
+    b.step("metal", "Build Dog Park as a zig-metal-unikernel kernel, zig-out/bin/dogpark.elf (ReleaseSafe; ../zig-metal-unikernel)").dependOn(&b.addInstallArtifact(dogpark_elf, .{}).step);
+
     // ── the tests ───────────────────────────────────────────────────────────
 
     const units = struct {

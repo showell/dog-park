@@ -20,9 +20,9 @@ droplet and data, sharing only the domain and the Caddy in front with
 lynrummy.com, for 80 accounts with up to 5 playing at once
 ([docs/PHYSICS.md](docs/PHYSICS.md), "Who may play").
 zig-metal-unikernel neither builds nor judges it (its 8af778b; the physics
-hash comes from this build.zig). Metal is planned the other way round
-(metal-vmm QUEUE 215): this repo will build its own image, with
-`../zig-metal-unikernel` as a dependency.
+hash comes from this build.zig). This repo builds its own metal kernel,
+with `../zig-metal-unikernel` as a dependency (`zig build metal`, below;
+metal-vmm QUEUE 215): built, not yet booted or gated.
 
 **Status (2026-10-15):** played by Steve, and tuned by playing. The page
 (`solo/`) runs the physics (`src/play/physics*.zig`, compiled to wasm) and
@@ -71,6 +71,30 @@ One Linux droplet, with Caddy in front for HTTPS:
   or `/admin`'s form in a browser, which sets an admin cookie.
 - **Caddy:** `reverse_proxy 127.0.0.1:9103` for the site's name. Nothing
   streams; every route is a plain request and answer.
+
+### On metal (`zig build metal`): built, not yet booted
+
+    zig build metal      # zig-out/bin/dogpark.elf, ReleaseSafe (~30 s)
+
+zig-metal-unikernel's `addAppKernel` builds `src/play/hosted.zig` (its
+`site` and `hosting`) into the kernel, whose own host (its
+`probe/gopher.zig`) replaces main.zig's Linux one. This build hands it the
+physics hash and the page wasm, so neither can be stale; it needs
+`../zig-metal-unikernel` and `../zig-webbox` checked out beside this one,
+and `../zig-coverage-sdk` at the commit the kernel pins. What differs there:
+- **No environment.** main.zig is Linux-only, so nothing reads
+  `DOGPARK_INSECURE_COOKIE`: the cookie is Secure (`app.cookie_mode`'s
+  default), as it must be behind Caddy.
+- **The roots are fixed:** `data/` and `auth/`, on the DigitalOcean volume
+  when one is attached (else the boot disk), as for every metal
+  application; no config names them. `solo/` is read from the boot disk
+  (assets.zon's `.site`); physics.wasm is compiled in (`.embedded`).
+- **Durability:** every write reaches the disk, and the disk is flushed
+  before any response byte goes out; a failed flush is logged and the
+  response still goes out, as on Linux.
+- **The machine's settings** are `zig-metal-unikernel.conf` on the boot
+  disk (`volume`, `card`, `trusted_proxy`, ...), the kernel's README says
+  which.
 
 ## The tests: three commands
 
