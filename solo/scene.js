@@ -36,11 +36,12 @@ export function parkFromViewport(viewport, viewportX, viewportY) {
 
 // The world: `world_tiles` by `world_tiles` tiles (the server's tiles.zig),
 // a torus (docs/PHYSICS.md decision 14): its right edge meets its left, its
-// bottom its top. The populated park is the 10 x 10 tiles in its middle. A
-// page subscribes to at most `most_tiles` (the server refuses more).
+// bottom its top. The populated park is the 4 x 4 tiles in its middle, a
+// ring of empty tiles round it (Steve, 2026-10-15). A page subscribes to
+// at most `most_tiles` (the server refuses more): the whole world fits.
 export const tile_px = 350;
 export const most_tiles = 64;
-export const world_tiles = 64;
+export const world_tiles = 6;
 export const world_px = world_tiles * tile_px;
 
 // **EVERY PARK POINT HAS ONE NAME IN [0, world_px)**, and many copies a
@@ -142,47 +143,48 @@ export function subscription(regionTiles, viewport) {
 
 // ── the overview's frame ────────────────────────────────────────────────────
 
-// **THE OVERVIEW IS A WINDOW ONTO THE WORLD**, never all of it: the screen,
-// `overview_margin_px` in from its edges, at the scale that puts
-// `overview_tiles` tiles across its shorter side (the scale the whole 10 x
-// 10 world had, so a critter's dot is as visible as it was). Its top-left,
-// `at`, is a park point in [0, world_px): the window scrolls on round the
-// torus, and shows whatever copy of a thing is in it. A park point in the
+// **THE OVERVIEW IS THE WHOLE WORLD, ONCE**: a square window, as large as
+// fits `overview_margin_px` in from the screen's edges, holding exactly
+// `world_tiles` tiles each way (Steve, 2026-10-15: "my world view at any
+// point should be 6 rows; it could be 561234"). Its top-left, `at`, is a
+// park point in [0, world_px): the window scrolls round the torus, so the
+// rows and columns it shows start wherever it is, and it shows whatever
+// copy of a thing is in it. A park point in the
 // window's copy of the world (parkX, parkY) is at origin + park * scale on
 // screen. Two scrollbars in the margins, along the bottom and the right,
 // say where the window is in the world: a track the window's length, and a
 // thumb on it as long, and as far along, as the window is in the world;
 // the thumb wraps too, its part past the track's end drawn from its start.
 export const overview_margin_px = 20;
-export const overview_tiles = 10;
+export const overview_tiles = world_tiles;
 const scrollbar_px = 12;
 
 export function overviewFrame(width, height, at) {
   const m = overview_margin_px;
-  const scale = (Math.min(width, height) - 2 * m) / (overview_tiles * tile_px);
-  const window = { x: m, y: m, w: width - 2 * m, h: height - 2 * m };
+  const side = Math.max(0, Math.min(width, height) - 2 * m);
+  const scale = side / (overview_tiles * tile_px);
+  const window = { x: (width - side) / 2, y: (height - side) / 2, w: side, h: side };
   const span = { parkW: window.w / scale, parkH: window.h / scale };
   const kept = overviewKept(span, at);
   const across = (m - scrollbar_px) / 2;
   return {
     scale,
-    originX: m - kept.parkX * scale,
-    originY: m - kept.parkY * scale,
+    originX: window.x - kept.parkX * scale,
+    originY: window.y - kept.parkY * scale,
     at: kept,
     window,
     span,
     tracks: {
-      x: { x: window.x, y: height - m + across, w: window.w, h: scrollbar_px },
-      y: { x: width - m + across, y: window.y, w: scrollbar_px, h: window.h },
+      x: { x: window.x, y: window.y + window.h + across, w: window.w, h: scrollbar_px },
+      y: { x: window.x + window.w + across, y: window.y, w: scrollbar_px, h: window.h },
     },
   };
 }
 
-// The window's top-left named in the world (centred on an axis it is at
-// least as wide as the world along: it shows it all).
-function overviewKept(span, at) {
-  const axis = (a, len) => (len >= world_px ? (world_px - len) / 2 : wrapped(a));
-  return { parkX: axis(at.parkX, span.parkW), parkY: axis(at.parkY, span.parkH) };
+// The window's top-left named in the world: it shows the world once,
+// from wherever round the torus it starts.
+function overviewKept(_span, at) {
+  return { parkX: wrapped(at.parkX), parkY: wrapped(at.parkY) };
 }
 
 // The window's top-left for the overview just opened: centred on the
@@ -433,4 +435,29 @@ export function messageScene(viewport, text) {
     { id: "message:back", shape: "rect", x: 0, y: viewport.height / 2 - 30, w: viewport.width, h: 60, fill: "rgba(0,0,0,0.7)", role: "scenery" },
     { id: "message", shape: "text", x: viewport.width / 2, y: viewport.height / 2, w: 0, h: 0, text, font: "18px sans-serif", fill: "#fff", role: "scenery" },
   ];
+}
+
+// ── the goal ────────────────────────────────────────────────────────────────
+
+// **THE HERD** (Steve, 2026-10-15: "the object of the game will be to get
+// all 8 cows herded together"): two cows are in one herd when their
+// centres are at most `herd_link_px` apart on the larger axis, round the
+// torus (two cow-widths: a cow's gap between them); a herd is every cow
+// linked to it, through others. The largest herd's size is the score.
+export const herd_link_px = 2 * cow_px;
+
+export function largestHerd(cows) {
+  const n = cows.length;
+  const parent = cows.map((_, i) => i);
+  const root = (i) => (parent[i] === i ? i : (parent[i] = root(parent[i])));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const dx = Math.abs(offset(cows[i].parkX, cows[j].parkX));
+      const dy = Math.abs(offset(cows[i].parkY, cows[j].parkY));
+      if (Math.max(dx, dy) <= herd_link_px) parent[root(i)] = root(j);
+    }
+  }
+  const sizes = new Map();
+  for (let i = 0; i < n; i++) sizes.set(root(i), (sizes.get(root(i)) ?? 0) + 1);
+  return Math.max(0, ...sizes.values());
 }

@@ -84,10 +84,6 @@ pub const band_inner: i32 = px(42);
 pub const band_outer: i32 = px(70);
 /// A dog keeps this from a moving cow.
 pub const cow_room: i32 = px(63);
-/// The region: the 2100 px square around the leashed dog (6 tiles across,
-/// so it meets at most 7 x 7 of them); every critter in the tiles it meets
-/// is seen (and awake).
-pub const region_reach: i32 = px(1050);
 /// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, the
 /// walk's dogs step at most as far as the leashed dog did, its cows half.
 pub const step_most: i32 = px(1);
@@ -134,11 +130,6 @@ pub const chicken_sight: i32 = px(500);
 pub const chicken_step: i32 = px(8);
 pub const home_band: i32 = px(32);
 
-comptime {
-    // **THE WORLD IS WIDER THAN THE REGION** (decision 14): the region's
-    // tiles never wrap onto themselves, so no critter is seen twice.
-    if (2 * region_reach + 4 * tile >= world) @compileError("the world must be wider than the region's tiles");
-}
 
 pub const Tick = u64;
 
@@ -416,11 +407,11 @@ pub fn squaresOverlap(p: Point, ph: i32, q: Point, qh: i32) bool {
     return mag(d.x) < ph + qh and mag(d.y) < ph + qh;
 }
 
-/// The region: the square `region_reach` each way around the leashed dog
-/// at the tick's start (docs/PHYSICS.md derives its size), in that dog's
-/// frame.
-pub fn region(center: Point) Rect {
-    return Rect.square(center, region_reach);
+/// **THE REGION IS THE WORLD** (Steve, 2026-10-15: a 6 x 6-tile world,
+/// single-player): the physics sees every critter, wherever the leashed
+/// dog stands. The tiles from (0, 0), every one once.
+pub fn region(_: Point) Rect {
+    return .{ .lo = .{ .x = 0, .y = 0 }, .hi = .{ .x = world, .y = world } };
 }
 
 /// The tiles a rectangle meets, half-open: sharing some of a tile's
@@ -703,14 +694,12 @@ pub const Scene = struct {
     poop_start: std.StaticBitSet(poop_count) = undefined,
     poop_was: [poop_count]Point = undefined,
     /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210): seen index `j`
-    /// is set in the cell of the span its point stands in (`cell` a side,
-    /// `cellOf`), or in `seen_outside` for a point past the span's tiles,
-    /// kept by `put` on every move; `seen_cell` is where each is set. A
+    /// is set in the cell of the world its point stands in (`cell` a side,
+    /// `cellOf`), kept by `put` on every move; `seen_cell` is where each is set. A
     /// square asks only the cells it could reach (`critters`), and walks
     /// the set bits **in seen index order**, the order a scan of every
     /// seen critter took: who is nudged, shoved or blocks first follows it.
     seen_cells: [span_cells][span_cells]SeenSet = undefined,
-    seen_outside: SeenSet = undefined,
     seen_cell: [critter_count]u16 = undefined,
     /// The poops the leashed dog's walk has crossed `poop_every` for since
     /// the last were laid (`layDue`, after the pixel-tick's walk).
@@ -750,7 +739,6 @@ pub const Scene = struct {
         for (0..dog_count) |i| if (i != l) s.consider(.dog(@intCast(i)), span, l);
         for (0..chicken_count) |i| s.consider(.chicken(@intCast(i)), span, l);
         s.seen_cells = @splat(@splat(.initEmpty()));
-        s.seen_outside = .initEmpty();
         for (0..s.len) |j| {
             const c = s.cellOf(s.at[j]);
             s.seen_cell[j] = c;
@@ -801,63 +789,35 @@ pub const Scene = struct {
     }
 
     /// The listed slots whose point might lie within `reach` of `p` on
-    /// both axes: those of the span's tiles the square meets.
+    /// both axes: those of the tiles the square meets, round the torus.
     pub fn near(s: *const Scene, p: Point, reach: i32) Near {
-        const cols = s.span.col_hi - s.span.col_lo + 1;
-        const rows = s.span.row_hi - s.span.row_lo + 1;
-        const x = shortWay(p.x - s.span.col_lo * tile);
-        const y = shortWay(p.y - s.span.row_lo * tile);
-        var it: Near = .{
-            .sc = s,
-            .col_lo = @max(0, @divFloor(x - reach, tile)),
-            .col_hi = @min(cols - 1, @divFloor(x + reach, tile)),
-            .row = @max(0, @divFloor(y - reach, tile)),
-            .row_hi = @min(rows - 1, @divFloor(y + reach, tile)),
-            .col = 0,
-            .at = no_poop,
-        };
-        it.col = it.col_lo - 1;
-        return it;
+        const xs = Wrapped.of(@mod(p.x, world), reach, tile, span_tiles);
+        const ys = Wrapped.of(@mod(p.y, world), reach, tile, span_tiles);
+        return .{ .sc = s, .cols = xs, .rows = ys };
     }
 
-    /// The cell a point stands in, `row * span_cells + col` from the span's
-    /// first tile, or `outside_cell` past the span's tiles.
-    fn cellOf(s: *const Scene, p: Point) u16 {
-        const ox = @mod(p.x - s.span.col_lo * tile, world);
-        const oy = @mod(p.y - s.span.row_lo * tile, world);
-        if (ox >= (s.span.col_hi - s.span.col_lo + 1) * tile or oy >= (s.span.row_hi - s.span.row_lo + 1) * tile) return outside_cell;
-        const col: usize = @intCast(@divFloor(ox, cell));
-        const row: usize = @intCast(@divFloor(oy, cell));
+    /// The cell a point stands in, `row * span_cells + col`, from the
+    /// world's (0, 0).
+    fn cellOf(_: *const Scene, p: Point) u16 {
+        const col: usize = @intCast(@divFloor(@mod(p.x, world), cell));
+        const row: usize = @intCast(@divFloor(@mod(p.y, world), cell));
         return @intCast(row * span_cells + col);
     }
 
     fn cellSet(s: *Scene, c: u16) *SeenSet {
-        if (c == outside_cell) return &s.seen_outside;
         return &s.seen_cells[c / span_cells][c % span_cells];
-    }
-
-    /// The span's cells, columns then rows.
-    fn cellsWide(s: *const Scene) i32 {
-        return (s.span.col_hi - s.span.col_lo + 1) * cell_per_tile;
-    }
-    fn cellsHigh(s: *const Scene) i32 {
-        return (s.span.row_hi - s.span.row_lo + 1) * cell_per_tile;
     }
 
     /// Every seen critter whose point might lie within `reach` of `p` on
     /// both axes (fewer than `reach` away: a superset of those that are):
-    /// those of the cells the square meets, and every one past the span.
+    /// those of the cells the square meets, round the torus.
     pub fn critters(s: *const Scene, p: Point, reach: i32) SeenSet {
-        var out = s.seen_outside;
-        const x = shortWay(p.x - s.span.col_lo * tile);
-        const y = shortWay(p.y - s.span.row_lo * tile);
-        const col_lo: usize = @intCast(@max(0, @divFloor(x - reach, cell)));
-        const col_hi = @min(s.cellsWide() - 1, @divFloor(x + reach, cell));
-        const row_lo: usize = @intCast(@max(0, @divFloor(y - reach, cell)));
-        const row_hi = @min(s.cellsHigh() - 1, @divFloor(y + reach, cell));
-        if (col_hi < @as(i32, @intCast(col_lo)) or row_hi < @as(i32, @intCast(row_lo))) return out;
-        for (row_lo..@as(usize, @intCast(row_hi)) + 1) |r| {
-            for (s.seen_cells[r][col_lo .. @as(usize, @intCast(col_hi)) + 1]) |set| out.setUnion(set);
+        var out: SeenSet = .initEmpty();
+        const xs = Wrapped.of(@mod(p.x, world), reach, cell, span_cells);
+        const ys = Wrapped.of(@mod(p.y, world), reach, cell, span_cells);
+        for (0..ys.n) |ri| {
+            const r = ys.at(ri);
+            for (0..xs.n) |ci| out.setUnion(s.seen_cells[r][xs.at(ci)]);
         }
         return out;
     }
@@ -867,7 +827,7 @@ pub const Scene = struct {
     /// chicken's turn in the tests (a move that forgot its bit would let a
     /// square miss whoever it overlaps).
     pub fn bucketsHold(s: *Scene) bool {
-        var bits: usize = s.seen_outside.count();
+        var bits: usize = 0;
         for (s.seen_cells) |row| for (row) |set| {
             bits += set.count();
         };
@@ -925,7 +885,7 @@ pub const Scene = struct {
 
 /// The most tiles a span is wide: the region's side, and one more for a
 /// region that doesn't sit on the tiles' lines.
-pub const span_tiles = @divFloor(2 * region_reach + tile - 1, tile) + 1;
+pub const span_tiles = tiles.world_tiles;
 
 /// The end of a tile's list of poops.
 const no_poop: u16 = std.math.maxInt(u16);
@@ -938,39 +898,46 @@ pub const SeenSet = std.StaticBitSet(critter_count);
 pub const cell_per_tile = 2;
 pub const cell: i32 = @divExact(tile, cell_per_tile);
 pub const span_cells: usize = span_tiles * cell_per_tile;
-/// `Scene.seen_cell` for a critter past the span's tiles.
-const outside_cell: u16 = std.math.maxInt(u16);
+
+/// **A RANGE ROUND THE TORUS**: the `n` cells (or tiles), `size` a side,
+/// that a span of `reach` either way of `v` (in [0, world)) meets, from
+/// `lo`, each named by `at` in [0, `count`); never more than `count`, so
+/// no cell comes twice.
+const Wrapped = struct {
+    lo: i32,
+    n: usize,
+    count: i32,
+
+    fn of(v: i32, reach: i32, size: i32, count: usize) Wrapped {
+        const lo = @divFloor(v - reach, size);
+        const hi = @divFloor(v + reach, size);
+        return .{ .lo = lo, .n = @min(@as(usize, @intCast(hi - lo + 1)), count), .count = @intCast(count) };
+    }
+    fn at(w: Wrapped, i: usize) usize {
+        return @intCast(@mod(w.lo + @as(i32, @intCast(i)), w.count));
+    }
+};
 
 comptime {
-    // A cell's index, and `outside_cell` apart from them all.
-    std.debug.assert(span_cells * span_cells < outside_cell);
-    // **THE SHORT WAY IS THE SPAN'S WAY** (210's cold review): `critters`,
-    // `lineUp` and `near` take a point's offset in the span by `shortWay`,
-    // which is its offset only while the span and the farthest reach asked
-    // (a chicken's sight) fit within half the world.
-    std.debug.assert(span_tiles * tile + chicken_sight < half_world);
+    // The world is whole cells and tiles.
+    std.debug.assert(@mod(world, cell) == 0 and span_cells * cell == world);
 }
 
-/// The listed poop slots on some tiles of the span (`Scene.near`), a
-/// tile's list at a time; eaten ones too (absent), as listed.
+/// The listed poop slots on some tiles (`Scene.near`), round the torus,
+/// a tile's list at a time.
 pub const Near = struct {
     sc: *const Scene,
-    col_lo: i32,
-    col_hi: i32,
-    col: i32,
-    row: i32,
-    row_hi: i32,
-    at: u16,
+    cols: Wrapped,
+    rows: Wrapped,
+    /// The next tile to open, counted row by row over the range.
+    k: usize = 0,
+    at: u16 = no_poop,
 
     pub fn next(it: *Near) ?u16 {
         while (it.at == no_poop) {
-            it.col += 1;
-            if (it.col > it.col_hi) {
-                it.col = it.col_lo;
-                it.row += 1;
-            }
-            if (it.row > it.row_hi or it.col_lo > it.col_hi) return null;
-            it.at = it.sc.poop_head[@intCast(it.row)][@intCast(it.col)];
+            if (it.k == it.cols.n * it.rows.n) return null;
+            it.at = it.sc.poop_head[it.rows.at(it.k / it.cols.n)][it.cols.at(it.k % it.cols.n)];
+            it.k += 1;
         }
         const n = it.at;
         it.at = it.sc.poop_next[n];
@@ -1276,30 +1243,26 @@ const Waiting = struct {
 fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, visited: *const std.StaticBitSet(critter_count)) void {
     const p = sc.pos(from);
     var near: Nearest = .{};
-    var it = sc.seen_outside.iterator(.{});
-    while (it.next()) |j| near.offer(sc, p, j, visited);
-    const x = shortWay(p.x - sc.span.col_lo * tile);
-    const y = shortWay(p.y - sc.span.row_lo * tile);
-    const wide = sc.cellsWide();
-    const high = sc.cellsHigh();
-    const pc = @divFloor(x, cell);
-    const pr = @divFloor(y, cell);
+    const n: i32 = span_cells;
+    const pc = @divFloor(@mod(p.x, world), cell);
+    const pr = @divFloor(@mod(p.y, world), cell);
+    // Round the torus, ring `r` holds the cells `r` away on the larger axis;
+    // past `n / 2` the rings come round again. At `2r = n`, offset `+r` is
+    // `-r`'s cell, so only `-r` is taken.
     var r: i32 = 0;
-    // Every cell of the span is within this many rings of `from`'s, even
-    // one past the span.
-    const most_rings: i32 = @max(wide, high) + @as(i32, @intCast(@max(@abs(pc), @abs(pr))));
-    while (r <= most_rings) : (r += 1) {
+    while (r <= @divFloor(n, 2)) : (r += 1) {
         if (r > 0 and near.n == walk_fan and near.key[walk_fan - 1] <= @as(i64, r - 1) * cell) break;
-        var row = @max(0, pr - r);
-        while (row <= @min(high - 1, pr + r)) : (row += 1) {
-            if (row == pr - r or row == pr + r) {
+        const top = if (2 * r == n) r - 1 else r;
+        var dy: i32 = -r;
+        while (dy <= top) : (dy += 1) {
+            if (dy == -r or dy == r) {
                 // The ring's top and bottom rows, whole.
-                var col = @max(0, pc - r);
-                while (col <= @min(wide - 1, pc + r)) : (col += 1) near.offerCell(sc, p, row, col, visited);
+                var dx: i32 = -r;
+                while (dx <= top) : (dx += 1) near.offerCell(sc, p, @mod(pr + dy, n), @mod(pc + dx, n), visited);
             } else {
                 // Between them, its two ends.
-                if (pc - r >= 0 and pc - r < wide) near.offerCell(sc, p, row, pc - r, visited);
-                if (r > 0 and pc + r >= 0 and pc + r < wide) near.offerCell(sc, p, row, pc + r, visited);
+                near.offerCell(sc, p, @mod(pr + dy, n), @mod(pc - r, n), visited);
+                if (r > 0 and top == r) near.offerCell(sc, p, @mod(pr + dy, n), @mod(pc + r, n), visited);
             }
         }
     }
@@ -1437,7 +1400,7 @@ pub fn stepAtMost(total: Point, most: i32) Point {
     };
 }
 
-/// Why a step was vetoed: nothing (it went), the edge, a critter it may
+/// Why a step was vetoed: nothing (it went), a critter it may
 /// not press (or a chicken, `chicken`: one it can't shove), or a poop; and
 /// for the sidestep, where the critter that was blocked stood, and its
 /// blocker.
@@ -1446,7 +1409,7 @@ pub const Veto = struct {
     at: Point = .{ .x = 0, .y = 0 },
     blocker: Point = .{ .x = 0, .y = 0 },
 
-    pub const Why = enum { none, edge, critter, chicken, poop };
+    pub const Why = enum { none, critter, chicken, poop };
 };
 
 /// **THE VETO, THE NUDGE AND THE SHOVE** (decisions 25, 30): seen critter
@@ -1486,7 +1449,6 @@ fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
         const from = sc.pos(g);
         const to = plus(from, step);
         const h = sc.seen[g].half;
-        if (!clearOfTheEdge(sc.span, to, h)) return .{ .why = .edge, .at = from, .blocker = from };
         if (poopUnder(sc, to, h, if (mover.kind == .chicken) .eats_ripe else .eats_none)) |q| return .{ .why = .poop, .at = from, .blocker = q };
         var near = sc.critters(to, h + cow_half);
         var it = near.iterator(.{});
@@ -1513,7 +1475,6 @@ fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
         const land = wrapped(plus(plus(p, step), shoveAside(step, delta(sc.pos(g), p))));
         lands[m] = land;
         const cannot: Veto = .{ .why = .chicken, .at = sc.pos(g), .blocker = p };
-        if (!clearOfTheEdge(sc.span, land, chicken_half)) return cannot;
         if (poopUnder(sc, land, chicken_half, .eats_none) != null) return cannot;
         var near = sc.critters(land, chicken_half + cow_half);
         var it = near.iterator(.{});
@@ -1649,7 +1610,6 @@ fn tryPoop(sc: *Scene, slot: u16, p: Point, dx: i32, dy: i32) bool {
 /// Whether a poop at `q` overlaps no critter and no other poop the physics
 /// sees, and keeps clear of the seen tiles' edge as a step must.
 fn poopFits(sc: *const Scene, q: Point, slot: u16) bool {
-    if (!clearOfTheEdge(sc.span, q, poop_half)) return false;
     var near = sc.critters(q, poop_half + cow_half);
     var it = near.iterator(.{});
     while (it.next()) |j| {
@@ -1724,19 +1684,6 @@ fn nearestRipe(sc: *const Scene, p: Point) ?Point {
         }
     }
     return if (best) |n| sc.board.poops[n] else null;
-}
-
-/// Whether the square of half `h` at `p` keeps `cow_half` (the most any
-/// square pokes past its point) inside the span's tiles on both axes, so
-/// no critter whose point is outside them can overlap it.
-pub fn clearOfTheEdge(span: TileSpan, p: Point, h: i32) bool {
-    return clearOn(p.x, h, span.col_lo, span.col_hi) and clearOn(p.y, h, span.row_lo, span.row_hi);
-}
-
-fn clearOn(v: i32, h: i32, lo: i32, hi: i32) bool {
-    const off = @mod(@as(i64, v) - @as(i64, lo) * tile, world);
-    const room: i64 = h + cow_half;
-    return off >= room and off + room <= (@as(i64, hi) - lo + 1) * tile;
 }
 
 fn add(total: *Point, w: Point) void {

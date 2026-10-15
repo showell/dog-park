@@ -33,7 +33,7 @@
 // wires the DOM to it, and runs the frame loop and the drawing. It starts
 // only where there is a DOM, so node can import every module.
 
-import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px } from "./scene.js";
+import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px, largestHerd } from "./scene.js";
 import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
@@ -62,9 +62,9 @@ async function loadPhysics() {
 // player's game up, so it opens where the player last looked. A new game,
 // or Start over, opens on the park's middle (the key is cleared). Storage
 // may be missing or refuse: then every load opens on the middle.
-// The key names the tile size: a view kept under other geometry would
-// open on the wrong ground.
-const viewport_key = `dogpark.viewport.${tile_px}`;
+// The key names the geometry (the tile and the world): a view kept under
+// another would open on the wrong ground.
+const viewport_key = `dogpark.viewport.${tile_px}.${world_px}`;
 function savedViewport() {
   try {
     const v = JSON.parse(localStorage.getItem(viewport_key) ?? "null");
@@ -115,6 +115,7 @@ async function start() {
     return { width, height };
   }
   await engine.load(fit, savedViewport());
+  const score = document.getElementById("score");
   // Kept at most twice a second, when it moved.
   let savedAt = { parkX: NaN, parkY: NaN };
   let savedMs = -Infinity;
@@ -171,6 +172,15 @@ async function start() {
       : v.waitingS !== null ? `Someone else is playing right now. Your turn comes in about ${v.waitingS} s.`
       : "none";
     draw(ctx, note === "none" ? drawn.objects : [...drawn.objects, ...messageScene(v.viewport, note)]);
+    // The goal, shown when it changes.
+    if (v.cows.length > 0) {
+      const herd = largestHerd(v.cows);
+      const text = herd === v.cows.length ? `All ${herd} cows herded together! 🎉` : `Herd: ${herd} of ${v.cows.length} cows`;
+      if (score && score.textContent !== text) {
+        score.textContent = text;
+        score.classList.toggle("won", herd === v.cows.length);
+      }
+    }
     if (nowMs - savedMs >= 500 && (v.viewport.parkX !== savedAt.parkX || v.viewport.parkY !== savedAt.parkY)) {
       savedAt = { parkX: v.viewport.parkX, parkY: v.viewport.parkY };
       savedMs = nowMs;

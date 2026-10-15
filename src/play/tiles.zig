@@ -11,13 +11,13 @@ pub const most_subscribed = 64;
 /// The world is `world_tiles` by `world_tiles` tiles, from tile (0, 0): park
 /// points 0 to `world_px` - 1 on each axis. A torus: tile `world_tiles` is
 /// tile 0 again, tile -1 the last (`wrapped`).
-pub const world_tiles = 64;
+pub const world_tiles = 6;
 pub const world_px = world_tiles * tile_px;
 /// **THE POPULATED PARK**: `park_tiles` by `park_tiles` tiles, its dogs and
 /// cows laid out in them (layout.zig), its top-left corner
 /// `park_offset_px` in from the world's on each axis, so its middle is the
 /// world's. The rest of the world is empty ground.
-pub const park_tiles = 10;
+pub const park_tiles = 4;
 pub const park_offset_px = (world_tiles - park_tiles) / 2 * tile_px;
 
 pub const Tile = struct {
