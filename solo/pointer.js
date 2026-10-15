@@ -61,7 +61,7 @@ export function axisScroll(viewportAt, length, reachPx) {
 //   { type: "move", x, y }
 //   { type: "up" }  { type: "cancel" }
 //   { type: "wheel", dx, dy }       a wheel or trackpad scroll, in px
-//   { type: "z" }                   the key that flips near and the overview
+//   { type: "map" }                 the "m" key or the Map/Back button: flips near and the overview
 //
 // AN INTENT, what the page does about it, in order:
 //
@@ -146,7 +146,7 @@ export function meaning(hand, event, hitId, mode, viewport, overviewAt = { parkX
       // does; near, a wheel means nothing.
       if (mode !== "overview") return { hand, intents: [] };
       return { hand, intents: scrollTo(overviewMoved(o, event.dx / o.scale, event.dy / o.scale)) };
-    case "z": {
+    case "map": {
       // The overview opens on a window centred on the view.
       const centred = overviewCentredOn(viewport);
       const flipped = mode === "near"

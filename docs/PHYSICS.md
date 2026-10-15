@@ -69,10 +69,10 @@ playing, not by unit tests.
 
 ## The walk (decisions 20-22, 30, 31)
 
-After each pixel-tick of the leashed dog, up to **40** critters move, one
+After each pixel-tick of the leashed dog, up to **48** critters move, one
 at a time, out from the leashed dog, **shortest link first.** Only dogs
 and cows: chickens have left the walk (decision 31) and take none of its
-40.
+48.
 - the leashed dog lines up its **3** nearest critters, dogs or cows,
   each waiting keyed by its distance from the critter that lined it up;
 - the walk visits the waiting critter with the least key (ties to the
@@ -93,7 +93,8 @@ stand.
   the excess; inside the inner edge (60 px) to open the shortfall; in the
   band it is content.
 - **A cow** heeds only its **nearest** moving critter (ties to the lower
-  rank), at any distance: a cow, it closes the gap to touching; a dog, it
+  rank), at any distance: a cow within `cow_pull` (245 px), it closes the
+  gap to touching (a cow farther off pulls nothing); a dog, it
   keeps `wary` from it (decision 24). Cows are, in effect, a slower breed
   that follows its nearest kin instead of the leashed dog.
 
@@ -203,11 +204,11 @@ Tuned by playing; each is a constant in `physics.zig`.
 | tick | 16 a second (62.5 ms) |
 | pixel-tick | `step_most`, at most 1 px |
 | a tick's drag | `cap`, at most 100 px on each axis |
-| the walk | `walk_most` 40 critters, `walk_fan` 3 each |
+| the walk | `walk_most` 48 critters, `walk_fan` 3 each |
 | wary | 225 px |
 | herd band | 60 to 100 px |
 | a dog's room from a cow | 90 px |
-| a cow closes on its nearest moving cow | to touching, no reach |
+| a cow closes on its nearest moving cow | to touching, only within `cow_pull` 245 px |
 | the nudge | `nudge_most` 8 critters, kin only |
 | the edge | no step within 30 px of the seen tiles' edge |
 | dead zone | 1 px |

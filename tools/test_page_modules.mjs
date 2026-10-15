@@ -497,25 +497,25 @@ test("in the overview, a scrollbar: the thumb held where pressed, the track jump
   play([{ event: { type: "wheel", dx: 10, dy: 10 }, hand: pointer.resting, intents: [] }], { viewport });
 });
 
-test('"z" mid-drag lets go and flips the mode; resting, it only flips; the overview opens centred on the view', () => {
+test('"m" (the map) mid-drag lets go and flips the mode; resting, it only flips; the overview opens centred on the view', () => {
   const centred = scene.overviewCentredOn(near);
   const opened = { kind: "scroll", parkX: centred.parkX, parkY: centred.parkY };
   const held = { kind: "dragging", dogId: 7, lastX: 100, lastY: 200 };
   play([
     { event: { type: "down", x: 100, y: 200, dogAt: { parkX: 1100, parkY: 1200 } }, hit: "dog:7",
       hand: held, intents: [{ kind: "grab", dogId: 7 }] },
-    { event: { type: "z" }, hand: pointer.resting, intents: [{ kind: "letgo" }, { kind: "mode", mode: "overview" }, opened] },
+    { event: { type: "map" }, hand: pointer.resting, intents: [{ kind: "letgo" }, { kind: "mode", mode: "overview" }, opened] },
     // The move after means nothing: the hand rests.
     { event: { type: "move", x: 120, y: 200 }, mode: "overview", hand: pointer.resting, intents: [] },
-    { event: { type: "z" }, mode: "overview", hand: pointer.resting, intents: [{ kind: "mode", mode: "near" }] },
+    { event: { type: "map" }, mode: "overview", hand: pointer.resting, intents: [{ kind: "mode", mode: "near" }] },
   ], { viewport: near });
   // A pan under way just stops.
   play([
     { event: { type: "down", x: 0, y: 0, dogAt: "none" }, hand: { kind: "panning", lastX: 0, lastY: 0 }, intents: [] },
-    { event: { type: "z" }, hand: pointer.resting, intents: [{ kind: "mode", mode: "overview" }, opened] },
+    { event: { type: "map" }, hand: pointer.resting, intents: [{ kind: "mode", mode: "overview" }, opened] },
   ], { viewport: near });
   // A scrollbar held just stops.
-  assert.deepEqual(pointer.meaning({ kind: "scrolling", axis: "x", lastX: 0, lastY: 0 }, { type: "z" }, null, "overview", near),
+  assert.deepEqual(pointer.meaning({ kind: "scrolling", axis: "x", lastX: 0, lastY: 0 }, { type: "map" }, null, "overview", near),
     { hand: pointer.resting, intents: [{ kind: "mode", mode: "near" }] });
 });
 
@@ -562,7 +562,7 @@ test("a press is on what was drawn in the mode it is made in", () => {
   const view = overList.find((o) => o.id === scene.view_target);
   assert.equal(pointer.pressedOn({ mode: "near", objects: nearList }, "near", 100, 100), "dog:1");
   assert.equal(pointer.pressedOn({ mode: "overview", objects: overList }, "overview", view.x, view.y), scene.view_target);
-  // Pressed after "z", before a frame drew the new mode: on nothing.
+  // Pressed after "m", before a frame drew the new mode: on nothing.
   assert.equal(pointer.pressedOn({ mode: "near", objects: nearList }, "overview", 100, 100), null);
   assert.equal(pointer.pressedOn({ mode: "overview", objects: overList }, "near", view.x, view.y), null);
 });

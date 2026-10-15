@@ -84,6 +84,13 @@ pub const band_inner: i32 = px(42);
 pub const band_outer: i32 = px(70);
 /// A dog keeps this from a moving cow.
 pub const cow_room: i32 = px(63);
+/// **A COW'S PULL** (Steve, 2026-10-15: "cows a little less attracted to
+/// each other... about 30% closer before they move toward each other"): a
+/// cow closes on its nearest moving cow only within this; past it, that
+/// cow is nearest and nothing pulls. 70% of a tile, the first layout's
+/// spacing between neighbouring cows (one each white tile, diagonal), so
+/// cows as laid out no longer draw together on their own.
+pub const cow_pull: i32 = px(245);
 /// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, the
 /// walk's dogs step at most as far as the leashed dog did, its cows half.
 pub const step_most: i32 = px(1);
@@ -100,7 +107,7 @@ pub const most_ticks = 32;
 pub const breeds = 4;
 /// **THE WALK**: the most critters a pixel-tick moves, the leashed dog
 /// aside, and how many each visited critter lines up.
-pub const walk_most = 40;
+pub const walk_most = 48;
 pub const walk_fan = 3;
 /// **THE NUDGE**: the most critters one step moves together, the stepper
 /// and the kin it nudges (decision 25).
@@ -1351,7 +1358,8 @@ pub fn wishOf(sc: *const Scene, i: usize) Wish {
 pub const Wish = struct { total: Point, anchor: ?usize };
 
 /// A cow's wish (decision 24): the nearest moving critter decides it. A
-/// cow, it closes the gap to touching; a dog, room `wary` from it.
+/// cow within `cow_pull`, it closes the gap to touching (farther, nothing);
+/// a dog, room `wary` from it.
 fn cowWish(sc: *const Scene, i: usize) Point {
     const p = sc.pos(i);
     var nearest: ?usize = null;
@@ -1370,7 +1378,7 @@ fn cowWish(sc: *const Scene, i: usize) Point {
     const q = sc.pos(j);
     switch (sc.seen[j].who.kind) {
         .dog => addRoom(&total, q, p, wary),
-        .cow => if (nearest_d > 2 * cow_half) {
+        .cow => if (nearest_d > 2 * cow_half and nearest_d <= cow_pull) {
             total = wishAlong(delta(p, q), @as(i32, @intCast(nearest_d)) - 2 * cow_half);
         },
         // Never: a cow's nearest moving critter is never a chicken.

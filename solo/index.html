@@ -11,12 +11,14 @@
   canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
   #score { position: fixed; top: 10px; left: 10px; font: 600 16px system-ui, sans-serif; color: #234; background: rgba(255,255,255,0.85); border: 1px solid #9ab; border-radius: 8px; padding: 6px 12px; pointer-events: none; }
   #score.won { background: #ffe680; border-color: #c9a400; font-size: 20px; }
+  #map { position: fixed; top: 10px; right: 120px; font: 600 14px system-ui, sans-serif; color: white; background: #1f6fd1; border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
   #reset { position: fixed; top: 10px; right: 10px; font: 600 14px system-ui, sans-serif; color: #234; background: rgba(255,255,255,0.85); border: 1px solid #9ab; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
 </style>
 </head>
 <body>
 <canvas id="park"></canvas>
 <div id="score"></div>
+<button id="map" type="button">Map (m)</button>
 <button id="reset" type="button" title="Put every critter back where the game began">Start over</button>
 <script type="module" src="park.js"></script>
 </body>

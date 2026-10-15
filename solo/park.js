@@ -17,11 +17,11 @@
 // viewport following. Dragging anywhere else pans the park; the tiles the
 // screen shows are subscribed as it moves.
 //
-// "z" toggles the OVERVIEW: a window onto the world, more of it than near
-// but never all, opening centred on your view: the tiles subscribed white
-// and blue and the rest red, the critters the page has as dots (the dog
-// you leashed last ringed), and your view as a rectangle you can drag by
-// pressing inside it. Its scrollbars and the wheel move the window.
+// "m", or the Map button, toggles the MAP (the overview): the whole world
+// once, opening centred on your view: the critters as dots (the dog you
+// leashed last ringed), and your view as a rectangle you can drag by
+// pressing inside it. Its scrollbars and the wheel move it round the
+// torus. "m" again, or Back, returns.
 //
 // The dev console says what the engine does: loads, differs, retries.
 //
@@ -97,7 +97,7 @@ async function start() {
   // Near (the park at its size) or the overview (a window onto the world).
   let mode = "near";
   // The overview's window's top-left, a park point (scene.js's
-  // overviewFrame keeps it in the world); "z" centres it on the view.
+  // overviewFrame keeps it in the world); "m" centres it on the view.
   let overviewAt = { parkX: world_px / 2, parkY: world_px / 2 };
   // What the human's hand is doing (pointer.js says the shapes).
   let hand = resting;
@@ -137,8 +137,11 @@ async function start() {
 
   window.addEventListener("resize", () => engine.resize(fit()));
   window.addEventListener("keydown", (e) => {
-    if (e.key === "z") handle({ type: "z" });
+    if (e.key === "m") handle({ type: "map" });
   });
+  // The Map button: its label says what a press (or "m") does now.
+  const mapButton = document.getElementById("map");
+  mapButton?.addEventListener("click", () => handle({ type: "map" }));
   canvas.addEventListener("pointerdown", (e) => {
     canvas.setPointerCapture(e.pointerId);
     const hitId = pressedOn(drawn, mode, e.offsetX, e.offsetY);
@@ -182,6 +185,10 @@ async function start() {
         score.textContent = text;
         score.classList.toggle("won", won);
       }
+    }
+    if (mapButton) {
+      const label = mode === "overview" ? "Back (m)" : "Map (m)";
+      if (mapButton.textContent !== label) mapButton.textContent = label;
     }
     if (nowMs - savedMs >= 500 && (v.viewport.parkX !== savedAt.parkX || v.viewport.parkY !== savedAt.parkY)) {
       savedAt = { parkX: v.viewport.parkX, parkY: v.viewport.parkY };
