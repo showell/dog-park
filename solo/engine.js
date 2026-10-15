@@ -86,7 +86,7 @@ const keyed = (tiles) => new Map(tiles.map((t) => [tileKey(t), t]));
 const sameKeys = (a, b) => a.size === b.size && [...a.keys()].every((k) => b.has(k));
 const px = (v256) => v256 / 256;
 
-export function createEngine({ physics, post, now, wall, setTimer, clearTimer, log, reload, budget = budget_bytes }) {
+export function createEngine({ physics, post, now, wall, setTimer, clearTimer, log, reload, budget = budget_bytes, spacing = spacing_ms }) {
   // The tick, from the physics itself (the wasm, already instantiated).
   const tick_ms = 1000 / physics.ticksPerSecond();
   // ── what the page shows ───────────────────────────────────────────────────
@@ -545,7 +545,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     if (cursor < record.length) resume();
     syncSubscription();
     if (flight || cursor === 0) return;
-    if (now() - lastSendMs >= spacing_ms || unsentBytes() >= budget) send();
+    if (now() - lastSendMs >= spacing || unsentBytes() >= budget) send();
   }
 
   // ── the answers ───────────────────────────────────────────────────────────

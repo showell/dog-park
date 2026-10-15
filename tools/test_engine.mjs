@@ -9,12 +9,17 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pageRig, reports, held, regionAround } from "./lib/page_rig.mjs";
+import { pageRig, reports, held } from "./lib/page_rig.mjs";
 import { LIVE, KEPT } from "../solo/physics.js";
-import { offset } from "../solo/scene.js";
+import { offset, tile_px, world_px, world_tiles } from "../solo/scene.js";
 
 // A position on the wire, from whole px.
 const hex = (px) => `${px.toString(16)}.00`;
+
+// **THE CADENCE IS NOT WHAT THESE TESTS PROVE**: the page sends a report
+// at most every `spacing` ms (once a second on the box); these scripted
+// exchanges take a report every 250 ms, so a few ticks bring the next.
+const spacing = 250;
 
 // The page's wire, scripted: each request waits in `waiting` until answered.
 function script() {
@@ -34,14 +39,14 @@ function script() {
   };
 }
 
-// Dogs 0 and 1 and cow 0 in tile 32,32 (the world's middle).
-const tileLine = `tile 32,32 cow 0 ${hex(16300)},${hex(16300)} dog 0 ${hex(16100)},${hex(16100)} dog 1 ${hex(16200)},${hex(16150)}`;
+// Dogs 0 and 1 and cow 0 in tile 3,3 (the world's middle).
+const tileLine = `tile 3,3 cow 0 ${hex(1260)},${hex(1260)} dog 0 ${hex(1120)},${hex(1120)} dog 1 ${hex(1190)},${hex(1155)}`;
 
 const loadAnswer = (k = 10) => `epoch 1791935990000.1\nkept ${k}\nstate leash none drag none laid 0 view 1280x800 held\n`;
 
 // A loaded page: the load answered, the first report (its view) waiting.
 async function loadedPage(s, answer = loadAnswer()) {
-  const rig = await pageRig({ post: s.post });
+  const rig = await pageRig({ post: s.post, spacing });
   const loading = rig.engine.load(() => ({ width: 1280, height: 800 }));
   await rig.settle();
   await s.answer(rig, "/load", answer);
@@ -57,13 +62,13 @@ test("a load: its line names the wasm's hash and the screen; the first report is
   assert.equal(rig.sent[0].text, `dogpark 1 physics ${rig.physics.hash} load 1280x800\n`);
   const first = reports(rig)[0];
   assert.match(first, new RegExp(`^dogpark 1 physics ${rig.physics.hash} page 1791935990000\\.1 req 1\\nfrom 10\\nview 11 1280x800( \\d+,\\d+)+\\n$`));
-  assert.match(first, / 32,32[ \n]/);
+  assert.match(first, / 3,3[ \n]/);
   await s.answer(rig, "/report", `req 1\nkept 10\n${tileLine}\n`);
   await rig.ticks(5);
-  assert.equal(reports(rig)[1], `dogpark 1 physics ${rig.physics.hash} page 1791935990000.1 req 2\nfrom 10\nheld 11 32,32\n`);
+  assert.equal(reports(rig)[1], `dogpark 1 physics ${rig.physics.hash} page 1791935990000.1 req 2\nfrom 10\nheld 11 3,3\n`);
   const v = rig.engine.view();
-  assert.deepEqual(v.dogs.get(1), { id: 1, emoji: "🐩", parkX: 16200, parkY: 16150 });
-  assert.deepEqual(v.cows, [{ id: 0, parkX: 16300, parkY: 16300 }]);
+  assert.deepEqual(v.dogs.get(1), { id: 1, emoji: "🐩", parkX: 1190, parkY: 1155 });
+  assert.deepEqual(v.cows, [{ id: 0, parkX: 1260, parkY: 1260 }]);
   assert.deepEqual(rig.physics.critters(KEPT), rig.physics.critters(LIVE));
 });
 
@@ -151,7 +156,7 @@ test("a load answered stuck, reload physics or req ? stops the page with its rea
     ["req ?\n", /can't read this page's load line/],
   ]) {
     const s = script();
-    const rig = await pageRig({ post: s.post });
+    const rig = await pageRig({ post: s.post, spacing });
     const loading = rig.engine.load(() => ({ width: 1280, height: 800 }));
     await rig.settle();
     await s.answer(rig, "/load", answer);
@@ -177,7 +182,7 @@ test("3: no answer in 5 s: the same bytes again at once; the abandoned try's lat
   assert.deepEqual(rig.reloads, []);
   await s.answer(rig, "/report", `req 1\nkept 10\n${tileLine}\n`);
   await rig.ticks(5);
-  assert.match(reports(rig)[2], /req 2\nfrom 10\nheld 11 32,32\n$/);
+  assert.match(reports(rig)[2], /req 2\nfrom 10\nheld 11 3,3\n$/);
 });
 
 test("the tries of one request: 5 s apart, then 10, 20, 40 and 60 for ever, the same bytes each time", async () => {
@@ -201,13 +206,13 @@ test("23: a tile sent again (after a differ) doesn't move a critter the page has
   const rig = await loadedPage(s);
   await s.answer(rig, "/report", `req 1\nkept 10\n${tileLine}\n`);
   await rig.ticks(5);
-  const moved = `tile 32,32 cow 0 ${hex(16000)},${hex(16000)} dog 0 ${hex(16010)},${hex(16010)} dog 2 ${hex(16400)},${hex(16400)}\n`;
+  const moved = `tile 3,3 cow 0 ${hex(1050)},${hex(1050)} dog 0 ${hex(1057)},${hex(1057)} dog 2 ${hex(1330)},${hex(1330)}\n`;
   await s.answer(rig, "/report", `req 2\nkept 10\n${moved}`);
   const v = rig.engine.view();
-  assert.deepEqual([v.dogs.get(0).parkX, v.dogs.get(0).parkY], [16100, 16100]);
-  assert.deepEqual([v.cows[0].parkX, v.cows[0].parkY], [16300, 16300]);
+  assert.deepEqual([v.dogs.get(0).parkX, v.dogs.get(0).parkY], [1120, 1120]);
+  assert.deepEqual([v.cows[0].parkX, v.cows[0].parkY], [1260, 1260]);
   // A critter it hadn't is placed.
-  assert.deepEqual([v.dogs.get(2).parkX, v.dogs.get(2).parkY], [16400, 16400]);
+  assert.deepEqual([v.dogs.get(2).parkX, v.dogs.get(2).parkY], [1330, 1330]);
 });
 
 test("at most 16 of the human's inputs a tick: the 17th is dropped and said", async () => {
@@ -231,13 +236,13 @@ test("at most 16 of the human's inputs a tick: the 17th is dropped and said", as
 
 // ── replays, against a scripted world ───────────────────────────────────────
 
-// A tiny world for the script: critters in tile 32,32 only; every report
+// A tiny world for the script: critters in tile 3,3 only; every report
 // answered `kept` its last tick, with a tile line for each tile its views
 // subscribe that hasn't gone out yet (`hold` keeps a tile back).
 function world(critters) {
   const sent = new Set();
   const hold = new Set();
-  const tileOf = (c) => `${Math.floor(c.x / 500)},${Math.floor(c.y / 500)}`;
+  const tileOf = (c) => `${Math.floor(c.x / tile_px)},${Math.floor(c.y / tile_px)}`;
   const lineOf = (key) => `tile ${key}${critters.filter((c) => tileOf(c) === key).map((c) => ` ${c.kind} ${c.n} ${hex(c.x)},${hex(c.y)}`).join("")}`;
   return {
     sent,
@@ -275,8 +280,9 @@ async function keepAll(s, rig, w) {
 async function onWorld(critters, budget) {
   const s = script();
   const w = world(critters);
-  const rig = await pageRig({ post: s.post, screen: { width: 200, height: 200 }, at: { parkX: 16000, parkY: 16000 }, budget });
-  const loading = rig.engine.load(() => ({ width: 200, height: 200 }), { parkX: 16000, parkY: 16000 });
+  // Dog 0 (at 1120, 1120) in the screen's middle, clear of the edge bands.
+  const rig = await pageRig({ post: s.post, spacing, screen: { width: 200, height: 200 }, at: { parkX: 1020, parkY: 1020 }, budget });
+  const loading = rig.engine.load(() => ({ width: 200, height: 200 }), { parkX: 1020, parkY: 1020 });
   await rig.settle();
   await s.answer(rig, "/load", loadAnswer());
   await loading;
@@ -302,108 +308,10 @@ function differAnswer(rig, req, T, line, board) {
   return `req ${req}\nkept ${T - 1}\ndiffer ${T} ${line}\n${state}\nboard ${T}${board.map((c) => ` ${c.kind} ${c.n} ${hex(c.x)},${hex(c.y)}`).join("")}\n`;
 }
 
-// The column just east of the region around (x, y), and the region's rows.
-function pastRegion(x, y) {
-  const r = regionAround(x, y);
-  return { col: Math.max(...r.map((t) => t.col)) + 1, rows: [...new Set(r.map((t) => t.row))] };
-}
-
-test("22: a replay whose path reaches a new tile before its recorded held: the view goes at that tick, the replay waits for the tile, then resumes", async () => {
-  const { s, w, rig, settle } = await onWorld([{ kind: "dog", n: 0, x: 16100, y: 16100 }]);
-  rig.engine.intent({ kind: "grab", dogId: 0 });
-  await settle(6);
-  assert.equal(rig.engine.debug().K, rig.engine.view().tick, "ticking, every tick kept");
-  // The column past the region's east edge: 400 px off (the region's reach
-  // is whole tiles; the dog 100 px into its tile).
-  const past = pastRegion(16100, 16100);
-  const key = `${past.col},32`;
-  assert.ok(!rig.engine.debug().view.includes(key));
-  // Ten ticks east at 10 px a tick, the answers held back.
-  for (let i = 0; i < 10; i++) {
-    rig.engine.intent({ kind: "drag", dogId: 0, dx: 10, dy: 0 });
-    await rig.ticks(1);
-  }
-  const inFlight = s.waiting.find((x) => x.path === "/report");
-  const T = Number(/\nt (\d+) /.exec(inFlight.text)[1]);
-  const was = /\n dog 0 ([0-9a-f.]+),[0-9a-f.]+ > /.exec(inFlight.text)[1];
-  const x0 = parseInt(was, 16);
-  // The server had the dog 330 px further east: on replay, its region
-  // reaches the column seven ticks in.
-  const req = /req (\d+)\n/.exec(inFlight.text)[1];
-  const [waiting] = s.waiting.splice(s.waiting.indexOf(inFlight), 1);
-  for (const row of past.rows) w.hold.add(`${past.col},${row}`);
-  waiting.resolve({ status: 200, text: differAnswer(rig, req, T, `dog 0 ${hex(x0 + 330)},${hex(16100)} > ${hex(x0 + 340)},${hex(16100)}`, [{ kind: "dog", n: 0, x: x0 + 330, y: 16100 }]) });
-  await rig.settle();
-  const d = rig.engine.debug();
-  const view = d.record.find((e) => e.kind === "view" && e.tiles.some((t) => t.col === past.col));
-  assert.ok(view, "a view adding the column");
-  // At the first tick whose region meets it: the region around the dog at
-  // that tick's start does, around where it was a tick before doesn't.
-  const before = d.record.find((e) => e.kind === "tick" && e.t === view.t - 1);
-  const [, a, b] = / dog 0 ([0-9a-f]+)\.[0-9a-f]+,[^ ]+ > ([0-9a-f]+)\.[0-9a-f]+,/.exec(before.checked);
-  const meets = (x) => regionAround(x, 16100).some((t) => t.col === past.col);
-  assert.ok(!meets(parseInt(a, 16)) && meets(parseInt(b, 16)), before.checked);
-  assert.ok(d.cursor < d.record.length, "the replay waits");
-  assert.equal(d.record[d.cursor].kind, "tick");
-  assert.equal(d.record[d.cursor].t, view.t);
-  // The next report carries the replayed ticks before it and the view.
-  await rig.ticks(5);
-  const next = s.waiting.find((x) => x.path === "/report");
-  assert.match(next.text, new RegExp(`\\nfrom ${T - 1} wall \\d+\\n`));
-  assert.match(next.text, new RegExp(`\\nview ${view.t} 200x200[^\\n]* ${key}[ \\n]`));
-  assert.doesNotMatch(next.text, new RegExp(`\\nt ${view.t} `));
-  // The tile comes; the held goes at that tick and the replay runs on.
-  w.hold.clear();
-  await keepAll(s, rig, w);
-  await settle(8);
-  const after = rig.engine.debug();
-  assert.equal(after.cursor, after.record.length);
-  const all = reports(rig).join("");
-  assert.match(all, new RegExp(`\\nheld ${view.t} [^\\n]*${key}`));
-  assert.match(all, new RegExp(`\\nt ${view.t} `));
-  assert.equal(rig.engine.view().status.kind, "playing");
-});
-
-test("22, the other branch: a tile the page already has is held at once, and the replay doesn't stop", async () => {
-  const { s, w, rig, settle } = await onWorld([{ kind: "dog", n: 0, x: 16100, y: 16100 }]);
-  // The column past the region's tiles, every row of the region, came
-  // earlier: pans there and back (a pan's tiles reach a quarter tile and
-  // more past the 200 px screen).
-  const past = pastRegion(16100, 16100);
-  for (const row of past.rows) {
-    rig.engine.intent({ kind: "pan", parkX: past.col * 500 + 150, parkY: row * 500 + 150 });
-    await settle(6);
-  }
-  rig.engine.intent({ kind: "pan", parkX: 16000, parkY: 16000 });
-  await settle(6);
-  for (const row of past.rows) assert.ok(rig.engine.debug().received.includes(`${past.col},${row}`));
-  assert.ok(!rig.engine.debug().view.includes(`${past.col},32`));
-  rig.engine.intent({ kind: "grab", dogId: 0 });
-  await settle(6);
-  for (let i = 0; i < 10; i++) {
-    rig.engine.intent({ kind: "drag", dogId: 0, dx: 10, dy: 0 });
-    await rig.ticks(1);
-  }
-  const inFlight = s.waiting.find((x) => x.path === "/report");
-  const T = Number(/\nt (\d+) /.exec(inFlight.text)[1]);
-  const x0 = parseInt(/\n dog 0 ([0-9a-f.]+),/.exec(inFlight.text)[1], 16);
-  const req = /req (\d+)\n/.exec(inFlight.text)[1];
-  s.waiting.splice(s.waiting.indexOf(inFlight), 1);
-  inFlight.resolve({ status: 200, text: differAnswer(rig, req, T, `dog 0 ${hex(x0 + 330)},${hex(16100)} > ${hex(x0 + 340)},${hex(16100)}`, [{ kind: "dog", n: 0, x: x0 + 330, y: 16100 }]) });
-  await rig.settle();
-  const d = rig.engine.debug();
-  assert.equal(d.cursor, d.record.length, "the replay ran to the end");
-  const view = d.record.find((e) => e.kind === "view" && e.tiles.some((t) => t.col === past.col));
-  const held = d.record.find((e) => e.kind === "held" && e.tiles.some((t) => t.col === past.col));
-  assert.ok(view && held);
-  assert.equal(held.t, view.t);
-  assert.ok(d.record.indexOf(view) < d.record.indexOf(held));
-});
-
-// Dog 1 50 px east of dog 0 (10 px between their squares), and a cow
+// Dog 1 35 px east of dog 0 (7 px between their squares), and a cow
 // touching dog 1's east side: dog 1 can't step out of the drag's way
 // (straight east, away from dog 0), so the drag bumps it.
-const pinned = [{ kind: "dog", n: 0, x: 16100, y: 16100 }, { kind: "dog", n: 1, x: 16150, y: 16100 }, { kind: "cow", n: 0, x: 16200, y: 16100 }];
+const pinned = [{ kind: "dog", n: 0, x: 1120, y: 1120 }, { kind: "dog", n: 1, x: 1155, y: 1120 }, { kind: "cow", n: 0, x: 1190, y: 1120 }];
 
 test("a bump lets go of the pointer: the drags after it are not the dog's, and the leash stays", async () => {
   const { rig, settle } = await onWorld(pinned);
@@ -436,18 +344,18 @@ test("a replay that loses a bump stands it as a letgo at that tick; one that gai
     assert.match(inFlight.text, new RegExp(`\\nbump ${T} dog 1\\n`));
     const req = /req (\d+)\n/.exec(inFlight.text)[1];
     s.waiting.splice(s.waiting.indexOf(inFlight), 1);
-    inFlight.resolve({ status: 200, text: differAnswer(rig, req, T, `dog 0 ${hex(16100)},${hex(16100)} > ${hex(16130)},${hex(16100)}`, [{ kind: "dog", n: 0, x: 16100, y: 16100 }, { kind: "dog", n: 1, x: 16300, y: 16100 }]) });
+    inFlight.resolve({ status: 200, text: differAnswer(rig, req, T, `dog 0 ${hex(1120)},${hex(1120)} > ${hex(1141)},${hex(1120)}`, [{ kind: "dog", n: 0, x: 1120, y: 1120 }, { kind: "dog", n: 1, x: 1260, y: 1120 }]) });
     await rig.settle();
     const rec = rig.engine.debug().record;
     const at = rec.findIndex((e) => e.kind === "tick" && e.t === T);
     assert.deepEqual([rec[at - 1].kind, rec[at - 1].h, rec[at - 1].t], ["human", "letgo", T]);
     assert.ok(!(rec[at].flags & 1), "no bump now");
-    assert.match(rec[at].checked, / dog 0 3ee4.00,3ee4.00 > 3f02.00,3ee4.00\n/);
+    assert.match(rec[at].checked, / dog 0 460.00,460.00 > 47e.00,460.00\n/);
   }
   // Gained: the page's way was clear, the server had dog 1 in it, pinned
   // by the cow.
   {
-    const { s, rig, settle } = await onWorld([{ kind: "dog", n: 0, x: 16100, y: 16100 }, { kind: "dog", n: 1, x: 16300, y: 16100 }, { kind: "cow", n: 0, x: 16350, y: 16100 }]);
+    const { s, rig, settle } = await onWorld([{ kind: "dog", n: 0, x: 1120, y: 1120 }, { kind: "dog", n: 1, x: 1260, y: 1120 }, { kind: "cow", n: 0, x: 1295, y: 1120 }]);
     rig.engine.intent({ kind: "grab", dogId: 0 });
     await settle(4);
     for (let i = 0; i < 4; i++) {
@@ -458,7 +366,7 @@ test("a replay that loses a bump stands it as a letgo at that tick; one that gai
     const T = Number(/\nt (\d+) [^\n]* drag /.exec(inFlight.text)[1]);
     const req = /req (\d+)\n/.exec(inFlight.text)[1];
     s.waiting.splice(s.waiting.indexOf(inFlight), 1);
-    inFlight.resolve({ status: 200, text: differAnswer(rig, req, T, `bump ${T} dog 1`, [{ kind: "dog", n: 0, x: 16100, y: 16100 }, { kind: "cow", n: 0, x: 16195, y: 16100 }, { kind: "dog", n: 1, x: 16145, y: 16100 }]) });
+    inFlight.resolve({ status: 200, text: differAnswer(rig, req, T, `bump ${T} dog 1`, [{ kind: "dog", n: 0, x: 1120, y: 1120 }, { kind: "cow", n: 0, x: 1186, y: 1120 }, { kind: "dog", n: 1, x: 1152, y: 1120 }]) });
     await rig.settle();
     assert.equal(rig.engine.view().holding, false, "the pointer let go");
     const rec = rig.engine.debug().record;
@@ -473,7 +381,7 @@ test("a replay that loses a bump stands it as a letgo at that tick; one that gai
 
 test("7: a replay held back at the byte budget while the human acts: the new input takes the tick after the last recorded one", async () => {
   // A budget of 1000 bytes (48 KiB in play), so a short replay reaches it.
-  const { s, rig, settle } = await onWorld([{ kind: "dog", n: 0, x: 16100, y: 16100 }, { kind: "dog", n: 1, x: 16200, y: 16100 }], 1000);
+  const { s, rig, settle } = await onWorld([{ kind: "dog", n: 0, x: 1120, y: 1120 }, { kind: "dog", n: 1, x: 1190, y: 1120 }], 1000);
   rig.engine.intent({ kind: "grab", dogId: 0 });
   await settle(4);
   // Answers held: the page runs on until its unsent text reaches the budget.
@@ -495,7 +403,7 @@ test("7: a replay held back at the byte budget while the human acts: the new inp
     const m = new RegExp(`\\n dog ${n} ([0-9a-f.]+),([0-9a-f.]+) > `).exec(inFlight.text.slice(inFlight.text.indexOf(`\nt ${T} `)));
     return m ? { x: parseInt(m[1], 16), y: parseInt(m[2], 16) } : null;
   };
-  const d0 = at(0) ?? { x: 16100, y: 16100 };
+  const d0 = at(0) ?? { x: 1120, y: 1120 };
   const d1 = at(1);
   s.waiting.splice(s.waiting.indexOf(inFlight), 1);
   inFlight.resolve({ status: 200, text: differAnswer(rig, req, T, "rest 1", [{ kind: "dog", n: 0, ...d0 }, ...(d1 ? [{ kind: "dog", n: 1, ...d1 }] : [])]) });
@@ -518,14 +426,14 @@ test("7: a replay held back at the byte budget while the human acts: the new inp
   assert.ok(reports(rig).every((r) => r.length < 1000 + 600), "no report much past the budget");
 });
 
-test("across the seam: a pan past the world's corner names the viewport in the world, glides the short way, and subscribes the tiles there, wrapped", async () => {
+test("across the seam: a pan past the world's corner names the viewport in the world and glides the short way; the view is every tile, named in the world", async () => {
   const s = script();
   const rig = await loadedPage(s);
   await s.answer(rig, "/report", `req 1\nkept 10\n`);
   await rig.ticks(2);
-  rig.engine.intent({ kind: "pan", parkX: -600, parkY: 32000 + 100 });
+  rig.engine.intent({ kind: "pan", parkX: -600, parkY: world_px + 100 });
   const v = rig.engine.view();
-  assert.deepEqual([v.viewport.parkX, v.viewport.parkY], [32000 - 600, 100]);
+  assert.deepEqual([v.viewport.parkX, v.viewport.parkY], [world_px - 600, 100]);
   // What the frames slide from moved with it: no glide across the world.
   // (Named either side of the seam: the frames' `between` takes the short way.)
   assert.deepEqual([offset(v.was.viewport.parkX, v.viewport.parkX), offset(v.was.viewport.parkY, v.viewport.parkY)], [0, 0]);
@@ -533,8 +441,8 @@ test("across the seam: a pan past the world's corner names the viewport in the w
   await rig.settle();
   const views = reports(rig).join("").split("\n").filter((l) => l.startsWith("view "));
   const last = views.at(-1).split(" ").slice(3);
-  // 1280 x 800 at (-600, 100), its 250 px margin: columns -2..1 and rows -1..2, wrapped.
-  assert.equal(last.length, 16);
-  for (const k of ["63,0", "0,0", "62,63", "1,2"]) assert.ok(last.includes(k), `${k} in ${last}`);
-  assert.ok(last.every((k) => k.split(",").every((n) => Number(n) >= 0 && Number(n) < 64)));
+  // The page holds the whole world: every tile, each named in the world.
+  assert.equal(last.length, world_tiles * world_tiles);
+  for (const k of [`${world_tiles - 1},0`, "0,0", `${world_tiles - 2},${world_tiles - 1}`, "1,2"]) assert.ok(last.includes(k), `${k} in ${last}`);
+  assert.ok(last.every((k) => k.split(",").every((n) => Number(n) >= 0 && Number(n) < world_tiles)));
 });

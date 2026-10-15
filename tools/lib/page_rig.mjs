@@ -21,7 +21,7 @@ export const wasmBytes = () => readFileSync(join(root, process.env.DOGPARK_WASM 
  * whose promise is marked `held` (a script's, answered when the test says)
  * is never waited for.
  */
-export async function pageRig({ post, screen = { width: 1280, height: 800 }, at = "none", budget }) {
+export async function pageRig({ post, screen = { width: 1280, height: 800 }, at = "none", budget, spacing }) {
   const physics = await instantiatePhysics(wasmBytes());
   const tick_ms = 1000 / physics.ticksPerSecond();
   const sent = [];
@@ -102,6 +102,7 @@ export async function pageRig({ post, screen = { width: 1280, height: 800 }, at 
     },
     reload: (why) => reloads.push(why),
     ...(budget === undefined ? {} : { budget }),
+    ...(spacing === undefined ? {} : { spacing }),
   });
   rig.engine = engine;
   rig.load = async () => {
