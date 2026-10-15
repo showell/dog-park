@@ -79,9 +79,10 @@ One Linux droplet, with Caddy in front for HTTPS:
 zig-metal-unikernel's `addAppKernel` builds `src/play/hosted.zig` (its
 `site` and `hosting`) into the kernel, whose own host (its
 `probe/gopher.zig`) replaces main.zig's Linux one. This build hands it the
-physics hash and the page wasm, so neither can be stale; it needs
-`../zig-metal-unikernel` and `../zig-webbox` checked out beside this one,
-and `../zig-coverage-sdk` at the commit the kernel pins. What differs there:
+physics hash and the page wasm, so neither can be stale. Every build here
+(not only `metal`) needs `../zig-metal-unikernel` and `../zig-webbox`
+checked out beside this one, and `../zig-coverage-sdk` at the commit the
+kernel pins: Zig runs a path dependency's build at every configure. What differs there:
 - **No environment.** main.zig is Linux-only, so nothing reads
   `DOGPARK_INSECURE_COOKIE`: the cookie is Secure (`app.cookie_mode`'s
   default), as it must be behind Caddy.

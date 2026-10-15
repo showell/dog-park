@@ -11,6 +11,8 @@
         // The kernel Dog Park runs on as a machine of its own (`zig build
         // metal`): zig-metal-unikernel, a sibling checkout, through its
         // public `addAppKernel`.
-        .zig_metal_unikernel = .{ .path = "../zig-metal-unikernel" },
+        // A path dependency, so every configure runs the kernel's build (~0.1 s warm, its git and
+        // python checks): this repo builds only beside ../zig-metal-unikernel, as beside ../zig-webbox.
+        .zig_metal_unikernel = .{ .path = "../zig-metal-unikernel", .lazy = true },
     },
 }

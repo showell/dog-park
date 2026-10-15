@@ -74,13 +74,23 @@ pub fn build(b: *std.Build) void {
         .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
     });
     metal_app.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
-    const dogpark_elf = @import("zig_metal_unikernel").addAppKernel(b, b.dependency("zig_metal_unikernel", .{}), .{
-        .name = "dogpark.elf",
-        .module = metal_app,
-        .assets = b.path("assets.zon"),
-        .optimize = .ReleaseSafe,
-    });
-    b.step("metal", "Build Dog Park as a zig-metal-unikernel kernel, zig-out/bin/dogpark.elf (ReleaseSafe; ../zig-metal-unikernel)").dependOn(&b.addInstallArtifact(dogpark_elf, .{}).step);
+    // **THE KERNEL, BESIDE THIS REPO**: ../zig-metal-unikernel, a path
+    // dependency. Zig runs a path dependency's build at every configure,
+    // lazy or not (measured: `zig build --help` runs its git and python
+    // checks, ~0.1 s warm, ~4 s cold), so every build here needs that
+    // checkout, as it needs ../zig-webbox.
+    const metal_step = b.step("metal", "Build Dog Park as a zig-metal-unikernel kernel, zig-out/bin/dogpark.elf (ReleaseSafe; ../zig-metal-unikernel)");
+    if (b.lazyDependency("zig_metal_unikernel", .{})) |kernel| {
+        if (b.lazyImport(@This(), "zig_metal_unikernel")) |kernel_build| {
+            const dogpark_elf = kernel_build.addAppKernel(b, kernel, .{
+                .name = "dogpark.elf",
+                .module = metal_app,
+                .assets = b.path("assets.zon"),
+                .optimize = .ReleaseSafe,
+            });
+            metal_step.dependOn(&b.addInstallArtifact(dogpark_elf, .{}).step);
+        }
+    }
 
     // ── the tests ───────────────────────────────────────────────────────────
 
