@@ -14,12 +14,15 @@ It is meant to be the thing a person reads to make their own game: the
 park, its routes, its page and its JavaScript are here, and everything that
 serves them is the library's.
 
-**Where it runs:** on its own droplet, with its own data. It shares only
-the domain and the Caddy in front with lynrummy.com. Developed on Linux.
-zig-metal-unikernel's `zig build dogpark` no longer builds it (the physics
-hash now comes from this build.zig) and nothing judges it on metal. Not
-deployed yet. The first deployment is set for 80 accounts, up to 5
-playing at once ([docs/PHYSICS.md](docs/PHYSICS.md), "Who may play").
+**Where it runs:** not deployed. Today it runs on Linux; on the box,
+`zig build play` serves :9103 as a development server. The plan is its own
+droplet and data, sharing only the domain and the Caddy in front with
+lynrummy.com, for 80 accounts with up to 5 playing at once
+([docs/PHYSICS.md](docs/PHYSICS.md), "Who may play").
+zig-metal-unikernel neither builds nor judges it (its 8af778b; the physics
+hash comes from this build.zig). Metal is planned the other way round
+(metal-vmm QUEUE 215): this repo will build its own image, with
+`../zig-metal-unikernel` as a dependency.
 
 **Status (2026-10-15):** played by Steve, and tuned by playing. The page
 (`solo/`) runs the physics (`src/play/physics*.zig`, compiled to wasm) and
@@ -27,7 +30,8 @@ reports every tick to the server, which re-runs it and keeps it
 ([docs/PHYSICS.md](docs/PHYSICS.md)). The server (`src/play/`) speaks
 `GET /` (the landing page), `POST /begin`, `GET /dogpark` (the game),
 `POST /reset`, the page's scripts, `GET /physics-<hash>.wasm`, `POST /load`
-and `POST /report`; nothing else. A load picks the player's game up where
+and `POST /report`, and the operator's pages under `/admin` (below);
+nothing else. A load picks the player's game up where
 it was; Start over puts it back in its first layout. The first version's briefs (`docs/*-BRIEF.md` and the
 amendments) are history: that app is retired.
 
