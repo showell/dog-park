@@ -618,4 +618,11 @@ test("tough love: a press on a cow or a chicken is named (a dog is the page's ow
   assert.equal(fifth, "Okay, now you're just doing it on purpose.");
   q.forgive();
   assert.notEqual(q.say("cow"), "The critters have started a group chat about you.");
+  // A bump: what it hit, from the tick's lines, and a line for each kind, turning, with no persistence remark.
+  assert.equal(quips.bumpedKind("dog 3 1a00,1b00\nbump 1042 chicken 2\n"), "chicken");
+  assert.equal(quips.bumpedKind("bump 7 poop 12\n"), "poop");
+  assert.equal(quips.bumpedKind("dog 3 1a00,1b00\n"), null);
+  const b = quips.bumper(() => 0);
+  for (const kind of ["dog", "cow", "chicken", "poop"]) assert.notEqual(b.say(kind), b.say(kind));
+  for (let i = 0; i < 10; i++) assert.doesNotMatch(b.say("cow"), /on purpose|group chat|Still no/);
 });

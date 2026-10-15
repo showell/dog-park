@@ -1,8 +1,10 @@
 // **TOUGH LOVE** (Steve, 2026-10-15): cows and chickens can't be dragged
 // (only dogs move them), and a press on one says so, with a joke, so the
 // player learns it once. A press on empty ground still drags the
-// tablecloth (pans the view); a press on a dog leashes it, as ever. Pure:
-// park.js shows the line.
+// tablecloth (pans the view); a press on a dog leashes it, as ever. And a
+// drag that pulls the leashed dog into another critter (or a poop it can't
+// get round) ends in a bump, which gets its own line, by what it hit.
+// Pure: park.js shows the line.
 
 import { parkFromViewport, offset, cow_px, chicken_px } from "./scene.js";
 
@@ -37,6 +39,55 @@ const lines = {
     "You can't herd chickens. Ask anyone. Ask the chickens.",
   ],
 };
+
+// What a tick's bump hit, from its checked lines ("bump <tick> <kind> ..."):
+// "dog", "cow", "chicken" or "poop", or null when it didn't bump.
+export function bumpedKind(checked) {
+  const m = /^bump \d+ (dog|cow|chicken|poop)\b/m.exec(checked);
+  return m === null ? null : m[1];
+}
+
+const bumpLines = {
+  dog: [
+    "Bonk. 🐕 Dogs don't stack. We checked.",
+    "That dog was standing there first. Go around.",
+    "Two dogs, one spot. Physics says no.",
+    "Your dog just walked into a colleague. They're sniffing it out now.",
+    "Leash yanked, dog bonked. Maybe steer a little?",
+  ],
+  cow: [
+    "You walked your dog into a cow. The cow won. 🐄",
+    "Herding means near the cows, not through them.",
+    "That's 1,400 pounds of not moving for you.",
+    "The cow did not budge. The cow never budges. Bark from further back.",
+    "Cows are load-bearing. Steer around.",
+  ],
+  chicken: [
+    "🐓 The chicken held its ground. Respect the chicken.",
+    "Your dog has been out-stubborned by a chicken.",
+    "That chicken is boxed in and in no mood. Go around.",
+    "Dog vs. chicken: the chicken wins on points.",
+  ],
+  poop: [
+    "💩 Even your dog won't walk through that.",
+    "Your dog refuses. It has standards.",
+    "The chickens haven't got to that one yet. Go around.",
+    "Nope. The dog took one sniff and stopped.",
+  ],
+};
+
+// The next line for a bump on a `kind`, never the one just said: each
+// kind's lines in turn from a random start. No persistence remark: bumping
+// is part of herding, never a lesson refused.
+export function bumper(random = Math.random) {
+  const next = Object.fromEntries(Object.entries(bumpLines).map(([k, ls]) => [k, Math.floor(random() * ls.length)]));
+  return {
+    say(kind) {
+      const ls = bumpLines[kind];
+      return ls[next[kind]++ % ls.length];
+    },
+  };
+}
 
 // After this many tries in a row, the park takes it personally.
 const persistent = 4;

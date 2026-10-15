@@ -11,7 +11,8 @@
 // Pressing a dog leashes it; dragging it moves it by how far the pointer
 // moved, tick by tick, the cows ahead of it scooting aside and the other
 // dogs keeping their distance or following (its own breed). A bump ends the
-// drag (the pointer is let go; the leash stays). The leash comes off when
+// drag (the pointer is let go; the leash stays), with a word on what it
+// hit (quips.js). The leash comes off when
 // you press another dog, or 320 ticks (20 s) after the drag ended, and the
 // park sleeps. Holding a dog near an edge of the screen carries it on, the
 // viewport following. Dragging anywhere else pans the park; the tiles the
@@ -37,7 +38,7 @@ import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px,
 import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
-import { pressedCritter, quipper } from "./quips.js";
+import { pressedCritter, quipper, bumper } from "./quips.js";
 import { instantiatePhysics } from "./physics.js";
 
 // ── the wire ────────────────────────────────────────────────────────────────
@@ -145,6 +146,9 @@ async function start() {
   mapButton?.addEventListener("click", () => handle({ type: "map" }));
   // A press on a cow or a chicken: a word, and nothing moves.
   const quips = quipper();
+  // A drag that bumps: a word on what it hit.
+  const bumps = bumper();
+  let bumpsSaid = 0;
   const toast = document.getElementById("toast");
   let toastTimer = null;
   function say(line) {
@@ -185,6 +189,10 @@ async function start() {
     engine.frame(nowMs, mode === "near" ? panPointer(hand) : "none");
     const v = engine.view();
     if (hand.kind === "dragging" && !v.holding) hand = resting;
+    if (v.bumped.count !== bumpsSaid) {
+      bumpsSaid = v.bumped.count;
+      if (v.bumped.kind !== "none") say(bumps.say(v.bumped.kind));
+    }
     drawn = mode === "overview"
       ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed, overviewAt, v.chickens ?? []) }
       : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }, v.visits, { chickens: v.chickens ?? [], poops: v.poops ?? [] }) };

@@ -308,7 +308,7 @@ function differAnswer(rig, req, T, line, board) {
 // (straight east, away from dog 0), so the drag bumps it.
 const pinned = [{ kind: "dog", n: 0, x: 1120, y: 1120 }, { kind: "dog", n: 1, x: 1155, y: 1120 }, { kind: "cow", n: 0, x: 1190, y: 1120 }];
 
-test("a bump lets go of the pointer: the drags after it are not the dog's, and the leash stays", async () => {
+test("a bump lets go of the pointer: the drags after it are not the dog's, the leash stays, and the view says what it hit (the page's quip)", async () => {
   const { rig, settle } = await onWorld(pinned);
   rig.engine.intent({ kind: "grab", dogId: 0 });
   await settle(4);
@@ -316,6 +316,7 @@ test("a bump lets go of the pointer: the drags after it are not the dog's, and t
   rig.engine.intent({ kind: "drag", dogId: 0, dx: 30, dy: 0 });
   await settle(1);
   assert.equal(rig.engine.view().holding, false);
+  assert.deepEqual(rig.engine.view().bumped, { count: 1, kind: "dog" });
   const all = reports(rig).join("");
   assert.match(all, /\nbump \d+ dog 1\n/);
   rig.engine.intent({ kind: "drag", dogId: 0, dx: 30, dy: 0 });

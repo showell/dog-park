@@ -43,12 +43,15 @@
 //                         a pan (pointer.js's panPointer). Answers the ticks run
 //   engine.view()         plain data, copies: { viewport, dogs (a Map by id),
 //                         cows, subscribed (a Set of tile keys), leashed,
-//                         lastLeashed, tick, alpha, was, status, holding }
+//                         lastLeashed, tick, alpha, was, status, holding,
+//                         bumped: { count, kind } (the live ticks' bumps and
+//                         what the last hit) }
 //   engine.debug()        the protocol's state, for tests and the console
 
 import { LIVE, KEPT, SCRATCH, flag } from "./physics.js";
 import { tileKey, subscription, world_px, most_tiles, wrappedPoint, offset, dog_looks } from "./scene.js";
 import { edgeScroll } from "./pointer.js";
+import { bumpedKind } from "./quips.js";
 
 // A stall catches up at most this many ticks; the rest are dropped, never owed.
 export const most_catch_up_ticks = 8;
@@ -154,6 +157,9 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   // Whether the pointer holds the leashed dog (a grab or leash until a
   // letgo or a bump).
   let holding = false;
+  // The live ticks' bumps so far, and what the last one hit (quips.js's
+  // bumpedKind), for the page's word on it.
+  let bumped = { count: 0, kind: "none" };
   // A replay gained a bump: its drags and letgos are dropped until a grab.
   let dropping = false;
   // The pointer's displacements since the last tick, in 256ths ([dx, dy,
@@ -348,6 +354,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     record.push({ kind: "tick", t, wallMs: wall(), drag: r.drag, checked: r.checked, flags: r.flags });
     cursor++;
     ticked(r.flags);
+    if (r.flags & flag.bump) bumped = { count: bumped.count + 1, kind: bumpedKind(r.checked) ?? "none" };
     // The last walk's order, for the labels: kept until a tick walks again.
     if (r.walk.length) visits = new Map(r.walk.map((id, k) => [id, k + 1]));
     refresh(false);
@@ -831,6 +838,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
         // Seconds until the turn may be ours, while another player holds it.
         waitingS: waiting === null ? null : Math.max(0, Math.ceil((waiting.untilMs - now()) / 1000)),
         holding,
+        bumped: { ...bumped },
         visits: new Map(visits),
       };
     },
