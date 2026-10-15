@@ -1,9 +1,10 @@
-//! The physics' tests (docs/PHYSICS.md, "Tests to write first"): test 12
-//! (more held tiles change nothing) as far as the board can say it; the
-//! cows' grid rule (27); the lane (20); pushes and
-//! jumps (8, 28, and the nearest spot's ties); coincident centres (9); the
-//! leashed dog against an overlap (10); bumps, the timer, rest; the wishes;
-//! the cap. The worked example (26) is physics_judge_test.zig's.
+//! The physics' tests, each with its purpose (docs/PHYSICS.md, "Tested"):
+//! the no-overlap invariant over seeded drags; more held tiles change
+//! nothing; the torus' seam and tiles; bumps, the timer, rest and the
+//! inputs; the cap; the arithmetic on every target; and the few motion
+//! cases that came from play (the walk's keys, the edge, the cows, the
+//! nudge). Poop and chickens are physics_trails_test.zig's; the worked
+//! example is physics_judge_test.zig's.
 
 const std = @import("std");
 const physics = @import("physics.zig");
@@ -47,15 +48,6 @@ fn ticked(b: *Board, t: physics.Tick, humans: []const physics.Human, drag: []con
     return lines;
 }
 
-/// One cow at `cow`, the leashed dog at `from` dragged by `by`: where the
-/// cow ends.
-fn cowAfter(from: Point, by: physics.Disp, cow: Point) Point {
-    var b = leashedAt(from);
-    b.place(.cow(0), cow);
-    _ = ticked(&b, 1, &.{}, &.{by});
-    return b.cows[0];
-}
-
 fn bumpOf(lines: *const Lines) ?physics.Bumped {
     for (lines.slice()) |c| switch (c) {
         .bump => |who| return who,
@@ -67,45 +59,6 @@ fn bumpOf(lines: *const Lines) ?physics.Bumped {
 fn hasRest(lines: *const Lines) bool {
     for (lines.slice()) |c| if (c == .rest) return true;
     return false;
-}
-
-// --------------------------------------------------- the cows' grid rule
-
-test "the first layout is the golden one: every dog and cow where the old whole- and half-pixel layout put it, every critter present, no one leashed" {
-    const b = Board.laidOut();
-    var crc = std.hash.Crc32.init();
-    crc.update(std.mem.sliceAsBytes(&b.dogs));
-    crc.update(std.mem.sliceAsBytes(&b.cows));
-    crc.update(std.mem.sliceAsBytes(&b.dog_known));
-    crc.update(std.mem.sliceAsBytes(&b.cow_known));
-    try testing.expectEqual(@as(u32, 870706651), crc.final());
-    try testing.expectEqual(physics.Hold.none, b.hold);
-    try testing.expectEqual(Point{ .x = 13575 * 256, .y = 13575 * 256 }, b.dogs[0]);
-    try testing.expectEqual(Point{ .x = 13750 * 256, .y = 13750 * 256 }, b.cows[0]);
-}
-
-/// A drag's way: an axis, and which way along it.
-const Way = struct { axis: physics.Axis, way: i32 };
-const four_ways = [_]Way{ .{ .axis = .x, .way = 1 }, .{ .axis = .x, .way = -1 }, .{ .axis = .y, .way = 1 }, .{ .axis = .y, .way = -1 } };
-
-/// The point `ahead` along `w` from `from`, and `off` across it.
-fn along(from: Point, w: Way, ahead: i32, off: i32) Point {
-    return switch (w.axis) {
-        .x => .{ .x = from.x + w.way * ahead, .y = from.y + off },
-        .y => .{ .x = from.x + off, .y = from.y + w.way * ahead },
-    };
-}
-
-/// A drag of `n` whole pixels along `w`.
-fn dragAlong(w: Way, n: i32) physics.Disp {
-    return switch (w.axis) {
-        .x => d(w.way * n, 0),
-        .y => d(0, w.way * n),
-    };
-}
-
-fn awakeAt(from: Point, p: Point) bool {
-    return physics.measure(physics.delta(from, p)) <= physics.measureOf(physics.awake_reach);
 }
 
 // ------------------------------------------- overlaps that slipped through
@@ -262,10 +215,6 @@ test "rest: nothing moved, no input but a view or held, no timer running; the po
     l = ticked(&u, 1, &.{}, &.{});
     try testing.expect(hasRest(&l));
 }
-
-// ------------------------------------------------------------ the wishes
-
-// ----------------------------------------------------------- pixel-ticks
 
 // --------------------------------------------------------------- the cap
 

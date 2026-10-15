@@ -10,7 +10,7 @@
 export const dog_px = 40;
 export const cow_px = dog_px * 1.5;
 export const cow_emoji = "🐄";
-// Half a dog (decision 26), full-bodied.
+// Half a dog, full-bodied.
 export const chicken_px = dog_px / 2;
 export const chicken_emoji = "🐓";
 // A dog's poop: a little brown circle, under every critter.

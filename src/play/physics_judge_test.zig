@@ -1,4 +1,4 @@
-//! **THE WORKED EXAMPLE AS A GOLDEN FIXTURE** (docs/PHYSICS.md, test 26):
+//! **THE WORKED EXAMPLE AS A GOLDEN FIXTURE** (docs/PHYSICS.md, "The report"):
 //! the doc's report, its `kept 1043` answer, and the exact `differ` answer
 //! to it with dog 223's step at 1041 a 256th off; and the
 //! page's side, writing that report from its own board. The two goldens

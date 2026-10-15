@@ -1,6 +1,6 @@
 # Dog Park's physics, and the report that carries it
 
-**Status: played by Steve** (2026-10-14). The board, the tick, the wire
+**Status: played by Steve** (2026-10-15). The board, the tick, the wire
 and the server's re-run are `src/play/physics*.zig`, with the first
 layout in `layout.zig`; the server speaks only `GET /`, the page's
 scripts, `/physics-<hash>.wasm`, `POST /load` and `POST /report`, and
@@ -13,8 +13,13 @@ the page runs every tick, and the server re-runs, keeps and acks. Steve
 tunes the physics by playing it.
 
 **Tested, each with a purpose** (the README has the tiers):
-- **the invariant:** no two critters ever overlap, over seeded drags
-  through the whole park (`physics_test.zig`);
+- **the invariant:** no two critters ever overlap and none stands on
+  poop, over seeded drags through the whole park that lay poop and shove
+  chickens (`physics_test.zig`);
+- **poop and chickens:** the trail comes from the herd's tail, going
+  around never lands anyone on anything, the leashed dog doesn't bump
+  what it can get around, eating, ripeness, the poops by tile
+  (`physics_trails_test.zig`);
 - **page and server agree:** the same physics compiled to wasm32 passes
   the same tests, and a page holding more tiles writes the same lines;
 - **the protocol:** the wire, the judge's answers, the server's log,
@@ -127,10 +132,12 @@ never attract or repel.
   whole or not at all. It bumps only when the slide fails too. There is
   no setback.
 
-## Poop and chickens (decisions 29-31): trails without obstruction
+## Poop and chickens (decisions 29-31)
 
-Layer 1 of three (the essay "Dog Park: trails, ducks, and an ecosystem in
-layers"): it adds no state.
+The herds leave a trail of poop behind them, and the chickens clean it up:
+quickly enough that the park doesn't fill, slowly enough that you see
+where the herds went. Neither gets in the way: what's in the way is gone
+around, not stopped at.
 
 **The trail** (decision 29):
 - **When:** each time the leashed dog's walk (every step it takes,
@@ -700,9 +707,8 @@ snapshots alone are enough to start from.
    a cow, it closes in; a dog, it flees.
 11. **The nudge** (decision 25, 2026-10-14): a step blocked by kin
    carries them along, up to 8 critters.
-12. **Trails without obstruction** (decisions 29 and 31, 2026-10-14,
-   replacing 26-28: "the poop and chickens are still way too much of an
-   obstacle"): the herd poops every 700 px, its deepest dog, 30 px behind
+12. **Trails without obstruction** (decisions 29 and 31, 2026-10-14;
+   permanent, 2026-10-15): the herd poops every 700 px, its deepest dog, 30 px behind
    itself, and poop stays until eaten, an obstacle to dogs and cows;
    chickens leave the walk and take one turn a tick, foraging the
    nearest ripe poop within 500 px or walking home, at most half the

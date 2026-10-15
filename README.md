@@ -2,8 +2,10 @@
 
 Everybody owns a dog and drags it around a park. There is no object of the
 game yet: you leash a dog and drag it, and the critters near it react:
-dogs of its breed follow it in herds, other breeds and the cows keep
-their distance. Nothing moves unless you drag.
+dogs of its breed follow it in herds, other breeds keep their distance,
+and the cows flee the dogs and herd among themselves. The herds leave a
+trail of poop, and chickens wander out to eat it. Nothing moves unless
+you drag.
 
 It is a small web application built on `webbox`, the web-server-in-a-box
 library ([zig-webbox](https://github.com/showell/zig-webbox), a sibling
@@ -18,7 +20,7 @@ zig-metal-unikernel's `zig build dogpark` no longer builds it (the physics
 hash now comes from this build.zig) and nothing judges it on metal. Not
 deployed.
 
-**Status (2026-10-14):** played by Steve, and tuned by playing. The page
+**Status (2026-10-15):** played by Steve, and tuned by playing. The page
 (`solo/`) runs the physics (`src/play/physics*.zig`, compiled to wasm) and
 reports every tick to the server, which re-runs it and keeps it
 ([docs/PHYSICS.md](docs/PHYSICS.md)). The server (`src/play/`) speaks
@@ -32,16 +34,17 @@ amendments) are history: that app is retired.
 ## The tests: three commands
 
 Each test has a purpose: the no-overlap invariant, page and server
-agreeing, the protocol, the torus and its tiles
+agreeing, the protocol, the torus and its tiles, poop and chickens never
+landing anyone on anything
 ([docs/PHYSICS.md](docs/PHYSICS.md) lists them). How the critters move is
 tested by playing. A test that no longer proves anything goes.
 
-    zig build test       # after every edit, ~6 s
-    zig build check      # before a commit, ~10 s
-    zig build slow       # the slow tier, ~40 s
+    zig build test       # after every edit, ~12 s
+    zig build check      # before a commit, ~30 s
+    zig build slow       # the slow tier, ~50 s
 
 Wall times after an edit to `src/play/physics.zig`, on the box
-(2026-10-14).
+(2026-10-15).
 
 - **`test`**: every Zig unit test natively, in Debug, with the seeded fuzz
   loops at a tenth (`-Dfuzz=fast`, the default), and the node tests that

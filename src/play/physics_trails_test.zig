@@ -1,9 +1,12 @@
-//! **LAYER 1: TRAILS WITHOUT OBSTRUCTION** (docs/PHYSICS.md, "Poop and
-//! chickens"; decisions 29-31): where the herd's poop lands, how a step
-//! goes around a poop or a chicken (the sidestep, the shove), the leashed
-//! dog's slide, and the chickens' turn. Each test says what it proves.
-//! Every scene stands near chicken 0's home, so its chicken has no reason
-//! to walk home in the middle of what the test watches.
+//! **POOP AND CHICKENS** (docs/PHYSICS.md, "Poop and chickens"): the
+//! trail comes from the herd's tail; poop never lands on a critter and no
+//! critter ever stands on poop; going around (the shove's all-or-none
+//! check, the sidestep that stays when it would land on poop too); the
+//! leashed dog never bumps a free chicken or a poop it can get around;
+//! eating; a still tick moves no chicken; ripeness across the wraps; and
+//! the poops-by-tile index. The exact tuning (step sizes, distances) is
+//! tested by playing. Every scene stands near chicken 0's home, so its
+//! chicken has no reason to walk home mid-test.
 
 const std = @import("std");
 const physics = @import("physics.zig");
@@ -64,25 +67,6 @@ fn overlapsNone(b: *Board) !void {
 
 // ------------------------------------------------------------ the trail
 
-test "the leashed dog alone poops 30 px behind itself, back along its step, at the pixel-tick its walk passes 700 px" {
-    // Proves rule 3 for the herd of one: no follower, so the leashed dog
-    // is the deepest, and behind is the reverse of its step. 700 px east
-    // in seven ticks: the poop is due on the very last pixel-tick.
-    var b = leashedAt(px(15000, 16250));
-    var t: physics.Tick = 1;
-    while (t <= 6) : (t += 1) _ = ticked(&b, t, &.{}, &.{d(100, 0)});
-    try testing.expectEqual(@as(u32, 0), b.laid);
-    const lines = ticked(&b, 7, &.{}, &.{d(100, 0)});
-    try testing.expectEqual(@as(u32, 1), b.laid);
-    try testing.expectEqual(px(15700, 16250), b.dogs[0]);
-    try testing.expectEqual(px(15670, 16250), b.poops[0]);
-    var poop: ?physics.PoopLine = null;
-    for (lines.slice()) |c| if (c == .poop) {
-        poop = c.poop;
-    };
-    try testing.expectEqual(physics.PoopLine{ .n = 0, .at = px(15670, 16250) }, poop.?);
-}
-
 test "the trail comes from the tail: a chain of three of the leashed dog's breed, and the last of them poops 30 px behind itself, into the park's next slots in turn" {
     // Proves rule 2: depth runs through the anchors (dog 4 follows the
     // leashed dog, dog 8 follows dog 4), and the deepest poops, away from
@@ -121,30 +105,6 @@ test "a poop whose spot is taken lands at the nearest free spot on the rings aro
 }
 
 // ---------------------------------------------------------- the sidestep
-
-test "the sidestep, as a function: the axis the blocker is farther along is zeroed (ties zero x), the other keeps its part or, with none, goes the step's size away (on the line, +)" {
-    // Proves rule 5's arithmetic, case by case.
-    const o: Point = .{ .x = 0, .y = 0 };
-    const Case = struct { why: physics.Veto.Why, blocker: Point, step: Point, want: ?Point };
-    const cases = [_]Case{
-        // Ahead to the east, the step diagonal: x zeroed, y kept.
-        .{ .why = .poop, .blocker = px(26, 5), .step = .{ .x = 256, .y = 100 }, .want = .{ .x = 0, .y = 100 } },
-        // Ahead to the north: y zeroed, x kept.
-        .{ .why = .chicken, .blocker = px(5, -26), .step = .{ .x = 256, .y = -100 }, .want = .{ .x = 256, .y = 0 } },
-        // Straight ahead east, a little south: x zeroed, the whole size north.
-        .{ .why = .poop, .blocker = px(26, 3), .step = .{ .x = 256, .y = 0 }, .want = .{ .x = 0, .y = -256 } },
-        // Straight ahead south, on the line: y zeroed, + (east).
-        .{ .why = .poop, .blocker = px(0, 26), .step = .{ .x = 0, .y = 128 }, .want = .{ .x = 128, .y = 0 } },
-        // A tie of the axes zeroes x.
-        .{ .why = .poop, .blocker = px(10, 10), .step = .{ .x = 256, .y = 256 }, .want = .{ .x = 0, .y = 256 } },
-        // Only a poop or a chicken is gone around.
-        .{ .why = .critter, .blocker = px(26, 0), .step = .{ .x = 256, .y = 0 }, .want = null },
-        .{ .why = .edge, .blocker = o, .step = .{ .x = 256, .y = 0 }, .want = null },
-    };
-    for (cases) |c| {
-        try testing.expectEqual(c.want, physics.sidestep(.{ .why = c.why, .at = o, .blocker = c.blocker }, c.step));
-    }
-}
 
 test "a dog whose step a poop vetoes takes the exact sidestep instead; and when the sidestep would land on poop too, it stays" {
     // Proves rule 5 in the walk, and that neither try lands on poop.
@@ -239,22 +199,6 @@ test "the leashed dog bumps a boxed-in chicken only when the shove and the slide
 
 // ------------------------------------------------------ the chickens' turn
 
-test "the chickens' turn: a chicken steps half the leashed dog's net move toward the nearest ripe poop, at most 8 px, passing over the newest" {
-    // Proves rule 9's step size and rule 11's ripeness: the newest poop
-    // (slot 1, laid 2) is nearer, but not ripe, so the chicken goes for
-    // slot 0.
-    var b = leashedAt(nearHome(0, 400));
-    b.place(.chicken(0), home);
-    poopAt(&b, 0, nearHome(100, 0));
-    poopAt(&b, 1, nearHome(-50, 0));
-    b.laid = 2;
-    var lines = ticked(&b, 1, &.{}, &.{d(10, 0)});
-    try testing.expectEqual(nearHome(5, 0), b.chickens[0]);
-    try testing.expectEqual(physics.CritterLine{ .who = .chicken(0), .before = home, .after = nearHome(5, 0) }, lineOf(&lines, .chicken(0)).?);
-    lines = ticked(&b, 2, &.{}, &.{d(30, 0)});
-    try testing.expectEqual(nearHome(13, 0), b.chickens[0]);
-}
-
 test "the newest poop blocks a chicken's step: it goes around it" {
     // Proves the fix that keeps no critter on unripe poop: the newest
     // poop touches the chicken's east side, on its way to a ripe one.
@@ -283,19 +227,6 @@ test "a chicken eats every ripe poop its square overlaps, and the eaten slot is 
     };
     try testing.expectEqual(@as(?u16, 0), eaten);
     try overlapsNone(&b);
-}
-
-test "with nothing to forage a chicken walks home, but only from more than 32 px off; one at rest writes no line" {
-    // Proves rule 9's homing and its deadband.
-    var b = leashedAt(nearHome(0, 400));
-    b.place(.chicken(0), nearHome(100, 0));
-    _ = ticked(&b, 1, &.{}, &.{d(30, 0)});
-    try testing.expectEqual(nearHome(92, 0), b.chickens[0]);
-    var c = leashedAt(nearHome(0, 400));
-    c.place(.chicken(0), nearHome(30, 0));
-    const lines = ticked(&c, 1, &.{}, &.{d(30, 0)});
-    try testing.expectEqual(nearHome(30, 0), c.chickens[0]);
-    try testing.expectEqual(@as(?physics.CritterLine, null), lineOf(&lines, .chicken(0)));
 }
 
 test "no chicken moves in a tick the leashed dog ends where it began" {

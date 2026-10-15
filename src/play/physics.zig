@@ -1376,7 +1376,7 @@ fn stepAround(sc: *Scene, i: usize, step: Point) void {
 /// axis on which the blocker is farther off zeroed (a tie zeroes x), and
 /// on the other its own part kept, or, that part zero, the step's whole
 /// size away from the blocker (on the line, +). Null for any other veto.
-pub fn sidestep(v: Veto, step: Point) ?Point {
+fn sidestep(v: Veto, step: Point) ?Point {
     if (v.why != .poop and v.why != .chicken) return null;
     const d = delta(v.at, v.blocker);
     const size: i32 = @intCast(measure(step));

@@ -5,8 +5,9 @@
 //! south-west, 3 south-east, so a tile's four dogs are numbered 4k to
 //! 4k + 3, tile by tile, row by row. White tiles (column plus row even)
 //! also hold a cow in the middle, row by row; blue tiles (column plus row
-//! odd) two chickens side by side in the middle, row by row (decision 26):
-//! each one's home (`chickenHome`), where it walks back to (decision 31).
+//! odd) two chickens side by side in the middle, row by row: each one's
+//! home (`chickenHome`), where it walks back to (docs/PHYSICS.md, "Poop and
+//! chickens").
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
