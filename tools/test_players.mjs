@@ -41,51 +41,62 @@ test("no account, no game: a load or a report without the cookie is a 403", asyn
   assert.equal((await server.as("dogpark=forged.1.abc", "POST", "/report", "x\n")).status, 403);
 });
 
-test("Begin Game: a device with an account keeps it; four more get one; the sixth finds the park full", async () => {
+// The caps (src/play/players.zig): accounts, and accounts playing at once.
+const most_players = 80;
+const most_playing = 5;
+
+test("Begin Game: a device with an account keeps it; the rest get one each, up to the most; the next finds the park full", async () => {
   const again = await server.as(server.cookie, "POST", "/begin", "");
   assert.equal(again.status, 303);
   assert.equal(cookieOf(again), undefined, "no new cookie for a device that has one");
-  for (let i = 0; i < 4; i++) {
+  for (let i = 1; i < most_players; i++) {
     const r = await server.as(undefined, "POST", "/begin", "");
-    assert.equal(r.status, 303);
+    assert.equal(r.status, 303, `account ${i}`);
     assert.equal(r.headers.location, "/dogpark");
     others.push(cookieOf(r));
   }
-  assert.equal(new Set([server.cookie, ...others]).size, 5);
-  const sixth = await server.as(undefined, "POST", "/begin", "");
-  assert.equal(sixth.status, 200);
-  assert.match(sixth.text, /The park is full/);
-  assert.equal(cookieOf(sixth), undefined);
-  // A restart hands out no more.
+  assert.equal(new Set([server.cookie, ...others]).size, most_players);
+  const past = await server.as(undefined, "POST", "/begin", "");
+  assert.equal(past.status, 200);
+  assert.match(past.text, /The park is full/);
+  assert.equal(cookieOf(past), undefined);
+  // A restart hands out no more, and every account's cookie still reads.
   await server.restart();
   assert.match((await server.as(undefined, "POST", "/begin", "")).text, /The park is full/);
+  assert.equal((await server.as(others.at(-1), "GET", "/dogpark")).status, 200);
 });
 
-test("one player at a time: another account loads its own game and pans freely, but its ticks wait, told how long, while the first holds the turn", async () => {
+test("up to most_playing at once: each plays its own game; the next loads and pans freely, but its ticks wait, told how long; a player plays on", async () => {
   const header = (epoch, req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\n`;
-  const first = await server.as(server.cookie, "POST", "/load", loadLine());
-  assert.equal(first.status, 200);
-  const e1 = first.text.match(/^epoch (\S+)\n/)[1];
-  const k1 = first.text.match(/\nkept (\d+)\n/)[1];
-  // The first player plays a tick: it holds the turn.
-  const played = await server.as(server.cookie, "POST", "/report", `${header(e1, 1)}from ${k1} wall 1\nt ${+k1 + 1} +0\n`);
-  assert.match(played.text, /^req 1\nkept /, played.text);
-  const other = others[0];
-  // The other loads its own game at once: the first layout, its own epoch.
-  const theirs = await server.as(other, "POST", "/load", loadLine());
+  // A tick from an account: it loads its game, and its first report carries a tick.
+  const play = async (cookie) => {
+    const loaded = await server.as(cookie, "POST", "/load", loadLine());
+    assert.equal(loaded.status, 200);
+    const epoch = loaded.text.match(/^epoch (\S+)\n/)[1];
+    const k = loaded.text.match(/\nkept (\d+)\n/)[1];
+    return { epoch, k, answer: await server.as(cookie, "POST", "/report", `${header(epoch, 1)}from ${k} wall 1\nt ${+k + 1} +0\n`) };
+  };
+  const players = [server.cookie, ...others.slice(0, most_playing - 1)];
+  const games = [];
+  for (const cookie of players) {
+    const g = await play(cookie);
+    assert.match(g.answer.text, /^req 1\nkept /, g.answer.text);
+    games.push(g);
+  }
+  // One more: it loads its own game and pans, but its tick waits.
+  const next = others[most_playing - 1];
+  const theirs = await server.as(next, "POST", "/load", loadLine());
   assert.equal(theirs.status, 200);
-  const e2 = theirs.text.match(/^epoch (\S+)\n/)[1];
-  const k2 = theirs.text.match(/\nkept (\d+)\n/)[1];
-  // A pan (a report with no ticks) is answered.
-  const pan = await server.as(other, "POST", "/report", `${header(e2, 1)}from ${k2}\nview ${+k2 + 1} 640x480\n`);
+  const e = theirs.text.match(/^epoch (\S+)\n/)[1];
+  const k = theirs.text.match(/\nkept (\d+)\n/)[1];
+  const pan = await server.as(next, "POST", "/report", `${header(e, 1)}from ${k}\nview ${+k + 1} 640x480\n`);
   assert.match(pan.text, /^req 1\nkept /, pan.text);
-  // A tick waits.
-  const busy = await server.as(other, "POST", "/report", `${header(e2, 2)}from ${k2} wall 1\nt ${+k2 + 1} +0\n`);
+  const busy = await server.as(next, "POST", "/report", `${header(e, 2)}from ${k} wall 1\nt ${+k + 1} +0\n`);
   assert.equal(busy.status, 503);
   assert.match(busy.text, /^busy (1\d|20)\n$/);
-  // The holder plays on.
-  const kept1 = played.text.match(/^req 1\nkept (\d+)\n/)[1];
-  const on = await server.as(server.cookie, "POST", "/report", `${header(e1, 2)}from ${kept1} wall 1\nt ${+kept1 + 1} +0\n`);
+  // A player plays on.
+  const kept = games[0].answer.text.match(/^req 1\nkept (\d+)\n/)[1];
+  const on = await server.as(players[0], "POST", "/report", `${header(games[0].epoch, 2)}from ${kept} wall 1\nt ${+kept + 1} +0\n`);
   assert.match(on.text, /^req 2\nkept /, on.text);
 });
 

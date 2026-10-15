@@ -667,19 +667,22 @@ snapshots alone are enough to start from.
 ## Who may play (2026-10-15, the first deployment)
 
 `src/play/players.zig` and `app.zig`:
-- **Five accounts, first come, first served.** The landing page (`GET /`)
+- **80 accounts, first come, first served** (Steve, 2026-10-15; sized by
+  notes/dog-park-capacity.md). The landing page (`GET /`)
   has one button, Begin Game, a form posting to `/begin`. A device with
   no account gets the next one, as a signed cookie naming its slot, and
-  goes on to `/dogpark`. After five, the park is full. The count is kept
+  goes on to `/dogpark`. After 80, the park is full. The count is kept
   in the data dir (`players`), so a restart hands out no more. A bot that
   only GETs takes nothing.
 - **A game per account,** started at its player's first load, kept under
   `<data>/game-<slot>/physics` with its own log and snapshots.
-- **One player at a time, for play only** (Steve: "I'm just trying to
-  prevent contention from all the drags").
-  - A report with ticks in it needs the turn. The turn is the first
-    asker's, and lasts 20 s past its last such report.
-  - While another account holds it, the answer is `503 busy N`. The page
+- **Up to 5 playing at once, for play only** (Steve: "I'm just trying to
+  prevent contention from all the drags"; 5 for now, where the capacity
+  study puts a 1 vCPU droplet at about 20).
+  - A report with ticks in it needs a turn. Turns go to the first askers,
+    and each lasts 20 s past its holder's last such report.
+  - While all 5 are held, the answer is `503 busy N`, N the seconds till
+    the soonest frees. The page
     shows "someone else is playing" on screen, asks again in N seconds
     with the same bytes, and counts it as no failure.
   - A load, and a report of only a view or a held (a pan), never wait. A

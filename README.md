@@ -18,8 +18,8 @@ serves them is the library's.
 the domain and the Caddy in front with lynrummy.com. Developed on Linux.
 zig-metal-unikernel's `zig build dogpark` no longer builds it (the physics
 hash now comes from this build.zig) and nothing judges it on metal. Not
-deployed yet. The first deployment is set for five players, one at a
-time ([docs/PHYSICS.md](docs/PHYSICS.md), "Who may play").
+deployed yet. The first deployment is set for 80 accounts, up to 5
+playing at once ([docs/PHYSICS.md](docs/PHYSICS.md), "Who may play").
 
 **Status (2026-10-15):** played by Steve, and tuned by playing. The page
 (`solo/`) runs the physics (`src/play/physics*.zig`, compiled to wasm) and
@@ -49,7 +49,7 @@ One Linux droplet, with Caddy in front for HTTPS:
     (`players`).
   - The auth dir holds the site secret (`_session_secret`), made on the
     first start.
-  - To hand out the five accounts again, stop the server and delete
+  - To hand out the 80 accounts again, stop the server and delete
     `players` and `game-*`. To make every old cookie invalid as well,
     delete the secret too.
 - **The rest of the environment:**

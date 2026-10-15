@@ -1,7 +1,8 @@
 //! **WHO MAY PLAY** (Steve, 2026-10-15, for the first deployment): at most
 //! `most_players` devices get an account, first come, first served, each its
-//! own game; one plays at a time, holding the turn while it plays and for
-//! `turn_ms` after its last request; the rest wait their turn.
+//! own game; at most `most_playing` play at once, each holding a turn while
+//! it plays and for `turn_ms` after its last ticking report; the rest wait
+//! for one (notes/dog-park-capacity.md sizes both).
 //!
 //! - **An account** is a slot number, 0 to `most_players - 1`, carried in a
 //!   signed cookie (webbox's `signed_cookie`). The count of slots handed out
@@ -15,8 +16,11 @@ const webbox = @import("webbox");
 const signed = webbox.signed;
 const signed_cookie = webbox.signed_cookie;
 
-/// The most devices that get an account.
-pub const most_players = 5;
+/// The most devices that get an account (Steve, 2026-10-15: 80 for now).
+pub const most_players = 80;
+/// The most accounts playing at once (Steve: 5 for now; the capacity
+/// study's 1 vCPU droplet carries about 20 at a typical hand's pace).
+pub const most_playing = 5;
 
 /// How long the turn stays with a player after its last request: about the
 /// leash's let-go time, so a player resting with a dog leashed keeps it.
@@ -86,9 +90,14 @@ fn validSlot(id: []const u8) bool {
     return slotOf(id) != null;
 }
 
+/// A cookie's id: the slot in decimal, in its one spelling (no sign, no
+/// leading zero), below `most_players`.
 fn slotOf(id: []const u8) ?Slot {
-    if (id.len != 1 or id[0] < '0' or id[0] >= '0' + most_players) return null;
-    return id[0] - '0';
+    if (id.len == 0 or id.len > 2 or (id.len > 1 and id[0] == '0')) return null;
+    for (id) |c| if (!std.ascii.isDigit(c)) return null;
+    const n = std.fmt.parseInt(u8, id, 10) catch return null;
+    if (n >= most_players) return null;
+    return n;
 }
 
 fn cookieOf(mode: CookieMode) signed_cookie.Cookie {
@@ -111,7 +120,9 @@ pub fn slotOfRequest(mode: CookieMode, io: Io, alloc: std.mem.Allocator, req: *s
 pub fn cookieHeader(mode: CookieMode, io: Io, alloc: std.mem.Allocator, auth_dir: []const u8, s: Slot, now: i64) ![]const u8 {
     const c = cookieOf(mode);
     const secret = (try webbox.site_secret.load(io, alloc, auth_dir)) orelse return error.NoSiteSecret;
-    const value = try signed.sign(alloc, c.kind, secret, &.{'0' + s}, now);
+    var id_buf: [3]u8 = undefined;
+    const id = std.fmt.bufPrint(&id_buf, "{d}", .{s}) catch unreachable;
+    const value = try signed.sign(alloc, c.kind, secret, id, now);
     return switch (mode) {
         .secure => signed_cookie.header(c, alloc, value),
         .insecure => std.fmt.allocPrint(alloc, "{s}={s}; Path=/; Max-Age={d}; HttpOnly; SameSite=Lax", .{ c.name, value, c.kind.lifetime_secs }),
@@ -120,60 +131,80 @@ pub fn cookieHeader(mode: CookieMode, io: Io, alloc: std.mem.Allocator, auth_dir
 
 // ── the turn ────────────────────────────────────────────────────────────────
 
-/// One player at a time: the holder, and until when it holds the turn.
+/// At most `most_playing` at once: each holder, and until when it holds
+/// its turn.
 pub const Turn = struct {
-    holder: ?Slot = null,
-    until_ms: u64 = 0,
+    holders: [most_playing]Holder = undefined,
+    len: usize = 0,
+
+    const Holder = struct { slot: Slot, until_ms: u64 };
 
     pub const Asked = union(enum) {
-        /// Slot `s` holds the turn now, until `turn_ms` from now.
+        /// Slot `s` holds a turn now, until `turn_ms` from now.
         granted,
-        /// Another holds it: ask again in this many whole seconds.
+        /// Every turn is held: ask again in this many whole seconds (when
+        /// the soonest frees).
         wait_s: u64,
     };
 
-    /// Slot `s` asks for the turn at `now_ms`: it is granted when nobody
-    /// holds it, when `s` does, or when the holder's time is up; a grant
-    /// runs `turn_ms` from now.
+    /// Slot `s` asks for a turn at `now_ms`: a holder's renews; else the
+    /// turns whose time is up are freed, and `s` takes one if any is free.
+    /// A grant runs `turn_ms` from now.
     pub fn ask(t: *Turn, s: Slot, now_ms: u64) Asked {
-        if (t.holder) |h| if (h != s and now_ms < t.until_ms) return .{ .wait_s = (t.until_ms - now_ms + 999) / 1000 };
-        t.holder = s;
-        t.until_ms = now_ms + turn_ms;
-        return .granted;
+        for (t.holders[0..t.len]) |*h| if (h.slot == s) {
+            h.until_ms = now_ms + turn_ms;
+            return .granted;
+        };
+        var kept: usize = 0;
+        for (t.holders[0..t.len]) |h| if (now_ms < h.until_ms) {
+            t.holders[kept] = h;
+            kept += 1;
+        };
+        t.len = kept;
+        if (t.len < most_playing) {
+            t.holders[t.len] = .{ .slot = s, .until_ms = now_ms + turn_ms };
+            t.len += 1;
+            return .granted;
+        }
+        var soonest: u64 = std.math.maxInt(u64);
+        for (t.holders[0..t.len]) |h| soonest = @min(soonest, h.until_ms);
+        return .{ .wait_s = (soonest - now_ms + 999) / 1000 };
     }
 };
 
 test "claim: a device with a slot keeps it; a new one takes the next; none past the most" {
     try std.testing.expectEqual(Claim{ .has = 3 }, claim(3, most_players));
     try std.testing.expectEqual(Claim{ .new = 0 }, claim(null, 0));
-    try std.testing.expectEqual(Claim{ .new = 4 }, claim(null, 4));
+    try std.testing.expectEqual(Claim{ .new = most_players - 1 }, claim(null, most_players - 1));
     try std.testing.expectEqual(Claim.full, claim(null, most_players));
 }
 
 test "the players file: a count up to the most reads; anything else does not" {
     try std.testing.expectEqual(@as(?u8, 3), parseClaimed("3\n"));
     try std.testing.expectEqual(@as(?u8, 0), parseClaimed("0"));
-    try std.testing.expectEqual(@as(?u8, null), parseClaimed("6\n"));
+    try std.testing.expectEqual(@as(?u8, most_players), parseClaimed(std.fmt.comptimePrint("{d}\n", .{most_players})));
+    try std.testing.expectEqual(@as(?u8, null), parseClaimed(std.fmt.comptimePrint("{d}\n", .{most_players + 1})));
     try std.testing.expectEqual(@as(?u8, null), parseClaimed(""));
     try std.testing.expectEqual(@as(?u8, null), parseClaimed("two\n"));
 }
 
-test "a cookie id is one digit naming a slot, and nothing else" {
+test "a cookie id is a slot in decimal, in its one spelling, below the most" {
     try std.testing.expectEqual(@as(?Slot, 0), slotOf("0"));
     try std.testing.expectEqual(@as(?Slot, 4), slotOf("4"));
-    for ([_][]const u8{ "5", "", "00", "a", "-1" }) |id| try std.testing.expectEqual(@as(?Slot, null), slotOf(id));
+    try std.testing.expectEqual(@as(?Slot, 79), slotOf("79"));
+    for ([_][]const u8{ "80", "", "00", "07", "a", "-1", "+1", "100", "1 " }) |id| try std.testing.expectEqual(@as(?Slot, null), slotOf(id));
 }
 
-test "the turn: first come, first served; held while used; free turn_ms after the last request" {
+test "the turns: up to most_playing at once, first come, first served; each held while used, freed turn_ms after its last request; a full house waits for the soonest" {
     var t: Turn = .{};
-    try std.testing.expectEqual(Turn.Asked.granted, t.ask(1, 1000));
-    // Another waits, told the whole seconds left.
-    try std.testing.expectEqual(Turn.Asked{ .wait_s = 20 }, t.ask(2, 1000));
-    try std.testing.expectEqual(Turn.Asked{ .wait_s = 11 }, t.ask(2, 10_000));
-    // The holder's request renews its time.
-    try std.testing.expectEqual(Turn.Asked.granted, t.ask(1, 15_000));
-    try std.testing.expectEqual(Turn.Asked{ .wait_s = 1 }, t.ask(2, 34_999));
-    // Its time up, the next asker takes it.
-    try std.testing.expectEqual(Turn.Asked.granted, t.ask(2, 35_000));
-    try std.testing.expectEqual(Turn.Asked{ .wait_s = 20 }, t.ask(1, 35_000));
+    for (0..most_playing) |i| try std.testing.expectEqual(Turn.Asked.granted, t.ask(@intCast(i), 1000 + i));
+    // Every turn held: the next waits, told the whole seconds till the soonest frees (slot 0's).
+    try std.testing.expectEqual(Turn.Asked{ .wait_s = 20 }, t.ask(10, 1000));
+    try std.testing.expectEqual(Turn.Asked{ .wait_s = 11 }, t.ask(10, 10_000));
+    // A holder's request renews its time; another holder's doesn't free.
+    try std.testing.expectEqual(Turn.Asked.granted, t.ask(0, 15_000));
+    try std.testing.expectEqual(Turn.Asked{ .wait_s = 1 }, t.ask(10, 20_500));
+    // Slot 1's time up (21,001): the asker takes its turn.
+    try std.testing.expectEqual(Turn.Asked.granted, t.ask(10, 21_001));
+    try std.testing.expectEqual(Turn.Asked{ .wait_s = 1 }, t.ask(11, 21_001));
 }
