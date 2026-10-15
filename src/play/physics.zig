@@ -65,8 +65,11 @@ pub const tile: i32 = px(tiles.tile_px);
 
 /// The squares, in whole pixels, as the page draws them. Each critter is
 /// its square, centred on its point.
-pub const dog_px = 40;
-pub const cow_px = 60;
+/// Dogs and cows at 70% of their first sizes, with the tiles and the
+/// spacings below (Steve, 2026-10-15: "on a small screen we need a little
+/// more density"); chickens and poop kept.
+pub const dog_px = 28;
+pub const cow_px = 42;
 pub const chicken_px = 20;
 pub const dog_half: i32 = px(dog_px / 2);
 pub const cow_half: i32 = px(cow_px / 2);
@@ -75,15 +78,16 @@ pub const chicken_half: i32 = px(chicken_px / 2);
 pub const dead_zone: i32 = px(1);
 /// A dog keeps this from a moving dog of another breed; a cow from any
 /// moving dog.
-pub const wary: i32 = px(225);
+pub const wary: i32 = px(158);
 /// A dog's band around its anchor: too close inside, too far outside.
-pub const band_inner: i32 = px(60);
-pub const band_outer: i32 = px(100);
+pub const band_inner: i32 = px(42);
+pub const band_outer: i32 = px(70);
 /// A dog keeps this from a moving cow.
-pub const cow_room: i32 = px(90);
-/// The region: the 3000 px square around the leashed dog; every critter in
-/// the tiles it meets is seen (and awake).
-pub const region_reach: i32 = px(1500);
+pub const cow_room: i32 = px(63);
+/// The region: the 2100 px square around the leashed dog (6 tiles across,
+/// so it meets at most 7 x 7 of them); every critter in the tiles it meets
+/// is seen (and awake).
+pub const region_reach: i32 = px(1050);
 /// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, the
 /// walk's dogs step at most as far as the leashed dog did, its cows half.
 pub const step_most: i32 = px(1);

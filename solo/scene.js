@@ -7,11 +7,13 @@
 // it is on the screen, from the screen's top-left. The viewport's own
 // top-left is a park point; north is smaller parkY.
 
-export const dog_px = 40;
+// Dogs and cows at 70% of their first sizes, with the tiles (Steve,
+// 2026-10-15); chickens and poop kept.
+export const dog_px = 28;
 export const cow_px = dog_px * 1.5;
 export const cow_emoji = "🐄";
-// Half a dog, full-bodied.
-export const chicken_px = dog_px / 2;
+// Full-bodied.
+export const chicken_px = 20;
 export const chicken_emoji = "🐓";
 // A dog's poop: a little brown circle, under every critter.
 export const poop_px = 12;
@@ -36,7 +38,7 @@ export function parkFromViewport(viewport, viewportX, viewportY) {
 // a torus (docs/PHYSICS.md decision 14): its right edge meets its left, its
 // bottom its top. The populated park is the 10 x 10 tiles in its middle. A
 // page subscribes to at most `most_tiles` (the server refuses more).
-export const tile_px = 500;
+export const tile_px = 350;
 export const most_tiles = 64;
 export const world_tiles = 64;
 export const world_px = world_tiles * tile_px;

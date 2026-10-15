@@ -15,7 +15,7 @@ const physics = @import("physics.zig");
 const px = physics.px;
 
 /// How far in from its corner of the tile a dog stands, on each axis.
-pub const corner_in = 75;
+pub const corner_in = 52;
 
 pub const dog_count = tiles.park_tiles * tiles.park_tiles * 4;
 pub const cow_count = tiles.park_tiles * tiles.park_tiles - tiles.park_tiles * tiles.park_tiles / 2;

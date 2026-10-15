@@ -1,6 +1,6 @@
 // Dog Park, played: one human, the park on the new physics (docs/PHYSICS.md).
 //
-// THE PARK IS A CHECKERBOARD of 500 px tiles, each named by its column and
+// THE PARK IS A CHECKERBOARD of 350 px tiles, each named by its column and
 // row, 64 by 64 of them: the world, its dogs and cows in the 10 by 10
 // tiles in its middle. **THE PAGE RUNS THE PHYSICS** (physics.wasm, the
 // server's own Zig, served as /physics-<hash>.wasm, the hash named in

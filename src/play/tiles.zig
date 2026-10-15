@@ -4,7 +4,7 @@
 
 const std = @import("std");
 
-pub const tile_px = 500;
+pub const tile_px = 350;
 /// The most tiles a page holds at once: 8 x 8, the display's tiles on a
 /// large screen with the leash's region partly off it (docs/PHYSICS.md).
 pub const most_subscribed = 64;
@@ -25,7 +25,7 @@ pub const Tile = struct {
     row: i32,
 
     /// The tile a park point (whole pixels) stands in: tile (0, 0) holds 0
-    /// to 499 on each axis, tile (-1, 0) holds -500 to -1.
+    /// to 349 on each axis, tile (-1, 0) holds -350 to -1.
     pub fn of(park_x: i32, park_y: i32) Tile {
         return .{ .col = @divFloor(park_x, tile_px), .row = @divFloor(park_y, tile_px) };
     }
@@ -38,13 +38,13 @@ pub const Tile = struct {
 
 const testing = std.testing;
 
-test "a tile's edges: 499 is the last of tile 0, 500 the first of tile 1; -1 is tile -1, 0 tile 0; -500 is tile -1, -501 tile -2" {
-    try testing.expectEqual(@as(i32, 0), Tile.of(499, 0).col);
-    try testing.expectEqual(@as(i32, 1), Tile.of(500, 0).col);
+test "a tile's edges: 349 is the last of tile 0, 350 the first of tile 1; -1 is tile -1, 0 tile 0; -350 is tile -1, -351 tile -2" {
+    try testing.expectEqual(@as(i32, 0), Tile.of(tile_px - 1, 0).col);
+    try testing.expectEqual(@as(i32, 1), Tile.of(tile_px, 0).col);
     try testing.expectEqual(@as(i32, -1), Tile.of(-1, 0).col);
     try testing.expectEqual(@as(i32, 0), Tile.of(0, 0).col);
-    try testing.expectEqual(@as(i32, -1), Tile.of(0, -500).row);
-    try testing.expectEqual(@as(i32, -2), Tile.of(0, -501).row);
+    try testing.expectEqual(@as(i32, -1), Tile.of(0, -tile_px).row);
+    try testing.expectEqual(@as(i32, -2), Tile.of(0, -tile_px - 1).row);
 }
 
 test "a tile wraps into the world: 64 is 0, -1 is 63, 63 stays" {
