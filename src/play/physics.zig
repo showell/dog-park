@@ -29,6 +29,7 @@
 //! drag, the chickens' turn.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const tiles = @import("tiles.zig");
 const layout = @import("layout.zig");
 
@@ -691,6 +692,16 @@ pub const Scene = struct {
     poop_next: [poop_count]u16 = undefined,
     /// The slots a dog pooped into this tick.
     poop_laid: std.StaticBitSet(poop_count) = undefined,
+    /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210): seen index `j`
+    /// is set in the cell of the span its point stands in (`cell` a side,
+    /// `cellOf`), or in `seen_outside` for a point past the span's tiles,
+    /// kept by `put` on every move; `seen_cell` is where each is set. A
+    /// square asks only the cells it could reach (`critters`), and walks
+    /// the set bits **in seen index order**, the order a scan of every
+    /// seen critter took: who is nudged, shoved or blocks first follows it.
+    seen_cells: [span_cells][span_cells]SeenSet = undefined,
+    seen_outside: SeenSet = undefined,
+    seen_cell: [critter_count]u16 = undefined,
     /// The poops the leashed dog's walk has crossed `poop_every` for since
     /// the last were laid (`layDue`, after the pixel-tick's walk).
     poop_due: u32 = 0,
@@ -728,6 +739,13 @@ pub const Scene = struct {
         for (0..cow_count) |i| s.consider(.cow(@intCast(i)), span, l);
         for (0..dog_count) |i| if (i != l) s.consider(.dog(@intCast(i)), span, l);
         for (0..chicken_count) |i| s.consider(.chicken(@intCast(i)), span, l);
+        s.seen_cells = @splat(@splat(.initEmpty()));
+        s.seen_outside = .initEmpty();
+        for (0..s.len) |j| {
+            const c = s.cellOf(s.at[j]);
+            s.seen_cell[j] = c;
+            s.cellSet(c).set(j);
+        }
         s.poop_listed = .initEmpty();
         s.poop_head = @splat(@splat(no_poop));
         s.poop_laid = .initEmpty();
@@ -791,6 +809,65 @@ pub const Scene = struct {
         return it;
     }
 
+    /// The cell a point stands in, `row * span_cells + col` from the span's
+    /// first tile, or `outside_cell` past the span's tiles.
+    fn cellOf(s: *const Scene, p: Point) u16 {
+        const ox = @mod(p.x - s.span.col_lo * tile, world);
+        const oy = @mod(p.y - s.span.row_lo * tile, world);
+        if (ox >= (s.span.col_hi - s.span.col_lo + 1) * tile or oy >= (s.span.row_hi - s.span.row_lo + 1) * tile) return outside_cell;
+        const col: usize = @intCast(@divFloor(ox, cell));
+        const row: usize = @intCast(@divFloor(oy, cell));
+        return @intCast(row * span_cells + col);
+    }
+
+    fn cellSet(s: *Scene, c: u16) *SeenSet {
+        if (c == outside_cell) return &s.seen_outside;
+        return &s.seen_cells[c / span_cells][c % span_cells];
+    }
+
+    /// The span's cells, columns then rows.
+    fn cellsWide(s: *const Scene) i32 {
+        return (s.span.col_hi - s.span.col_lo + 1) * cell_per_tile;
+    }
+    fn cellsHigh(s: *const Scene) i32 {
+        return (s.span.row_hi - s.span.row_lo + 1) * cell_per_tile;
+    }
+
+    /// Every seen critter whose point might lie within `reach` of `p` on
+    /// both axes (fewer than `reach` away: a superset of those that are):
+    /// those of the cells the square meets, and every one past the span.
+    pub fn critters(s: *const Scene, p: Point, reach: i32) SeenSet {
+        var out = s.seen_outside;
+        const x = shortWay(p.x - s.span.col_lo * tile);
+        const y = shortWay(p.y - s.span.row_lo * tile);
+        const col_lo: usize = @intCast(@max(0, @divFloor(x - reach, cell)));
+        const col_hi = @min(s.cellsWide() - 1, @divFloor(x + reach, cell));
+        const row_lo: usize = @intCast(@max(0, @divFloor(y - reach, cell)));
+        const row_hi = @min(s.cellsHigh() - 1, @divFloor(y + reach, cell));
+        if (col_hi < 0 or row_hi < 0) return out;
+        for (row_lo..@as(usize, @intCast(row_hi)) + 1) |r| {
+            for (s.seen_cells[r][col_lo .. @as(usize, @intCast(col_hi)) + 1]) |set| out.setUnion(set);
+        }
+        return out;
+    }
+
+    /// **THE BUCKETS HOLD** every seen critter in the cell its point
+    /// stands in, and nowhere else: checked after every pixel-tick and
+    /// chicken's turn in the tests (a move that forgot its bit would let a
+    /// square miss whoever it overlaps).
+    pub fn bucketsHold(s: *Scene) bool {
+        var bits: usize = s.seen_outside.count();
+        for (s.seen_cells) |row| for (row) |set| {
+            bits += set.count();
+        };
+        if (bits != s.len) return false;
+        for (0..s.len) |j| {
+            const c = s.cellOf(s.at[j]);
+            if (c != s.seen_cell[j] or !s.cellSet(c).isSet(j)) return false;
+        }
+        return true;
+    }
+
     fn consider(s: *Scene, c: Critter, span: TileSpan, l: u16) void {
         if (s.board.known(c) != .present) return;
         if (!span.holdsPoint(s.board.at(c))) return;
@@ -819,6 +896,12 @@ pub const Scene = struct {
         const p = wrapped(to);
         const was = s.at[i];
         s.at[i] = p;
+        const c = s.cellOf(p);
+        if (c != s.seen_cell[i]) {
+            s.cellSet(s.seen_cell[i]).unset(i);
+            s.cellSet(c).set(i);
+            s.seen_cell[i] = c;
+        }
         const who = s.seen[i].who;
         s.board.put(who, p);
         if (i != 0) return;
@@ -835,6 +918,22 @@ pub const span_tiles = @divFloor(2 * region_reach + tile - 1, tile) + 1;
 
 /// The end of a tile's list of poops.
 const no_poop: u16 = std.math.maxInt(u16);
+
+/// A set of seen indexes.
+pub const SeenSet = std.StaticBitSet(critter_count);
+
+/// **A CELL OF THE SEEN CRITTERS' BUCKETS**: a tile cut `cell_per_tile`
+/// ways on each axis, a side a few critters wide.
+pub const cell_per_tile = 2;
+pub const cell: i32 = @divExact(tile, cell_per_tile);
+pub const span_cells: usize = span_tiles * cell_per_tile;
+/// `Scene.seen_cell` for a critter past the span's tiles.
+const outside_cell: u16 = std.math.maxInt(u16);
+
+comptime {
+    // A cell's index, and `outside_cell` apart from them all.
+    std.debug.assert(span_cells * span_cells < outside_cell);
+}
 
 /// The listed poop slots on some tiles of the span (`Scene.near`), a
 /// tile's list at a time; eaten ones too (absent), as listed.
@@ -894,7 +993,11 @@ fn sweep(sc: *Scene, axis: Axis, s: i32) Swept {
     var blocker: ?Bumped = null;
     const p = sc.pos(0);
     const h = sc.seen[0].half;
-    for (sc.list()[1..], 1..) |o, j| {
+    var near = sc.critters(p, h + cow_half + mag(s));
+    near.unset(0);
+    var it = near.iterator(.{});
+    while (it.next()) |j| {
+        const o = sc.seen[j];
         const got = sweepLimit(p, h, axis, s, sc.pos(j), o.half);
         if (mag(got) < mag(best)) {
             best = got;
@@ -1032,6 +1135,7 @@ fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
         walk(sc, @intCast(measure(sc.step)));
         layDue(sc);
     }
+    if (builtin.is_test) std.debug.assert(sc.bucketsHold());
     return bumped;
 }
 
@@ -1139,29 +1243,79 @@ const Waiting = struct {
 };
 
 /// Seen critter `from`'s `walk_fan` nearest dogs and cows not yet
-/// `visited` (ties to the lower rank), from where it stands now, offered
-/// to `waiting` keyed by their distance from it.
+/// `visited` (ties to the lower seen index, which is rank order), from
+/// where it stands now, offered to `waiting` keyed by their distance from
+/// it, nearest first.
+///
+/// **RING BY RING** (metal-vmm QUEUE 210): the cells around its own, out
+/// a ring at a time, and those past the span first. A critter in a cell
+/// `r` rings out is more than `(r - 1) * cell` away, so once three are
+/// found and the third is at most `r * cell` away, no farther ring can
+/// hold a nearer one, nor an equal (the search stops there). Found in any
+/// order, so a candidate is compared by (distance, index) both.
 fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, visited: *const std.StaticBitSet(critter_count)) void {
     const p = sc.pos(from);
-    var near_key: [walk_fan]i64 = undefined;
-    var near_who: [walk_fan]u16 = undefined;
-    var n: usize = 0;
-    for (1..sc.len) |j| {
-        if (visited.isSet(j) or sc.seen[j].who.kind == .chicken) continue;
-        const d = measure(delta(sc.pos(j), p));
-        // In rank order, so a tie keeps the one already in.
-        if (n == walk_fan and d >= near_key[n - 1]) continue;
-        var k = if (n < walk_fan) n else n - 1;
-        while (k > 0 and near_key[k - 1] > d) : (k -= 1) {
-            near_key[k] = near_key[k - 1];
-            near_who[k] = near_who[k - 1];
+    var near: Nearest = .{};
+    var it = sc.seen_outside.iterator(.{});
+    while (it.next()) |j| near.offer(sc, p, j, visited);
+    const x = shortWay(p.x - sc.span.col_lo * tile);
+    const y = shortWay(p.y - sc.span.row_lo * tile);
+    const wide = sc.cellsWide();
+    const high = sc.cellsHigh();
+    const pc = @divFloor(x, cell);
+    const pr = @divFloor(y, cell);
+    var r: i32 = 0;
+    // Every cell of the span is within this many rings of `from`'s, even
+    // one past the span.
+    const most_rings: i32 = @max(wide, high) + @as(i32, @intCast(@max(@abs(pc), @abs(pr))));
+    while (r <= most_rings) : (r += 1) {
+        if (r > 0 and near.n == walk_fan and near.key[walk_fan - 1] <= @as(i64, r - 1) * cell) break;
+        var row = @max(0, pr - r);
+        while (row <= @min(high - 1, pr + r)) : (row += 1) {
+            if (row == pr - r or row == pr + r) {
+                // The ring's top and bottom rows, whole.
+                var col = @max(0, pc - r);
+                while (col <= @min(wide - 1, pc + r)) : (col += 1) near.offerCell(sc, p, row, col, visited);
+            } else {
+                // Between them, its two ends.
+                if (pc - r >= 0 and pc - r < wide) near.offerCell(sc, p, row, pc - r, visited);
+                if (r > 0 and pc + r >= 0 and pc + r < wide) near.offerCell(sc, p, row, pc + r, visited);
+            }
         }
-        near_key[k] = d;
-        near_who[k] = @intCast(j);
-        if (n < walk_fan) n += 1;
     }
-    for (near_key[0..n], near_who[0..n]) |d, j| waiting.offer(d, j);
+    for (near.key[0..near.n], near.who[0..near.n]) |d, j| waiting.offer(d, j);
 }
+
+/// The `walk_fan` nearest so far, by (distance, seen index).
+const Nearest = struct {
+    key: [walk_fan]i64 = undefined,
+    who: [walk_fan]u16 = undefined,
+    n: usize = 0,
+
+    fn offer(near: *Nearest, sc: *const Scene, p: Point, j: usize, visited: *const std.StaticBitSet(critter_count)) void {
+        if (j == 0 or visited.isSet(j) or sc.seen[j].who.kind == .chicken) return;
+        const d = measure(delta(sc.pos(j), p));
+        const who: u16 = @intCast(j);
+        if (near.n == walk_fan and !before(d, who, near.key[walk_fan - 1], near.who[walk_fan - 1])) return;
+        var k = if (near.n < walk_fan) near.n else walk_fan - 1;
+        while (k > 0 and before(d, who, near.key[k - 1], near.who[k - 1])) : (k -= 1) {
+            near.key[k] = near.key[k - 1];
+            near.who[k] = near.who[k - 1];
+        }
+        near.key[k] = d;
+        near.who[k] = who;
+        if (near.n < walk_fan) near.n += 1;
+    }
+
+    fn offerCell(near: *Nearest, sc: *const Scene, p: Point, row: i32, col: i32, visited: *const std.StaticBitSet(critter_count)) void {
+        var it = sc.seen_cells[@intCast(row)][@intCast(col)].iterator(.{});
+        while (it.next()) |j| near.offer(sc, p, j, visited);
+    }
+
+    fn before(d: i64, j: u16, kd: i64, kj: u16) bool {
+        return d < kd or (d == kd and j < kj);
+    }
+};
 
 /// **WHAT A CRITTER WANTS** (decisions 21-24), from the critters in motion
 /// only, where they now stand:
@@ -1314,7 +1468,10 @@ fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
         const h = sc.seen[g].half;
         if (!clearOfTheEdge(sc.span, to, h)) return .{ .why = .edge, .at = from, .blocker = from };
         if (poopUnder(sc, to, h, if (mover.kind == .chicken) .eats_ripe else .eats_none)) |q| return .{ .why = .poop, .at = from, .blocker = q };
-        for (sc.list(), 0..) |o, j| {
+        var near = sc.critters(to, h + cow_half);
+        var it = near.iterator(.{});
+        while (it.next()) |j| {
+            const o = sc.seen[j];
             if (in_move.isSet(j) or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
             if (o.who.kind == .chicken) {
                 if (mover.kind == .chicken or ns == nudge_most) return .{ .why = .chicken, .at = from, .blocker = sc.pos(j) };
@@ -1338,8 +1495,10 @@ fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
         const cannot: Veto = .{ .why = .chicken, .at = sc.pos(g), .blocker = p };
         if (!clearOfTheEdge(sc.span, land, chicken_half)) return cannot;
         if (poopUnder(sc, land, chicken_half, .eats_none) != null) return cannot;
-        for (sc.list(), 0..) |o, j| {
-            if (!in_move.isSet(j) and squaresOverlap(land, chicken_half, sc.pos(j), o.half)) return cannot;
+        var near = sc.critters(land, chicken_half + cow_half);
+        var it = near.iterator(.{});
+        while (it.next()) |j| {
+            if (!in_move.isSet(j) and squaresOverlap(land, chicken_half, sc.pos(j), sc.seen[j].half)) return cannot;
         }
         for (group[0..n]) |o| if (squaresOverlap(land, chicken_half, plus(sc.pos(o), step), sc.seen[o].half)) return cannot;
         for (lands[0..m]) |o| if (squaresOverlap(land, chicken_half, o, chicken_half)) return cannot;
@@ -1471,8 +1630,10 @@ fn tryPoop(sc: *Scene, slot: u16, p: Point, dx: i32, dy: i32) bool {
 /// sees, and keeps clear of the seen tiles' edge as a step must.
 fn poopFits(sc: *const Scene, q: Point, slot: u16) bool {
     if (!clearOfTheEdge(sc.span, q, poop_half)) return false;
-    for (sc.list(), 0..) |o, j| {
-        if (squaresOverlap(q, poop_half, sc.pos(j), o.half)) return false;
+    var near = sc.critters(q, poop_half + cow_half);
+    var it = near.iterator(.{});
+    while (it.next()) |j| {
+        if (squaresOverlap(q, poop_half, sc.pos(j), sc.seen[j].half)) return false;
     }
     var poops = sc.near(q, 2 * poop_half);
     while (poops.next()) |n| {
@@ -1517,6 +1678,7 @@ fn chickensTurn(sc: *Scene) void {
             if (measure(home) <= home_band) continue;
             _ = stepWhole(sc, i, stepAtMost(home, most));
         }
+        if (builtin.is_test) std.debug.assert(sc.bucketsHold());
         const now = sc.pos(i);
         var poops = sc.near(now, chicken_half + poop_half);
         while (poops.next()) |n| {

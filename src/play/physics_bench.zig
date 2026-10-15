@@ -185,6 +185,73 @@ fn busiestReport(spot: Busiest, w: *wire.Text) !judge.Kept {
     return kept;
 }
 
+/// The board moved by `by` tiles on both axes, round the torus: the park
+/// across the world's seam.
+fn shifted(b: Board, by: i32) Board {
+    var out = b;
+    const d = by * physics.tile;
+    for (&out.dogs) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
+    for (&out.cows) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
+    for (&out.chickens) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
+    for (&out.poops) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
+    return out;
+}
+
+/// **EVERY LINE OF MANY TICKS**, for a diff:
+/// - each dog of the laid-out park leashed in turn, one full drag, on the
+///   park as laid out and on the park moved across the world's seam;
+/// - the busiest spot strewn with poop, 96 ticks of a drag that turns,
+///   each tick from the last (poops laid, eaten, slots reused);
+/// - the packed herd's full drag; the busiest spot's 8-tick report.
+fn printLines(io: std.Io, full: physics.Capped) !void {
+    var buf: [1 << 16]u8 = undefined;
+    var ow = std.Io.File.stdout().writer(io, &buf);
+    const out = &ow.interface;
+    var text_buf: [1 << 16]u8 = undefined;
+    var lines: physics.Lines = .{};
+    const tickLines = struct {
+        fn f(o: *std.Io.Writer, tb: []u8, ls: *const physics.Lines, t: physics.Tick) !void {
+            var w: wire.Text = .{ .buf = tb };
+            for (ls.slice()) |c| try wire.write(&w, wire.checkedLine(t, c));
+            try o.writeAll(w.bytes());
+        }
+    }.f;
+    for ([_]i32{ 0, tiles_from_middle }) |by| {
+        const park = shifted(Board.laidOut(), by);
+        for (0..physics.dog_count) |i| {
+            var b = park;
+            b.hold = .{ .leashed = .{ .dog = @intCast(i), .drag = .on } };
+            _ = physics.tick(&b, 1, &.{}, full.slice(), &lines);
+            try out.print("== park +{d} tiles, dog {d}\n", .{ by, i });
+            try tickLines(out, &text_buf, &lines, 1);
+        }
+    }
+    const spot = busiestSpot();
+    var strewn = strewnSpot(spot);
+    var t: physics.Tick = 1;
+    while (t <= 96) : (t += 1) {
+        const turn: i32 = @intCast(t % 12);
+        const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(10 * (turn - 6)), .dy = physics.px(if (t % 24 < 12) 40 else -40) }});
+        const humans: []const physics.Human = if (strewn.hold == .leashed and strewn.hold.leashed.drag != .on) &.{.grab} else &.{};
+        if (strewn.hold == .none) strewn.hold = .{ .leashed = .{ .dog = spot.dog, .drag = .on } };
+        _ = physics.tick(&strewn, t, humans, drag.slice(), &lines);
+        try out.print("== strewn tick {d}\n", .{t});
+        try tickLines(out, &text_buf, &lines, t);
+    }
+    var herd = packedHerd();
+    _ = physics.tick(&herd.board, 1, &.{}, full.slice(), &lines);
+    try out.print("== herd\n", .{});
+    try tickLines(out, &text_buf, &lines, 1);
+    var report: [65536]u8 = undefined;
+    var w: wire.Text = .{ .buf = &report };
+    _ = try busiestReport(spot, &w);
+    try out.print("== report\n{s}", .{w.bytes()});
+    try out.flush();
+}
+
+/// The park's middle is this many tiles from the world's origin.
+const tiles_from_middle = @divExact(@import("tiles.zig").world_tiles, 2);
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const full = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = physics.cap }});
@@ -230,6 +297,10 @@ pub fn main(init: std.process.Init) !void {
         std.mem.doNotOptimizeAway(sink);
         return;
     }
+    // `-- lines`: every line of many ticks, in the wire's text, for a
+    // before-and-after diff of a change that must not change what the
+    // physics does (metal-vmm QUEUE 210).
+    if (args.len > 1 and std.mem.eql(u8, args[1], "lines")) return printLines(io, full);
     if (args.len > 1 and std.mem.eql(u8, args[1], "rerun")) {
         var report: [65536]u8 = undefined;
         var w: wire.Text = .{ .buf = &report };
