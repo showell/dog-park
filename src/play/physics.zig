@@ -678,10 +678,9 @@ pub const Scene = struct {
     moving_len: usize = 0,
     /// The region's tiles: everything the physics sees.
     span: TileSpan = undefined,
-    /// The poop slots the physics sees: present in the region's tiles at
-    /// the tick's start, or laid since (eaten ones stay listed, absent).
-    poops: [poop_count]u16 = undefined,
-    poops_len: usize = 0,
+    /// The poops the physics sees: present in the region's tiles at the
+    /// tick's start, or laid since, and not eaten. A listed slot is always
+    /// present.
     poop_listed: std.StaticBitSet(poop_count) = undefined,
     /// **THE POOPS BY TILE** (metal-vmm QUEUE 207's measure): each listed
     /// slot is on the list of the span's tile its point stands in
@@ -729,7 +728,6 @@ pub const Scene = struct {
         for (0..cow_count) |i| s.consider(.cow(@intCast(i)), span, l);
         for (0..dog_count) |i| if (i != l) s.consider(.dog(@intCast(i)), span, l);
         for (0..chicken_count) |i| s.consider(.chicken(@intCast(i)), span, l);
-        s.poops_len = 0;
         s.poop_listed = .initEmpty();
         s.poop_head = @splat(@splat(no_poop));
         s.poop_laid = .initEmpty();
@@ -743,8 +741,6 @@ pub const Scene = struct {
     fn listPoop(s: *Scene, n: u16) void {
         if (s.poop_listed.isSet(n)) return;
         s.poop_listed.set(n);
-        s.poops[s.poops_len] = n;
-        s.poops_len += 1;
         s.link(n);
     }
 
@@ -760,8 +756,15 @@ pub const Scene = struct {
         head.* = n;
     }
 
+    /// A chicken eats listed slot `n`: it is absent, and off the lists.
+    fn eat(s: *Scene, n: u16) void {
+        s.unlink(n);
+        s.poop_listed.unset(n);
+        s.board.poop_known[n] = .absent;
+    }
+
     /// Takes listed slot `n` off its tile's list (before the slot is laid
-    /// anew elsewhere: the 2049th poop since one in view).
+    /// anew elsewhere, or eaten).
     fn unlink(s: *Scene, n: u16) void {
         var at = s.headOf(s.board.poops[n]);
         while (at.* != n) at = &s.poop_next[at.*];
@@ -902,7 +905,6 @@ fn sweep(sc: *Scene, axis: Axis, s: i32) Swept {
     var poop_best = s;
     var poop: ?u16 = null;
     while (poops.next()) |n| {
-        if (sc.board.poop_known[n] != .present) continue;
         const got = sweepLimit(p, h, axis, s, sc.board.poops[n], poop_half);
         if (mag(got) < mag(poop_best) or (poop != null and mag(got) == mag(poop_best) and n < poop.?)) {
             poop_best = got;
@@ -1311,7 +1313,7 @@ fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
         const to = plus(from, step);
         const h = sc.seen[g].half;
         if (!clearOfTheEdge(sc.span, to, h)) return .{ .why = .edge, .at = from, .blocker = from };
-        if (poopUnder(sc, to, h, mover.kind == .chicken)) |q| return .{ .why = .poop, .at = from, .blocker = q };
+        if (poopUnder(sc, to, h, if (mover.kind == .chicken) .eats_ripe else .eats_none)) |q| return .{ .why = .poop, .at = from, .blocker = q };
         for (sc.list(), 0..) |o, j| {
             if (in_move.isSet(j) or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
             if (o.who.kind == .chicken) {
@@ -1335,7 +1337,7 @@ fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
         lands[m] = land;
         const cannot: Veto = .{ .why = .chicken, .at = sc.pos(g), .blocker = p };
         if (!clearOfTheEdge(sc.span, land, chicken_half)) return cannot;
-        if (poopUnder(sc, land, chicken_half, false) != null) return cannot;
+        if (poopUnder(sc, land, chicken_half, .eats_none) != null) return cannot;
         for (sc.list(), 0..) |o, j| {
             if (!in_move.isSet(j) and squaresOverlap(land, chicken_half, sc.pos(j), o.half)) return cannot;
         }
@@ -1394,22 +1396,22 @@ pub fn ripe(laid: u32, n: u16) bool {
 /// The place of a poop the physics sees that a square of half `h` at `p`
 /// overlaps (poop is an obstacle to dogs and cows), if any, the lowest
 /// slot's; for a chicken's step (`only_newest`), only the newest counts.
-fn poopUnder(sc: *const Scene, p: Point, h: i32, only_newest: bool) ?Point {
-    if (only_newest) {
-        const n: u16 = @intCast((sc.board.laid -% 1) % poop_count);
-        if (sc.poop_listed.isSet(n) and sc.board.poop_known[n] == .present and squaresOverlap(p, h, sc.board.poops[n], poop_half)) return sc.board.poops[n];
-        return null;
-    }
+fn poopUnder(sc: *const Scene, p: Point, h: i32, mover: Eater) ?Point {
     var poops = sc.near(p, h + poop_half);
     var under: ?u16 = null;
     while (poops.next()) |n| {
-        if (sc.board.poop_known[n] == .present and squaresOverlap(p, h, sc.board.poops[n], poop_half) and (under == null or n < under.?)) under = n;
+        if (mover == .eats_ripe and ripe(sc.board.laid, n)) continue;
+        if (squaresOverlap(p, h, sc.board.poops[n], poop_half) and (under == null or n < under.?)) under = n;
     }
     return if (under) |n| sc.board.poops[n] else null;
 }
 
+/// Whether a step's mover eats what it steps onto: a chicken walks onto
+/// ripe poop (and eats it), so only the newest blocks it.
+const Eater = enum { eats_ripe, eats_none };
+
 fn onPoop(sc: *const Scene, p: Point, h: i32) bool {
-    return poopUnder(sc, p, h, false) != null;
+    return poopUnder(sc, p, h, .eats_none) != null;
 }
 
 /// Who nudges whom: cows are one kin, each breed of dog another; a
@@ -1474,7 +1476,7 @@ fn poopFits(sc: *const Scene, q: Point, slot: u16) bool {
     }
     var poops = sc.near(q, 2 * poop_half);
     while (poops.next()) |n| {
-        if (n == slot or sc.board.poop_known[n] != .present) continue;
+        if (n == slot) continue;
         if (squaresOverlap(q, poop_half, sc.board.poops[n], poop_half)) return false;
     }
     return true;
@@ -1518,7 +1520,7 @@ fn chickensTurn(sc: *Scene) void {
         const now = sc.pos(i);
         var poops = sc.near(now, chicken_half + poop_half);
         while (poops.next()) |n| {
-            if (sc.board.poop_known[n] == .present and ripe(sc.board.laid, n) and squaresOverlap(now, chicken_half, sc.board.poops[n], poop_half)) sc.board.poop_known[n] = .absent;
+            if (ripe(sc.board.laid, n) and squaresOverlap(now, chicken_half, sc.board.poops[n], poop_half)) sc.eat(n);
         }
     }
 }
@@ -1530,7 +1532,7 @@ fn nearestRipe(sc: *const Scene, p: Point) ?Point {
     var best_d: i64 = 0;
     var poops = sc.near(p, chicken_sight);
     while (poops.next()) |n| {
-        if (sc.board.poop_known[n] != .present or !ripe(sc.board.laid, n)) continue;
+        if (!ripe(sc.board.laid, n)) continue;
         const d = measure(delta(p, sc.board.poops[n]));
         if (d > chicken_sight) continue;
         if (best == null or d < best_d or (d == best_d and n < best.?)) {

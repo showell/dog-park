@@ -141,7 +141,7 @@ fn free(sc: *const physics.Scene, b: *const Board, q: Point, n: u16) bool {
 
 fn poopsSeen(b: *Board) usize {
     const sc = physics.Scene.of(b) orelse return 0;
-    return sc.poops_len;
+    return sc.poop_listed.count();
 }
 
 /// The report's ticks: the page sends a report at its byte budget, and a
