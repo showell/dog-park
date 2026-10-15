@@ -381,7 +381,7 @@ test("6: frozen at the 32-tick window, a letgo takes from + 33, and the server k
   }
 });
 
-test("4: a load after play starts the park afresh: the dog dragged is back where it was laid out, nothing leashed or waiting, and the new page's reports are kept; the first page is taken over", async () => {
+test("4: a load after play picks the game up: the dog dragged is where the drag left it, nothing leashed or waiting, and the new page's reports are kept; the first page is taken over", async () => {
   const server = await scratchServer();
   try {
     const rig = await pageRig({ post: (p, t) => server.post(p, t) });
@@ -389,7 +389,8 @@ test("4: a load after play starts the park afresh: the dog dragged is back where
     await rig.ticks(8);
     const dog = await dragAbout(rig, 10, 3, 1);
     await rig.ticks(8);
-    assert.notDeepEqual([rig.engine.view().dogs.get(dog.id).parkX, rig.engine.view().dogs.get(dog.id).parkY], [dog.parkX, dog.parkY]);
+    const moved = rig.engine.view().dogs.get(dog.id);
+    assert.notDeepEqual([moved.parkX, moved.parkY], [dog.parkX, dog.parkY]);
     // A second page loads.
     const wire = recording(server);
     const fresh = await pageRig({ post: wire.post });
@@ -399,7 +400,7 @@ test("4: a load after play starts the park afresh: the dog dragged is back where
     assert.deepEqual(fresh.engine.view().leashed, { kind: "none" });
     await fresh.ticks(20);
     const back = fresh.engine.view().dogs.get(dog.id);
-    assert.deepEqual([back.parkX, back.parkY], [dog.parkX, dog.parkY]);
+    assert.deepEqual([back.parkX, back.parkY], [moved.parkX, moved.parkY]);
     const asked = wire.answers.filter((a) => a.path === "/report");
     assert.ok(asked.length >= 2);
     assert.ok(asked.every((a) => /^req \d+\nkept \d+\n/.test(a.text)), asked.map((a) => a.text).join("\n"));
@@ -495,7 +496,7 @@ test("a fast drag glides: the leashed dog, 100 px a tick, is drawn from where it
 test("the server serves the wasm the page runs, under its hash, cached for good; the page names it", async () => {
   const server = await scratchServer();
   try {
-    const page = await server.get("/");
+    const page = await server.get("/dogpark");
     const hash = /<meta name="dogpark-physics" content="([0-9a-f]{8})">/.exec(page.body.toString())[1];
     const wasm = await server.get(`/physics-${hash}.wasm`);
     assert.equal(wasm.status, 200);

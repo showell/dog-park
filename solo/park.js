@@ -58,11 +58,10 @@ async function loadPhysics() {
   return physics;
 }
 
-// **NO REMEMBERED VIEWPORT**: every load starts the park afresh (decision
-// 16), its dogs back where they were laid out, so a view kept from the last
-// visit can only show where they no longer are: empty land (Steve,
-// 2026-10-14: "9103 has no critters"). A load opens on the park's middle.
-// What an older page kept is cleared.
+// **NO REMEMBERED VIEWPORT**: a load opens on the park's middle. (A load
+// picks the game up where it was, but a view kept from an older page could
+// show empty land: Steve, 2026-10-14, "9103 has no critters".) What an
+// older page kept is cleared.
 try { localStorage.removeItem("dogpark.viewport"); } catch { /* no storage */ }
 
 // ── the page ────────────────────────────────────────────────────────────────
@@ -149,11 +148,23 @@ async function start() {
     drawn = mode === "overview"
       ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed, overviewAt, v.chickens ?? []) }
       : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }, v.visits, { chickens: v.chickens ?? [], poops: v.poops ?? [] }) };
-    const note = v.status.kind === "stopped" ? v.status.message : v.status.kind === "reloading" ? `reloading: ${v.status.why}` : "none";
+    const note = v.status.kind === "stopped" ? v.status.message
+      : v.status.kind === "reloading" ? `reloading: ${v.status.why}`
+      : v.waitingS !== null ? `Someone else is playing right now. Your turn comes in about ${v.waitingS} s.`
+      : "none";
     draw(ctx, note === "none" ? drawn.objects : [...drawn.objects, ...messageScene(v.viewport, note)]);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+
+  // **START OVER**: this device's game back to its first layout, at the
+  // next load (`POST /reset`), and the page loads again.
+  document.getElementById("reset")?.addEventListener("click", async () => {
+    if (!confirm("Start over? Every critter goes back to where the game began.")) return;
+    const r = await post("/reset", "");
+    if (r.status !== 200) return console.error(`/reset: ${r.status} ${r.text}`);
+    location.reload();
+  });
 }
 
 if (typeof document !== "undefined") start().catch((e) => console.error("Dog Park did not start:", e.message));

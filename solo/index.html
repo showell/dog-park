@@ -5,14 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- The physics the page runs: the server fills in its hash when it serves this file. -->
 <meta name="dogpark-physics" content="PHYSICS_HASH">
-<title>Dog Park (solo)</title>
+<title>Dog Park</title>
 <style>
   html, body { margin: 0; height: 100%; background: #e9f3e1; }
   canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  #reset { position: fixed; top: 10px; right: 10px; font: 600 14px system-ui, sans-serif; color: #234; background: rgba(255,255,255,0.85); border: 1px solid #9ab; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
 </style>
 </head>
 <body>
 <canvas id="park"></canvas>
+<button id="reset" type="button" title="Put every critter back where the game began">Start over</button>
 <script type="module" src="park.js"></script>
 </body>
 </html>

@@ -10,6 +10,18 @@ const hosted = @import("hosted.zig");
 pub const site = hosted.site;
 
 pub fn main(init: std.process.Init.Minimal) !void {
+    // **THE COOKIE'S SECURITY**, named: Secure unless DOGPARK_INSECURE_COOKIE
+    // is exactly `yes` (a plain-http development server); any other value
+    // stops the start rather than guess.
+    var env = try std.process.Environ.createMap(init.environ, std.heap.page_allocator);
+    defer env.deinit();
+    if (env.get("DOGPARK_INSECURE_COOKIE")) |v| {
+        if (!std.mem.eql(u8, v, "yes")) {
+            std.debug.print("dog-park-play: DOGPARK_INSECURE_COOKIE is \"{s}\": unset it, or set it to yes for plain-http development\n", .{v});
+            return error.BadInsecureCookieSetting;
+        }
+        @import("app.zig").cookie_mode = .insecure;
+    }
     try @import("webbox_linux").linux_host.Server(site).run(init, .{
         .name = "dog-park-play",
         .env = .{
@@ -22,10 +34,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .default_port = 9103,
         .default_trusted_proxy = "127.0.0.1",
         // The host's second root (webbox opens it at the start, so it must
-        // exist when a config names a data_dir and no auth_dir): Dog Park
-        // keeps nothing in it.
+        // exist when a config names a data_dir and no auth_dir): the site
+        // secret that signs the players' cookies.
         .default_auth_dir = "~/DogParkAuth",
-        .routes_hint = "(/, /*.js, /physics-H.wasm, POST /load, /report)",
+        .routes_hint = "(/, POST /begin, /dogpark, POST /reset, /*.js, /physics-H.wasm, POST /load, /report)",
         .free_space = unread,
     }, report);
 }

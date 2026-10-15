@@ -19,7 +19,7 @@ const budget_ns: i96 = std.time.ns_per_s;
 const least_runs = 10;
 
 fn post(io: std.Io, alloc: std.mem.Allocator, hub: *webbox.bus.Hub, body: []const u8) ![]const u8 {
-    const raw = try std.fmt.allocPrint(alloc, "POST /report HTTP/1.1\r\nHost: x\r\nContent-Length: {d}\r\n\r\n{s}", .{ body.len, body });
+    const raw = try std.fmt.allocPrint(alloc, "POST /report HTTP/1.1\r\nHost: x\r\nCookie: {s}\r\nContent-Length: {d}\r\n\r\n{s}", .{ try app.cookieFor(io, alloc, 0), body.len, body });
     var out: std.Io.Writer.Allocating = .init(alloc);
     var reader: std.Io.Reader = .fixed(raw);
     var server = std.http.Server.init(&reader, &out.writer);
@@ -47,10 +47,10 @@ pub fn main(init: std.process.Init) !void {
     defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
     _ = try app.setup(io, std.heap.page_allocator, .{ .data_dir = try std.fs.path.join(a, &.{ dir, "data" }), .auth_dir = try std.fs.path.join(a, &.{ dir, "auth" }) });
     var hub = webbox.bus.Hub.init(io, std.heap.page_allocator);
-    const s = &app.the_physics;
+    const s = try app.game(io, 0);
 
     // The leash, kept, as a page's load and first request leave it.
-    _ = try s.load(io, a, try std.fmt.allocPrint(a, "dogpark 1 physics {x:0>8} load 1920x1080\n", .{s.physics_hash}));
+    _ = try s.load(io, a, try std.fmt.allocPrint(a, "dogpark 1 physics {x:0>8} load 1920x1080\n", .{s.physics_hash}), .layout);
     const dog: u16 = 137;
     s.kept.board.hold = .{ .leashed = .{ .dog = dog, .drag = .on } };
     s.last = 1;

@@ -18,13 +18,13 @@ pub const hosting = struct {
     pub const cache_largest_most = 1024 * 1024;
     /// Its setup's report, a line each, for the host's log.
     pub fn describeStart(r: app.StartReport, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        switch (r.old_seed) {
-            .none => {},
-            .ignored => try w.print("an older server's dogs.json or cows.json is in {s}: ignored (the park starts from the first layout)\n", .{r.data_dir}),
-        }
-        switch (r.physics.board) {
-            .applied => |a| try w.print("the physics' board came back from its snapshot and {d} log entries ({d} torn bytes dropped), kept through tick {d}\n", .{ a.entries, a.torn_bytes, r.physics.kept }),
-            .resolved => |n| try w.print("the physics' board was resolved afresh from the first layout ({d} moved to clear overlaps)\n", .{n}),
-        }
+        try w.print("{d} of {d} accounts handed out; the site secret {s}; cookies {s}\n", .{ r.claimed, @import("players.zig").most_players, switch (r.secret) {
+            .found => "found",
+            .made => "made anew",
+        }, switch (r.cookie_mode) {
+            .secure => "__Host-dogpark, Secure (behind HTTPS)",
+            .insecure => "dogpark, NOT Secure (DOGPARK_INSECURE_COOKIE=yes: plain-http development only)",
+        } });
+        try w.print("the games: {s}/game-<slot>, each started at its player's first load\n", .{r.data_dir});
     }
 };

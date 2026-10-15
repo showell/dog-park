@@ -63,6 +63,9 @@ export const spacing_ms = 250;
 export const answer_ms = 5000;
 // Between tries of one request: 5 s, then 10, 20, 40, and 60 for ever.
 export const backoff_ms = [5000, 10000, 20000, 40000, 60000];
+// A 403 to a load or a report: this device's cookie is gone or not the
+// server's (cleared, or another browser).
+const no_account = "this device has no account here (cookies cleared?): go to the start page to begin";
 // The most of the human's inputs at one tick.
 export const most_humans = 16;
 
@@ -131,6 +134,9 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   // late answer from the current one.
   let current = null;
   let exchanges = 0;
+  // **WAITING FOR THE TURN**: another player holds it (a 503 `busy N`); the
+  // page says so and asks again in N s. Cleared by the next real answer.
+  let waiting = null;
 
   // ── the tick ──────────────────────────────────────────────────────────────
 
@@ -463,13 +469,27 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     post(x.path, x.body).then(
       (r) => {
         if (current !== x || x.id !== id) return;
+        const busy = r.status === 503 ? /^busy (\d+)\n?$/.exec(r.text) : null;
+        if (busy) return waitTurn(x, id, Number(busy[1]));
         if (r.status >= 500) return failed(x, id, `a ${r.status}`);
         clearTimer(x.timer);
         current = null;
+        waiting = null;
         x.onAnswer(r);
       },
       (e) => failed(x, id, e.message),
     );
+  }
+
+  // Another player holds the turn: the same bytes again once it is due to
+  // free, and no try counted (waiting is no failure).
+  function waitTurn(x, id, seconds) {
+    clearTimer(x.timer);
+    x.id = 0;
+    x.tries = 0;
+    if (waiting === null) log.log(`${x.path}: another player has the turn; asking again in ${seconds} s`);
+    waiting = { untilMs: now() + seconds * 1000 };
+    x.timer = setTimer(seconds * 1000, () => { if (current === x) attempt(x); });
   }
 
   function failed(x, id, why) {
@@ -531,6 +551,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     lastAnswer = r;
     flight = null;
     if (r.status === 413) return startAgain("413, the report past the body limit");
+    if (r.status === 403) return stop(no_account);
     if (r.status !== 200) return startAgain(`${r.status}`);
     const lines = r.text.split("\n");
     if (lines.at(-1) === "") lines.pop();
@@ -655,6 +676,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   // ── a load ────────────────────────────────────────────────────────────────
 
   function loaded(r, at, done) {
+    if (r.status === 403) return done(stop(no_account));
     if (r.status !== 200) return done(stop(`the load was answered ${r.status}`));
     const lines = r.text.split("\n");
     if (lines.at(-1) === "") lines.pop();
@@ -802,6 +824,8 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
         alpha,
         was: { viewport: { ...wasViewport }, dogs: points(wasDogs), cows: points(wasCows), chickens: points(wasChickens) },
         status: { ...status },
+        // Seconds until the turn may be ours, while another player holds it.
+        waitingS: waiting === null ? null : Math.max(0, Math.ceil((waiting.untilMs - now()) / 1000)),
         holding,
         visits: new Map(visits),
       };

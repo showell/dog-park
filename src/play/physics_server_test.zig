@@ -65,8 +65,12 @@ const Rig = struct {
     }
 
     fn load(self: *Rig, size: []const u8) ![]const u8 {
+        return self.loadFrom(size, .layout);
+    }
+
+    fn loadFrom(self: *Rig, size: []const u8, from: server_mod.Server.LoadFrom) ![]const u8 {
         const body = try std.fmt.allocPrint(self.arena.allocator(), "dogpark 1 physics {x:0>8} load {s}\n", .{ self.server.physics_hash, size });
-        return self.arena.allocator().dupe(u8, try self.server.load(self.io(), self.arena.allocator(), body));
+        return self.arena.allocator().dupe(u8, try self.server.load(self.io(), self.arena.allocator(), body, from));
     }
 
     fn logBytes(self: *Rig) ![]const u8 {
@@ -335,40 +339,45 @@ test "3 and 30 (502). a lost answer: the byte-identical resend gets the stored a
     try dragTicks(&rig, &page, 3);
 }
 
-test "4. every load starts the park afresh: after play, a load gives back the first layout, nothing leashed or pending, and a restart after it comes back to that board" {
+test "4. a load picks the game up: after play, the critters where they stand, nothing leashed or pending, and a restart after it comes back to that board; a reset load gives back the first layout" {
     var rig: Rig = undefined;
     try rig.init(t0);
     defer rig.deinit();
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
     try leashUp(&rig, &page, the_dog);
     try dragTicks(&rig, &page, 5);
-    // A leash kept for the next tick, still waiting.
+    // A letgo kept for the next tick, still waiting.
     try page.begin();
     try page.input(.{ .letgo = page.last + 1 });
     _ = try rig.report(page.body());
-    try testing.expect(!std.meta.eql(Board.laidOut().dogs, rig.server.kept.board.dogs));
     try testing.expect(rig.server.kept.pending_len > 0);
+    const played = rig.server.kept.board;
+    try testing.expect(!std.meta.eql(Board.laidOut().dogs, played.dogs));
     const kept = rig.server.kept.tick;
-    // The page reloads.
-    const answer = try rig.load("1280x800");
+    // The page reloads: the game as it stands, the leash off.
+    const answer = try rig.loadFrom("1280x800", .kept);
     var buf: [128]u8 = undefined;
     try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "epoch {d}.2\nkept {d}\nstate leash none drag none laid 0 view 1280x800 held\n", .{ t0, kept }), answer);
-    const first = Board.laidOut();
-    try testing.expect(std.meta.eql(first.dogs, rig.server.kept.board.dogs));
-    try testing.expect(std.meta.eql(first.cows, rig.server.kept.board.cows));
+    try testing.expect(std.meta.eql(played.dogs, rig.server.kept.board.dogs));
+    try testing.expect(std.meta.eql(played.cows, rig.server.kept.board.cows));
     try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
     try testing.expectEqual(@as(usize, 0), rig.server.kept.pending_len);
     // A deploy after the load: the same board, at the same tick.
     try rig.restart(t0 + 60_000);
     try testing.expect(rig.started.board == .applied);
     try testing.expectEqual(kept, rig.server.kept.tick);
+    try testing.expect(std.meta.eql(played.dogs, rig.server.kept.board.dogs));
+    try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
+    // And the page that loads now plays on from it.
+    var fresh = try Page.loaded(&rig, try rig.loadFrom("1280x800", .kept));
+    try leashUp(&rig, &fresh, the_dog);
+    try dragTicks(&rig, &fresh, 2);
+    // Start over: the first layout.
+    _ = try rig.loadFrom("1280x800", .layout);
+    const first = Board.laidOut();
     try testing.expect(std.meta.eql(first.dogs, rig.server.kept.board.dogs));
     try testing.expect(std.meta.eql(first.cows, rig.server.kept.board.cows));
     try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
-    // And the page that loads now plays on from it.
-    var fresh = try Page.loaded(&rig, try rig.load("1280x800"));
-    try leashUp(&rig, &fresh, the_dog);
-    try dragTicks(&rig, &fresh, 2);
 }
 
 test "5. a restart under a new physics hash, with a log tail after the snapshot: the board is where the tail left it" {
@@ -571,7 +580,7 @@ test "18 and 24. req ?: a garbled header gets req ? alone, every time, counted a
     try testing.expectEqualStrings(stored, rig.server.stored[0..rig.server.stored_len]);
     try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "entry finding ") != null);
     // A load that can't be read: req ? too.
-    try testing.expectEqualStrings("req ?\n", try rig.server.load(rig.io(), rig.arena.allocator(), "dogpark 1 physics 5e0c91a2 load 1280\n"));
+    try testing.expectEqualStrings("req ?\n", try rig.server.load(rig.io(), rig.arena.allocator(), "dogpark 1 physics 5e0c91a2 load 1280\n", .layout));
 }
 
 test "19. a torn log tail at restart: dropped, and the board is where the last whole report left it; a damaged middle stops the start" {
@@ -947,7 +956,7 @@ const example_report = example.example_report;
 
 /// POSTs `body` to `path` through the site, as webbox's hosts route it.
 fn post(io: std.Io, alloc: std.mem.Allocator, hub: *webbox.bus.Hub, path: []const u8, body: []const u8) !struct { status: []const u8, body: []const u8 } {
-    const raw = try std.fmt.allocPrint(alloc, "POST {s} HTTP/1.1\r\nHost: x\r\nContent-Length: {d}\r\n\r\n{s}", .{ path, body.len, body });
+    const raw = try std.fmt.allocPrint(alloc, "POST {s} HTTP/1.1\r\nHost: x\r\nCookie: {s}\r\nContent-Length: {d}\r\n\r\n{s}", .{ path, try app.cookieFor(io, alloc, 0), body.len, body });
     var out: std.Io.Writer.Allocating = .init(alloc);
     var reader: std.Io.Reader = .fixed(raw);
     var server = std.http.Server.init(&reader, &out.writer);
@@ -976,7 +985,7 @@ test "the worked example through POST /report: the doc's report in, req 4 kept 1
     // The server as request 3 left it: the doc's board at kept 1040, the
     // leash waiting, the region's view, the viewport's 8 tiles held, the
     // others sent with request 3's answer; epoch .3, request 3 answered.
-    const s = &app.the_physics;
+    const s = try app.game(io, 0);
     s.physics_hash = 0x5e0c91a2;
     s.started = 1791935990000;
     s.epoch = 3;

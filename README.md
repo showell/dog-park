@@ -18,18 +18,48 @@ serves them is the library's.
 the domain and the Caddy in front with lynrummy.com. Developed on Linux.
 zig-metal-unikernel's `zig build dogpark` no longer builds it (the physics
 hash now comes from this build.zig) and nothing judges it on metal. Not
-deployed.
+deployed yet. The first deployment is set for five players, one at a
+time ([docs/PHYSICS.md](docs/PHYSICS.md), "Who may play").
 
 **Status (2026-10-15):** played by Steve, and tuned by playing. The page
 (`solo/`) runs the physics (`src/play/physics*.zig`, compiled to wasm) and
 reports every tick to the server, which re-runs it and keeps it
 ([docs/PHYSICS.md](docs/PHYSICS.md)). The server (`src/play/`) speaks
-`GET /`, the page's scripts, `GET /physics-<hash>.wasm`, `POST /load` and
-`POST /report`; nothing else. Every load starts the park afresh, in its
-first layout. The first version's briefs (`docs/*-BRIEF.md` and the
+`GET /` (the landing page), `POST /begin`, `GET /dogpark` (the game),
+`POST /reset`, the page's scripts, `GET /physics-<hash>.wasm`, `POST /load`
+and `POST /report`; nothing else. A load picks the player's game up where
+it was; Start over puts it back in its first layout. The first version's briefs (`docs/*-BRIEF.md` and the
 amendments) are history: that app is retired.
 
     zig build play       # serve on localhost:9103, from the checkout
+
+Its cookie is Secure, which a browser keeps only over HTTPS (or from
+localhost). A development server on plain http at an address sets
+`DOGPARK_INSECURE_COOKIE=yes`.
+
+## Deploying
+
+One Linux droplet, with Caddy in front for HTTPS:
+- **The binary:** `zig build -Doptimize=ReleaseSafe`. The server reads the page
+  from `solo/` in the directory it runs in, so ship `zig-out/bin/dog-park-play`
+  and `solo/` together, and start it from there.
+- **The config:** `DOGPARK_CONFIG` names a file with `data_dir = …` and
+  `auth_dir = …`.
+  - The data dir holds the games (`game-<slot>/`) and the account count
+    (`players`).
+  - The auth dir holds the site secret (`_session_secret`), made on the
+    first start.
+  - To hand out the five accounts again, stop the server and delete
+    `players` and `game-*`. To make every old cookie invalid as well,
+    delete the secret too.
+- **The rest of the environment:**
+  - `DOGPARK_PORT` (default 9103);
+  - `DOGPARK_BIND`: bind 127.0.0.1 behind Caddy;
+  - `DOGPARK_TRUSTED_PROXY` (default 127.0.0.1).
+
+  Never set `DOGPARK_INSECURE_COOKIE` behind HTTPS.
+- **Caddy:** `reverse_proxy 127.0.0.1:9103` for the site's name. Nothing
+  streams; every route is a plain request and answer.
 
 ## The tests: three commands
 

@@ -134,7 +134,7 @@ pub fn build(b: *std.Build) void {
     // process, its exit code the verdict; the fast tier's after the Debug
     // wasm alone (DOGPARK_WASM names it to tools/lib/page_rig.mjs).
     const node_fast = [_][]const u8{ "tools/test_page_modules.mjs", "tools/test_engine.mjs" };
-    const node_server = [_][]const u8{ "tools/test_page_physics.mjs", "tools/test_physics_server.mjs" };
+    const node_server = [_][]const u8{ "tools/test_page_physics.mjs", "tools/test_physics_server.mjs", "tools/test_players.mjs" };
     const check_node = b.step("check-node", "The node tests that need no server (page modules, engine), after zig build's install");
     for (node_fast) |f| {
         const run = nodeRun(b, f);

@@ -135,10 +135,13 @@ fn applyReport(kept: *judge.Kept, body: []const u8) ApplyError!void {
                 try moveAsWritten(&kept.board, c);
             },
             // A dog's walk isn't in the log (a tick's lines say where it
-            // ended, not the steps it took), nor the poops laid (one laid
-            // and eaten in a tick may leave no line): an applied log leaves
-            // them at the snapshot's. Harmless: a restart is a new epoch, so the
-            // next report comes after a load, which starts afresh.
+            // ended, not the steps it took), nor the count of poops laid
+            // (one laid and eaten in a tick may leave no line): an applied
+            // log leaves both at the snapshot's. A load now picks the game
+            // up, so after a restart the next poop may come a little early
+            // or late, or take a slot early (an old poop vanishes). No
+            // invariant rests on them, and page and server agree: the load
+            // sends `laid`, and the page takes the board from the server.
             .poop => |p| {
                 if (open == null) return error.CorruptLog;
                 kept.board.poops[p.n] = p.at;

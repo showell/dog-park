@@ -40,7 +40,8 @@ function freePort() {
 function spawnOn(dir, port) {
   const child = spawn(binary, [], {
     cwd: root,
-    env: { ...process.env, DOGPARK_PORT: String(port), DOGPARK_BIND: "127.0.0.1", DOGPARK_CONFIG: join(dir, "config") },
+    // Plain http on 127.0.0.1: the cookie can't be Secure.
+    env: { ...process.env, DOGPARK_PORT: String(port), DOGPARK_BIND: "127.0.0.1", DOGPARK_CONFIG: join(dir, "config"), DOGPARK_INSECURE_COOKIE: "yes" },
     stdio: ["ignore", "ignore", "pipe"],
   });
   let log = "";
@@ -75,10 +76,10 @@ async function start(dir) {
   throw new Error(`the server stopped as it started:\n${failed}`);
 }
 
-/** A POST through node:http, its body as text. */
-function request(port, method, path, body) {
+/** A request through node:http, with the account's cookie when there is one. */
+function request(port, method, path, body, cookie) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port, method, path }, (res) => {
+    const req = http.request({ host: "127.0.0.1", port, method, path, headers: cookie ? { cookie } : {} }, (res) => {
       const chunks = [];
       res.on("data", (c) => chunks.push(c));
       res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
@@ -90,13 +91,22 @@ function request(port, method, path, body) {
   });
 }
 
-/** A fresh server on a fresh data dir: { base, port, post(path, text), get(path), restart(), stop() }. */
+/** The account a press of Begin Game gets: the cookie, as a browser sends it back. */
+async function account(port) {
+  const r = await request(port, "POST", "/begin", "");
+  const set = r.headers["set-cookie"]?.[0];
+  if (r.status !== 303 || !set) throw new Error(`POST /begin gave ${r.status} with no cookie`);
+  return set.split(";")[0];
+}
+
+/** A fresh server on a fresh data dir, with one account: { base, port, cookie, post(path, text), get(path), restart(), stop() }. */
 export async function scratchServer() {
   const dir = mkdtempSync(join(existsSync("/dev/shm") ? "/dev/shm" : tmpdir(), "dogpark-scratch-"));
   writeFileSync(join(dir, "config"), `data_dir=${join(dir, "data")}\nauth_dir=${join(dir, "auth")}\n`);
   // The host's second root: webbox opens it; Dog Park keeps nothing there.
   mkdirSync(join(dir, "auth"));
   let server = await start(dir);
+  const cookie = await account(server.port);
   const stopIt = async () => {
     if (server.child.exitCode !== null || server.child.signalCode !== null) return;
     const gone = new Promise((r) => server.child.once("exit", r));
@@ -106,14 +116,20 @@ export async function scratchServer() {
   return {
     get base() { return `http://127.0.0.1:${server.port}`; },
     get port() { return server.port; },
+    cookie,
     dir,
     log: () => server.log(),
     async post(path, text) {
-      const r = await request(server.port, "POST", path, text);
+      const r = await request(server.port, "POST", path, text, cookie);
       return { status: r.status, type: r.headers["content-type"], text: r.body.toString() };
     },
+    /** A request as another device would send it: its own cookie, or none. */
+    async as(cookie, method, path, text) {
+      const r = await request(server.port, method, path, text, cookie);
+      return { status: r.status, headers: r.headers, text: r.body.toString() };
+    },
     async get(path) {
-      const r = await request(server.port, "GET", path);
+      const r = await request(server.port, "GET", path, undefined, cookie);
       return { status: r.status, headers: new Map(Object.entries(r.headers)), body: r.body };
     },
     /** A stop and a start on the same data dir (a new port, maybe). */

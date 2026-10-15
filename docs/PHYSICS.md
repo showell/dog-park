@@ -469,7 +469,7 @@ other answer is dropped unread.
   `req`, `req ?`, and every `reload` answer. **The page never reloads on
   its own:** it stops, its screen paused, and logs the why, the last
   report sent and its answer on the console, so Steve can report it.
-  Reloading the page (a load, so the park afresh) is the human's act. A
+  Reloading the page (a load, which picks the game up) is the human's act. A
   stop on the first report after a load says the page's reports can't be
   taken.
 - **The server keeps its last answer.** A report whose R is the last one
@@ -561,7 +561,7 @@ in the shared code comes back each time; the breaker and `stuck` (below)
 are for that. Nobody should expect a rewind to fix the rule.
 
 - **`reload`:** the page stops, saying why (decision 17); the human's
-  reload starts the park afresh. **A server start issues a new epoch,** so
+  reload picks the game up again. **A server start issues a new epoch,** so
   every open page stops on its next report (`reload epoch`: the server
   restarted), and nothing kept per epoch needs to survive a restart. **The breaker**
   (`reload differs`) counts requests: three in a row on one epoch answered
@@ -613,7 +613,7 @@ input: after a bump the pointer is still down, and the page may well
 record its going up. Nothing is wrong there.
 
 **Loading the page.** The request is one line, `dogpark 1 physics H load
-WxH`, with the viewport's size. It starts the park afresh (above),
+WxH`, with the viewport's size. It picks the game up (below),
 clears the stored answer and the last answered request number. A load that gets no
 answer within 5 s, or a 5xx, is retried on the same backoff as a report
 (5, 10, 20, 40, then every 60 s), never given up. The answer, unless
@@ -629,10 +629,12 @@ tile c,r dog N a cow M b …
 …
 ```
 
-- **What the server does first** (decision 16): it puts the park back
-  in its first layout, nothing leashed and no inputs waiting, and
-  snapshots that. Tick numbers carry on: K is the last kept tick, and the
-  board at K is the first layout.
+- **What the server does first** (decision 16, as amended 2026-10-15):
+  it takes the leash off, so the park sleeps, drops any inputs waiting,
+  and snapshots that. The critters stay where they stand. After the
+  player asked to start over (`POST /reset`), it puts the park back in
+  its first layout instead. Tick numbers carry on: K is the last kept
+  tick.
 - **What it logs:** at K + 1, a `view` of the viewport's size and a
   `held`, both of the region's tiles; with nothing leashed after the
   reset, both empty. The `state` line is `leash none drag none` with that
@@ -684,6 +686,30 @@ sync. Of the two ways to restart, this is the simpler:
 If the log grows too big to keep, it is the first thing to trim: the
 snapshots alone are enough to start from.
 
+## Who may play (2026-10-15, the first deployment)
+
+`src/play/players.zig` and `app.zig`:
+- **Five accounts, first come, first served.** The landing page (`GET /`)
+  has one button, Begin Game, a form posting to `/begin`. A device with
+  no account gets the next one, as a signed cookie naming its slot, and
+  goes on to `/dogpark`. After five, the park is full. The count is kept
+  in the data dir (`players`), so a restart hands out no more. A bot that
+  only GETs takes nothing.
+- **A game per account,** started at its player's first load, kept under
+  `<data>/game-<slot>/physics` with its own log and snapshots.
+- **One player at a time.** A load or report from the account that
+  holds the turn is played. The turn is the first asker's, and lasts
+  20 s past its last request; while another holds it, the answer is
+  `503 busy N`. The page then shows "someone else is playing", asks
+  again in N seconds with the same bytes, and counts it as no failure.
+- **No account, no game:** a load or report without a verifying cookie
+  is a 403, and the page stops and says to go to the start page.
+- **Start over** (the page's button) is `POST /reset`. The account's next
+  load is the first layout, and the page reloads.
+- **The cookie is Secure** (`__Host-dogpark`), for the HTTPS deployment.
+  A plain-http development server on an address (like :9103) needs
+  `DOGPARK_INSECURE_COOKIE=yes`. The start report says which.
+
 ## Decisions in force
 
 1. **A bump ends the drag, never the leash** (2026-10-13).
@@ -693,7 +719,9 @@ snapshots alone are enough to start from.
    region's.
 4. **The park is a torus** (decision 14).
 5. **Pixel-ticks** (decision 15, "the change that made it fun").
-6. **Every load starts the park afresh** (decision 16), and **the page
+6. **A load picks the game up, its leash off; starting over is the
+   player's choice** (decision 16, amended 2026-10-15 for the first
+   deployment: it was "every load starts the park afresh"), and **the page
    never reloads on its own** (decision 17): on any trouble it stops, its
    screen paused, and logs why.
 7. **Distance is the larger axis** (decision 19).

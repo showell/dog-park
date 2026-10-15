@@ -392,7 +392,16 @@ pub const Server = struct {
     /// of the region's tiles (none when nothing is leashed, after the inputs
     /// kept for K + 1) and a held of them, logged; the answer's `tile` lines
     /// carry them.
-    pub fn load(self: *Server, io: Io, alloc: std.mem.Allocator, body: []const u8) ![]const u8 {
+    /// What a load does to the board.
+    pub const LoadFrom = enum {
+        /// The game as it stands: the leash comes off (the park sleeps),
+        /// the critters stay where they are.
+        kept,
+        /// The game from its beginning: the first layout.
+        layout,
+    };
+
+    pub fn load(self: *Server, io: Io, alloc: std.mem.Allocator, body: []const u8, from: LoadFrom) ![]const u8 {
         var out: Text = .{ .buf = &self.answer };
         const asked = parseLoad(body) catch {
             self.unreadable += 1;
@@ -413,10 +422,15 @@ pub const Server = struct {
             return out.bytes();
         }
         if (self.stuck) |t| return stuckAnswer(&out, t);
-        // **EVERY LOAD STARTS THE PARK AFRESH** (Steve, 2026-10-13): the
-        // first layout, nothing leashed, nothing pending; snapshotted
-        // before the load's entry, so a restart applies the log from here.
-        self.kept.board = physics.Board.laidOut();
+        // **A LOAD PICKS UP THE GAME** (Steve, 2026-10-15, replacing
+        // "every load starts the park afresh"): nothing leashed, nothing
+        // pending, the critters as they stand; or, asked to reset, the first
+        // layout. Snapshotted before the load's entry, so a restart applies
+        // the log from here.
+        switch (from) {
+            .kept => self.kept.board.hold = .none,
+            .layout => self.kept.board = physics.Board.laidOut(),
+        }
         self.kept.pending_len = 0;
         try self.snapshot(io, alloc);
         const k1 = self.kept.tick + 1;
