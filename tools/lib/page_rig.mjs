@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createEngine } from "../../solo/engine.js";
 import { instantiatePhysics, SCRATCH, flag } from "../../solo/physics.js";
+import { world_px } from "../../solo/scene.js";
 import { root } from "./scratch_server.mjs";
 
 // The served build, unless DOGPARK_WASM names another (the fast tier's
@@ -142,7 +143,7 @@ export function regionAround(x, y) {
 /** How many ticks after a letgo the leash comes off (the physics' let_go_ticks). */
 export function letGoTicks() {
   geometry.reset();
-  geometry.readBoard(`board 1 dog 0 ${hex(16000)},${hex(16000)}`, SCRATCH);
+  geometry.readBoard(`board 1 dog 0 ${hex(world_px / 2)},${hex(world_px / 2)}`, SCRATCH);
   geometry.human(SCRATCH, "leash", 1, 0);
   geometry.tick(SCRATCH, 1, []);
   geometry.clearBegun(SCRATCH);
