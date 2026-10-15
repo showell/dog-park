@@ -851,7 +851,7 @@ pub const Scene = struct {
         const col_hi = @min(s.cellsWide() - 1, @divFloor(x + reach, cell));
         const row_lo: usize = @intCast(@max(0, @divFloor(y - reach, cell)));
         const row_hi = @min(s.cellsHigh() - 1, @divFloor(y + reach, cell));
-        if (col_hi < 0 or row_hi < 0) return out;
+        if (col_hi < @as(i32, @intCast(col_lo)) or row_hi < @as(i32, @intCast(row_lo))) return out;
         for (row_lo..@as(usize, @intCast(row_hi)) + 1) |r| {
             for (s.seen_cells[r][col_lo .. @as(usize, @intCast(col_hi)) + 1]) |set| out.setUnion(set);
         }
@@ -940,6 +940,11 @@ const outside_cell: u16 = std.math.maxInt(u16);
 comptime {
     // A cell's index, and `outside_cell` apart from them all.
     std.debug.assert(span_cells * span_cells < outside_cell);
+    // **THE SHORT WAY IS THE SPAN'S WAY** (210's cold review): `critters`,
+    // `lineUp` and `near` take a point's offset in the span by `shortWay`,
+    // which is its offset only while the span and the farthest reach asked
+    // (a chicken's sight) fit within half the world.
+    std.debug.assert(span_tiles * tile + chicken_sight < half_world);
 }
 
 /// The listed poop slots on some tiles of the span (`Scene.near`), a
@@ -1259,9 +1264,10 @@ const Waiting = struct {
 ///
 /// **RING BY RING** (metal-vmm QUEUE 210): the cells around its own, out
 /// a ring at a time, and those past the span first. A critter in a cell
-/// `r` rings out is more than `(r - 1) * cell` away, so once three are
-/// found and the third is at most `r * cell` away, no farther ring can
-/// hold a nearer one, nor an equal (the search stops there). Found in any
+/// `r` rings out is more than `(r - 1) * cell` away, so once `walk_fan` are
+/// found and the last of them is at most `(r - 1) * cell` away, no ring
+/// from `r` on can hold a nearer one, nor an equal (the search stops
+/// there). Found in any
 /// order, so a candidate is compared by (distance, index) both.
 fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, visited: *const std.StaticBitSet(critter_count)) void {
     const p = sc.pos(from);
