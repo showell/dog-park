@@ -33,7 +33,7 @@
 // wires the DOM to it, and runs the frame loop and the drawing. It starts
 // only where there is a DOM, so node can import every module.
 
-import { nearScene, overviewScene, messageScene, dogOfTarget, world_px } from "./scene.js";
+import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px } from "./scene.js";
 import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
@@ -62,7 +62,9 @@ async function loadPhysics() {
 // player's game up, so it opens where the player last looked. A new game,
 // or Start over, opens on the park's middle (the key is cleared). Storage
 // may be missing or refuse: then every load opens on the middle.
-const viewport_key = "dogpark.viewport";
+// The key names the tile size: a view kept under other geometry would
+// open on the wrong ground.
+const viewport_key = `dogpark.viewport.${tile_px}`;
 function savedViewport() {
   try {
     const v = JSON.parse(localStorage.getItem(viewport_key) ?? "null");
