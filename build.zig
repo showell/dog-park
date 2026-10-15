@@ -34,7 +34,8 @@ pub fn build(b: *std.Build) void {
     // build's play server by the same name, which serves it as
     // /physics-<hash>.wasm.
     const physics_page_wasm = pageWasm(b, wasm32, .ReleaseSafe, physics_mod);
-    b.getInstallStep().dependOn(&b.addInstallArtifact(physics_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } }).step);
+    const page_wasm_install = b.addInstallArtifact(physics_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } });
+    b.getInstallStep().dependOn(&page_wasm_install.step);
     const page_wasm = physics_page_wasm.getEmittedBin();
     // The same in Debug, for the fast tier alone: nothing there needs the
     // served build's speed, and it compiles in about a third of the time.
@@ -91,6 +92,20 @@ pub fn build(b: *std.Build) void {
             metal_step.dependOn(&b.addInstallArtifact(dogpark_elf, .{}).step);
         }
     }
+
+    // **THE QEMU GATE** (tools/metal_gate.mjs; README, "The QEMU gate"):
+    // dogpark.elf booted under QEMU on a scratch disk, a short session
+    // through the page's code, a reboot on the same disk. Last, before a
+    // deploy; in none of test, check or slow. Its output is not captured
+    // (no expectations: the exit code is the verdict), so the timings show;
+    // `--summary all` gives the build's times beside the run's.
+    const metal_gate = b.addSystemCommand(&.{ "node", "--no-warnings" });
+    metal_gate.addFileArg(b.path("tools/metal_gate.mjs"));
+    metal_gate.setCwd(b.path("."));
+    metal_gate.has_side_effects = true;
+    metal_gate.step.dependOn(metal_step);
+    metal_gate.step.dependOn(&page_wasm_install.step);
+    b.step("metal-gate", "The QEMU gate: dogpark.elf booted twice on one scratch disk, a session through the page code (last, before a deploy; ~10 s warm)").dependOn(&metal_gate.step);
 
     // ── the tests ───────────────────────────────────────────────────────────
 

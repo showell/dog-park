@@ -72,7 +72,7 @@ One Linux droplet, with Caddy in front for HTTPS:
 - **Caddy:** `reverse_proxy 127.0.0.1:9103` for the site's name. Nothing
   streams; every route is a plain request and answer.
 
-### On metal (`zig build metal`): built, not yet booted
+### On metal (`zig build metal`): built, and booted by the QEMU gate
 
     zig build metal      # zig-out/bin/dogpark.elf, ReleaseSafe (~30 s)
 
@@ -96,6 +96,40 @@ kernel pins: Zig runs a path dependency's build at every configure. What differs
 - **The machine's settings** are `zig-metal-unikernel.conf` on the boot
   disk (`volume`, `card`, `trusted_proxy`, ...), the kernel's README says
   which.
+
+### The QEMU gate (`zig build metal-gate`): last, before a Dog Park deploy
+
+    zig build metal-gate --summary all   # ~6 s warm on the box; the build's times beside the run's
+
+**Run it last, before a Dog Park deploy, never out of habit.** It is in
+none of `test`, `check` or `slow`. tools/metal_gate.mjs boots
+zig-out/bin/dogpark.elf under QEMU (microvm, KVM, slirp) on a fresh 64 MiB
+GPT disk, FAT16, holding `solo/` and a known `auth/_admin_key` (sgdisk,
+mkfs.vfat, mtools; no root; no zig-metal-unikernel.conf: the kernel's
+defaults), then:
+- `GET /` is 200 with Begin Game; `POST /begin` is a 303 with
+  `__Host-dogpark` (Secure, HttpOnly), sent back by hand over http;
+- `/dogpark` is 303 without it, 200 with it, naming the physics hash;
+  `/physics-<hash>.wasm` is byte for byte zig-out/web/physics.wasm;
+- a load, a leash and a short drag through the page's own code
+  (tools/lib/page_rig.mjs posting to the guest): every report `kept`,
+  never a `differ`, no warning from the page;
+- `/admin/game` by the bearer: 1 of 80 accounts, the game's kept tick,
+  no finding; 403 without the key or with a wrong one;
+- QEMU stopped by its PID, the disk passes `fsck.fat -n`, and the
+  physics log's `log-<ms>` name is within the run's wall-clock window
+  (the guest's clock);
+- a second boot on the same disk: the cookie still reads, the load
+  answers the game's kept tick, a second drag is kept, the admin page
+  agrees; then fsck again, and the new log's name is later than the
+  first's and within its own window.
+
+Any other status, a `differ`, a finding, or an error line in the guest's
+serial log (a panic, a request whose outcome is not `ok`, a disk check
+with a leak or a problem) fails it with the step and the log's tail; the
+scratch disk and logs are kept for a look. Times on the box (2026-10-15),
+build cached: disk 1.0 s, each boot 1.1 s, sessions ~1 s each, ~5.5 s in
+all. A cold `zig build metal` is ~30 s more.
 
 ## The tests: three commands
 
