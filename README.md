@@ -46,7 +46,9 @@ One Linux droplet, with Caddy in front for HTTPS:
 - **The config:** `DOGPARK_CONFIG` names a file with `data_dir = …` and
   `auth_dir = …`.
   - The data dir holds the games (`game-<slot>/`) and the account count
-    (`players`).
+    (`players`). Each game's logs rotate at 1 MiB, and closed logs are kept
+    for an hour, at most 25 MB a game ([docs/PHYSICS.md](docs/PHYSICS.md),
+    "The log is rotated").
   - The auth dir holds the site secret (`_session_secret`), made on the
     first start.
   - To hand out the 80 accounts again, stop the server and delete

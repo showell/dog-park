@@ -40,10 +40,28 @@ pub const most_answer = 64 * 1024;
 /// A snapshot every this many kept ticks (4 s of play).
 pub const snapshot_every: Tick = 64;
 
+/// **THE LOG, ROTATED AND KEPT FOR AN HOUR** (Steve, 2026-10-15; the sizes
+/// from notes/dog-park-capacity.md). The snapshot and the log after it are
+/// all a restart needs; the logs before are a debugging record, bounded:
+/// - at a snapshot, a log past `rotate_bytes` is closed and a new one begun,
+///   named by its start (ms), the snapshot pointing at its first byte;
+/// - a closed log goes once its successor began more than `keep_logs_ms`
+///   ago (it ended then);
+/// - and, oldest first, while a game's closed logs pass `most_log_bytes`
+///   (80 games, about 2 GB);
+/// - the log being written is never removed.
+pub const rotate_bytes: u64 = 1 << 20;
+pub const keep_logs_ms: u64 = 60 * 60 * 1000;
+pub const most_log_bytes: u64 = 25 << 20;
+
 /// Three `differ`s in a row trip the breaker; three trips with no kept tick
 /// between mark the park stuck.
 pub const breaker_differs = 3;
 pub const stuck_trips = 3;
+
+fn nowMs(io: Io) u64 {
+    return @intCast(@divFloor(Io.Clock.now(.real, io).nanoseconds, std.time.ns_per_ms));
+}
 
 pub const Server = struct {
     /// The folder the log and the snapshot live in (`<data>/physics`).
@@ -73,9 +91,16 @@ pub const Server = struct {
     unreadable: u64 = 0,
     /// Findings this run (overlaps, drags with no drag on, refusals logged).
     findings: judge.Findings = .{},
-    /// The log this run appends to, and its size.
+    /// The log being written: its start (its name, `log-<ms>`), its path and
+    /// its size; and the size it is closed at (`rotate_bytes`; a test sets
+    /// less). The long-lived allocator its path comes from.
+    log_started: u64 = 0,
     log_path: []const u8,
     log_size: u64 = 0,
+    rotate_at: u64 = rotate_bytes,
+    /// The most bytes of closed logs kept (`most_log_bytes`; a test sets less).
+    keep_bytes: u64 = most_log_bytes,
+    long: std.mem.Allocator = undefined,
     /// The kept tick of the last snapshot.
     snapshot_tick: Tick = 0,
     /// The answer being written.
@@ -104,6 +129,10 @@ pub const Server = struct {
         const dir = try std.fs.path.join(long, &.{ data_dir, "physics" });
         // Field by field: the answer buffers are large, never a temporary.
         self.dir = dir;
+        self.long = long;
+        self.rotate_at = rotate_bytes;
+        self.keep_bytes = most_log_bytes;
+        self.log_started = 0;
         self.physics_hash = wire.physics_hash;
         self.started = 0;
         self.epoch = 0;
@@ -140,6 +169,7 @@ pub const Server = struct {
             var moves: std.ArrayList(u8) = .empty;
             const resolution = try plog.resolve(&self.kept.board, &moves, alloc);
             self.started = @max(now_ms, 1);
+            self.log_started = self.started;
             self.log_path = try std.fs.path.join(long, &.{ dir, try plog.logName(alloc, self.started) });
             switch (resolution) {
                 .nowhere => |c| {
@@ -156,9 +186,12 @@ pub const Server = struct {
             return started;
         }
         self.started = @max(now_ms, last_start + 1);
+        self.log_started = self.started;
         self.log_path = try std.fs.path.join(long, &.{ dir, try plog.logName(alloc, self.started) });
         self.log_size = 0;
         try self.snapshot(io, alloc);
+        // The runs before this one closed their logs: kept as any closed log.
+        try self.prune(io, alloc, now_ms);
         started.kept = self.kept.tick;
         return started;
     }
@@ -186,12 +219,65 @@ pub const Server = struct {
     }
 
     fn snapshot(self: *Server, io: Io, alloc: std.mem.Allocator) !void {
+        try self.snapshotAt(io, alloc, self.log_started, self.log_size);
+    }
+
+    /// The snapshot, naming the log a restart applies from: `log_started`
+    /// from `offset`.
+    fn snapshotAt(self: *Server, io: Io, alloc: std.mem.Allocator, log_started: u64, offset: u64) !void {
         var k = self.kept;
         k.view = .{};
         k.held = .{};
-        const s: plog.Snapshot = .{ .physics = self.physics_hash, .started = self.started, .log_started = self.started, .log_offset = self.log_size, .kept = k };
+        const s: plog.Snapshot = .{ .physics = self.physics_hash, .started = self.started, .log_started = log_started, .log_offset = offset, .kept = k };
         try store.replace(io, alloc, try std.fs.path.join(alloc, &.{ self.dir, "snapshot" }), try plog.writeSnapshot(alloc, &s), .{});
         self.snapshot_tick = self.kept.tick;
+    }
+
+    /// **A SNAPSHOT, AND THE LOG ROTATED** when it has passed `rotate_at`:
+    /// the snapshot names the new log at its first byte before anything
+    /// is appended there, and the server switches only once it is written,
+    /// so a restart always applies the log the entries went to.
+    fn snapshotAndRotate(self: *Server, io: Io, alloc: std.mem.Allocator, now_ms: u64) !void {
+        if (self.log_size < self.rotate_at) return self.snapshot(io, alloc);
+        const next = @max(now_ms, self.log_started + 1);
+        const path = try std.fs.path.join(self.long, &.{ self.dir, try plog.logName(alloc, next) });
+        errdefer self.long.free(path);
+        try self.snapshotAt(io, alloc, next, 0);
+        self.long.free(self.log_path);
+        self.log_path = path;
+        self.log_started = next;
+        self.log_size = 0;
+        try self.prune(io, alloc, now_ms);
+    }
+
+    /// **THE CLOSED LOGS KEPT** (`keep_logs_ms`, `most_log_bytes`): by
+    /// their names' starts, each ending where the next began; never the log
+    /// being written.
+    pub fn prune(self: *Server, io: Io, alloc: std.mem.Allocator, now_ms: u64) !void {
+        const Closed = struct { started: u64, size: u64 };
+        var closed: std.ArrayList(Closed) = .empty;
+        for (try store.list(io, alloc, self.dir)) |e| {
+            if (!std.mem.startsWith(u8, e.name, "log-")) continue;
+            const id = std.fmt.parseInt(u64, e.name["log-".len..], 10) catch continue;
+            if (id >= self.log_started) continue;
+            const st = try store.stat(io, alloc, try std.fs.path.join(alloc, &.{ self.dir, e.name }));
+            try closed.append(alloc, .{ .started = id, .size = st.size });
+        }
+        std.mem.sort(Closed, closed.items, {}, struct {
+            fn lt(_: void, a: Closed, b: Closed) bool {
+                return a.started < b.started;
+            }
+        }.lt);
+        // A closed log's end: the next one's start.
+        var bytes: u64 = 0;
+        for (closed.items) |c| bytes += c.size;
+        for (closed.items, 0..) |c, i| {
+            const ended = if (i + 1 < closed.items.len) closed.items[i + 1].started else self.log_started;
+            const stale = now_ms > ended and now_ms - ended > keep_logs_ms;
+            if (!stale and bytes <= self.keep_bytes) continue;
+            try store.remove(io, alloc, try std.fs.path.join(alloc, &.{ self.dir, try plog.logName(alloc, c.started) }));
+            bytes -= c.size;
+        }
     }
 
     fn append(self: *Server, io: Io, alloc: std.mem.Allocator, bytes: []const u8) !void {
@@ -306,7 +392,11 @@ pub const Server = struct {
         self.findings.overlaps += found.overlaps;
         self.findings.idle_drags += found.idle_drags;
         self.keepAnswer(header.req, out.bytes(), &hash);
-        if (self.kept.tick >= self.snapshot_tick + snapshot_every) self.snapshot(io, alloc) catch {};
+        // A snapshot (and a rotation, a prune) that fails is let go: the log,
+        // appended and synced before this answer, is the record; a missed
+        // snapshot only lengthens the next restart's log, and a rotation
+        // switches only once its snapshot is written.
+        if (self.kept.tick >= self.snapshot_tick + snapshot_every) self.snapshotAndRotate(io, alloc, nowMs(io)) catch {};
         return self.stored[0..self.stored_len];
     }
 

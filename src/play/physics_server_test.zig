@@ -945,3 +945,69 @@ test "the worked example through POST /report: the doc's report in, req 4 kept 1
     @memset(big, 'x');
     try testing.expectEqualStrings("413", (try post(io, a, &hub, "/report", big)).status);
 }
+
+/// The logs in the rig's physics folder, by start.
+fn logsOf(rig: *Rig) ![]u64 {
+    var out: std.ArrayList(u64) = .empty;
+    for (try webbox.store.list(rig.io(), rig.arena.allocator(), rig.server.dir)) |e| {
+        if (std.mem.startsWith(u8, e.name, "log-")) try out.append(rig.arena.allocator(), try std.fmt.parseInt(u64, e.name["log-".len..], 10));
+    }
+    std.mem.sort(u64, out.items, {}, std.sort.asc(u64));
+    return out.items;
+}
+
+test "the log rotates at a snapshot past rotate_at: the snapshot names the new log at its first byte, the old one stays, and a restart comes back to the same board" {
+    var rig: Rig = undefined;
+    try rig.init(t0);
+    defer rig.deinit();
+    rig.server.rotate_at = 1;
+    var page = try Page.loaded(&rig, try rig.load("1280x800"));
+    try leashUp(&rig, &page, the_dog);
+    const first = rig.server.log_started;
+    // Past a snapshot (64 kept ticks): the log was written, so it rotates.
+    for (0..3) |_| try dragTicks(&rig, &page, 30);
+    try testing.expect(rig.server.log_started > first);
+    // The new log is made by its first entry.
+    try dragTicks(&rig, &page, 2);
+    const logs = try logsOf(&rig);
+    try testing.expect(logs.len >= 2);
+    try testing.expectEqual(first, logs[0]);
+    // The snapshot names the log being written; what was written since the
+    // rotation is all a restart applies.
+    const snap = (try webbox.store.readOrNull(rig.io(), rig.arena.allocator(), try std.fs.path.join(rig.arena.allocator(), &.{ rig.server.dir, "snapshot" }), .unlimited)).?;
+    var buf: [64]u8 = undefined;
+    try testing.expect(std.mem.indexOf(u8, snap, try std.fmt.bufPrint(&buf, "\nlog {d} ", .{rig.server.log_started})) != null);
+    const board = rig.server.kept.board;
+    const tick = rig.server.kept.tick;
+    try rig.restart(t0 + 60_000);
+    try testing.expectEqual(tick, rig.server.kept.tick);
+    try testing.expect(std.meta.eql(board.dogs, rig.server.kept.board.dogs));
+    try testing.expect(std.meta.eql(board.cows, rig.server.kept.board.cows));
+}
+
+test "the closed logs kept: one goes an hour after it ended (its successor's start), oldest first past the byte cap; the log being written always stays" {
+    var rig: Rig = undefined;
+    try rig.init(t0);
+    defer rig.deinit();
+    const a = rig.arena.allocator();
+    const hour = server_mod.keep_logs_ms;
+    // Four closed logs before the one being written, each 100 bytes.
+    const now = t0 + 10 * hour;
+    const ids = [_]u64{ now - 3 * hour, now - 2 * hour, now - hour / 2, now - hour / 4 };
+    for (ids) |id| try webbox.store.write(rig.io(), a, try std.fs.path.join(a, &.{ rig.server.dir, try std.fmt.allocPrint(a, "log-{d}", .{id}) }), "x" ** 100, .{});
+    rig.server.log_started = now - 60_000;
+    try webbox.store.write(rig.io(), a, try std.fs.path.join(a, &.{ rig.server.dir, try std.fmt.allocPrint(a, "log-{d}", .{rig.server.log_started}) }), "y", .{});
+    // The run's own first log (t0) ended when the first of ours began: stale.
+    // The first of ours ended 2 hours ago: stale; the second, half an hour
+    // ago, and the rest: kept.
+    try rig.server.prune(rig.io(), a, now);
+    try testing.expectEqualSlices(u64, &.{ ids[1], ids[2], ids[3], rig.server.log_started }, try logsOf(&rig));
+    // Past the cap (two logs' worth), the oldest goes first.
+    rig.server.keep_bytes = 200;
+    try rig.server.prune(rig.io(), a, now);
+    try testing.expectEqualSlices(u64, &.{ ids[2], ids[3], rig.server.log_started }, try logsOf(&rig));
+    // However small the cap, the log being written stays.
+    rig.server.keep_bytes = 0;
+    try rig.server.prune(rig.io(), a, now);
+    try testing.expectEqualSlices(u64, &.{rig.server.log_started}, try logsOf(&rig));
+}

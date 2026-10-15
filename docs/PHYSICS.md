@@ -661,8 +661,18 @@ sync. Of the two ways to restart, this is the simpler:
   so every open page stops on its next report, and the view, held tiles,
   tiles sent and last answer are all made again at the next load.
 
-If the log grows too big to keep, it is the first thing to trim: the
-snapshots alone are enough to start from.
+**The log is rotated and kept for an hour** (2026-10-15;
+notes/dog-park-capacity.md): the snapshot and the log after it are all a
+restart needs, and the logs before are a debugging record, bounded.
+- **Rotation:** at a snapshot, a log past `rotate_bytes` (1 MiB) is
+  closed. The snapshot names a new log, `log-<its start, ms>`, at its first
+  byte, and the server switches to it only once that snapshot is written.
+- **Retention:** a closed log goes once its successor began more than
+  `keep_logs_ms` (an hour) ago. The oldest also go while a game's closed
+  logs pass `most_log_bytes` (25 MB: 80 games, about 2 GB). Each server
+  start prunes too, as a start begins a new log.
+- **The log being written is never removed.** So a game is restored as
+  it stood, and its last hour of play can be read back for a bug.
 
 ## Who may play (2026-10-15, the first deployment)
 
