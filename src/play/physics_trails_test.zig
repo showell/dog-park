@@ -273,6 +273,20 @@ test "the poops by tile: a slot laid anew mid-drag leaves its old tile's list, s
     try testing.expectEqual(px(15300, 16250), b.dogs[0]);
     try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
     try overlapsNone(&b);
+    // The slot was seen at the start, so its line is its new point (the
+    // page moves its poop), never an eaten line (metal-vmm QUEUE 210: the
+    // lines walk only the slots seen at the start and those laid).
+    var poop_lines: usize = 0;
+    for (lines.slice()) |c| switch (c) {
+        .poop => |l| {
+            try testing.expectEqual(@as(u16, 0), l.n);
+            try testing.expectEqual(px(15171, 16250), l.at);
+            poop_lines += 1;
+        },
+        .eaten => return error.TestUnexpectedResult,
+        else => {},
+    };
+    try testing.expectEqual(@as(usize, 1), poop_lines);
 }
 
 test "the poops by tile: a poop across the world's seam still blocks the leashed dog, which slides" {

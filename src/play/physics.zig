@@ -692,6 +692,12 @@ pub const Scene = struct {
     poop_next: [poop_count]u16 = undefined,
     /// The slots a dog pooped into this tick.
     poop_laid: std.StaticBitSet(poop_count) = undefined,
+    /// **THE SLOTS SEEN AT THE START** (metal-vmm QUEUE 210): listed when
+    /// the tick began, what the page holds too; and for each such slot a
+    /// poop is laid into, its point before (`poop_was`, set only then). A
+    /// tick's poop lines walk these and the laid slots, not all 2048.
+    poop_start: std.StaticBitSet(poop_count) = undefined,
+    poop_was: [poop_count]Point = undefined,
     /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210): seen index `j`
     /// is set in the cell of the span its point stands in (`cell` a side,
     /// `cellOf`), or in `seen_outside` for a point past the span's tiles,
@@ -752,6 +758,7 @@ pub const Scene = struct {
         for (0..poop_count) |i| {
             if (b.poop_known[i] == .present and span.holdsPoint(b.poops[i])) s.listPoop(@intCast(i));
         }
+        s.poop_start = s.poop_listed;
         return true;
     }
 
@@ -1036,8 +1043,6 @@ pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) vo
             @setRuntimeSafety(std.debug.runtime_safety);
             if (scene.init(b)) {
                 const sc = &scene;
-                const poops_were = b.poops;
-                const poops_known_were = b.poop_known;
                 if (b.hold.leashed.drag == .on) {
                     bumped = playDrag(sc, drag);
                     chickensTurn(sc);
@@ -1052,13 +1057,18 @@ pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) vo
                 // A slot's line goes by what it held in the region's tiles
                 // at the start (what the page holds too), never by a poop
                 // elsewhere that a new one replaced.
-                for (0..poop_count) |n| {
-                    const k = b.poop_known[n];
+                // Only a slot seen at the start or laid since can have a
+                // line, so only those are walked, in slot order.
+                var slots = sc.poop_start;
+                slots.setUnion(sc.poop_laid);
+                var it = slots.iterator(.{});
+                while (it.next()) |n| {
                     const at = b.poops[n];
-                    const was = poops_were[n];
-                    const was_seen = poops_known_were[n] == .present and sc.span.holdsPoint(was);
-                    if (k == .present) {
-                        if (sc.poop_laid.isSet(n) and (!was_seen or at.x != was.x or at.y != was.y)) out.push(.{ .poop = .{ .n = @intCast(n), .at = at } });
+                    const was_seen = sc.poop_start.isSet(n);
+                    if (b.poop_known[n] == .present) {
+                        if (!sc.poop_laid.isSet(n)) continue;
+                        const was = if (was_seen) sc.poop_was[n] else at;
+                        if (!was_seen or at.x != was.x or at.y != was.y) out.push(.{ .poop = .{ .n = @intCast(n), .at = at } });
                     } else if (was_seen) {
                         out.push(.{ .eaten = @intCast(n) });
                     }
@@ -1645,6 +1655,7 @@ fn poopFits(sc: *const Scene, q: Point, slot: u16) bool {
 
 fn placePoop(sc: *Scene, slot: u16, q: Point) void {
     const listed = sc.poop_listed.isSet(slot);
+    if (sc.poop_start.isSet(slot) and !sc.poop_laid.isSet(slot)) sc.poop_was[slot] = sc.board.poops[slot];
     if (listed) sc.unlink(slot);
     sc.board.poops[slot] = q;
     sc.board.poop_known[slot] = .present;
