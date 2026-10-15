@@ -52,13 +52,13 @@ try {
   // leashed, the cows in columns beside them, all far from the park; one
   // tick of the full drag (the cap on both axes), on board KEPT's copy.
   const hex = (px) => `${Math.round(px * 256).toString(16).replace(/(..)$/, ".$1")}`;
-  const h0 = 3000;
+  const h0 = 1050;
   const herd = [`board 1 dog 0 ${hex(h0)},${hex(h0)}`];
   let dogs = 1;
   for (let gy = -7; gy <= 7; gy++)
-    for (let gx = -7; gx <= 7; gx++) if (Math.max(Math.abs(gx), Math.abs(gy)) > 1) herd.push(`dog ${dogs++} ${hex(h0 + 45 * gx)},${hex(h0 + 45 * gy)}`);
+    for (let gx = -7; gx <= 7; gx++) if (dogs < 64 && Math.max(Math.abs(gx), Math.abs(gy)) > 1) herd.push(`dog ${dogs++} ${hex(h0 + 45 * gx)},${hex(h0 + 45 * gy)}`);
   let cows = 0;
-  for (const x of [-440, -375, 375, 440]) for (let y = -330; y <= 330; y += 64) herd.push(`cow ${cows++} ${hex(h0 + x)},${hex(h0 + y)}`);
+  for (const x of [-440, -375, 375, 440]) for (let y = -330; y <= 330; y += 64) if (cows < 8) herd.push(`cow ${cows++} ${hex(h0 + x)},${hex(h0 + y)}`);
   if (physics.readState("state leash 0 drag on laid 0 view 0x0 held", KEPT) === "malformed") throw new Error("the herd's state line");
   if (physics.readBoard(herd.join(" "), KEPT) === "malformed") throw new Error("the herd's board line");
   const full = [[100 * 256, 100 * 256, 0]];
@@ -84,11 +84,11 @@ try {
   const hash = /^reload physics ([0-9a-f]{8})\n$/.exec((await host.post("/load", "dogpark 1 physics 00000000 load 1280x800\n")).text)[1];
   const epoch = /^epoch (\S+)\n/.exec((await host.post("/load", `dogpark 1 physics ${hash} load 1280x800\n`)).text)[1];
   const header = (req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\nfrom 0\n`;
-  await host.post("/report", header(1) + "view 1 1280x800 27,27\n");
+  await host.post("/report", header(1) + "view 1 1280x800 2,2\n");
   const n = 50;
   const t = performance.now();
   for (let i = 0; i < n; i++) {
-    const r = await host.post("/report", header(2 + i) + "held 1 27,27\n");
+    const r = await host.post("/report", header(2 + i) + "held 1 2,2\n");
     if (r.text !== `req ${2 + i}\nkept 0\n`) throw new Error(`report ${2 + i}: ${r.text}`);
   }
   console.log(`a small report's round trip, through the host: ${((performance.now() - t) / n).toFixed(2)} ms`);

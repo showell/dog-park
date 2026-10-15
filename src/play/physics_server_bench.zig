@@ -40,6 +40,9 @@ fn line(list: *std.ArrayList(u8), alloc: std.mem.Allocator, l: wire.Line) !void 
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
+    // A game's memory (notes/dog-park-capacity.md): the server state each
+    // account's game holds, and the lines a tick writes.
+    std.debug.print("a game's server state: {d} bytes; a tick's lines: {d} bytes\n", .{ @sizeOf(@import("physics_server.zig").Server), @sizeOf(physics.Lines) });
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -51,7 +54,7 @@ pub fn main(init: std.process.Init) !void {
 
     // The leash, kept, as a page's load and first request leave it.
     _ = try s.load(io, a, try std.fmt.allocPrint(a, "dogpark 1 physics {x:0>8} load 1920x1080\n", .{s.physics_hash}), .layout);
-    const dog: u16 = 137;
+    const dog: u16 = 25;
     s.kept.board.hold = .{ .leashed = .{ .dog = dog, .drag = .on } };
     s.last = 1;
     // 16 ticks of a drag through the park, as the page writes them; the
