@@ -83,6 +83,7 @@ check.
    prod's Caddyfile already imports `/etc/caddy/sites/*.caddy`. On prod:
 
        sudoedit /etc/caddy/sites/dogpark.lynrummy.com.caddy    # paste the file; <dogpark-private-address> → <dogpark>
+       sudo install -o caddy -g caddy -m 640 /dev/null /var/log/caddy/dogpark-access.log
        sudo caddy validate --config /etc/caddy/Caddyfile
        sudo systemctl reload caddy
 
@@ -99,10 +100,20 @@ check.
        		Referrer-Policy "strict-origin-when-cross-origin"
        		X-Frame-Options "SAMEORIGIN"
        	}
+       	log {
+       		output file /var/log/caddy/dogpark-access.log {
+       			roll_size 10MiB
+       			roll_keep 5
+       		}
+       		format json
+       	}
        	reverse_proxy <dogpark>:80
        }
 
-   Caddy gets the certificate once step 7's record resolves.
+   Caddy gets the certificate once step 7's record resolves. The access
+   log must exist and be Caddy's before `validate`: validate runs as root
+   and would make it root's, and the reload then fails on "permission
+   denied" (Caddy keeps its old config, so nothing goes down).
 
 9. **Smoke test**, from the box:
 

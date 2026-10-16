@@ -21,5 +21,15 @@ dogpark.lynrummy.com {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "SAMEORIGIN"
 	}
+	# Every request, as Caddy saw it (Steve, 2026-10-16: the droplet's own
+	# request list keeps only the newest few, so who knocked was lost).
+	# JSON, one line a request, rolled at 10 MiB, five kept.
+	log {
+		output file /var/log/caddy/dogpark-access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+		format json
+	}
 	reverse_proxy <dogpark-private-address>:80
 }
