@@ -55,9 +55,14 @@ for name in ls("") do
         local started = tonumber(sub(f, 5))
         local log = path(dir, f)
         -- The one before the hour counts only if it was still written in
-        -- it (a host that keeps no time says 0: then it counts).
-        local m = stat(log).modified
-        if started >= since or (started == before and (m == 0 or m * 1000 >= since)) then
+        -- it (a host that keeps no time says 0: then it counts). Only it
+        -- is stat'ed here: count_all stats each log it scans.
+        local counts = started >= since
+        if not counts and started == before then
+          local m = stat(log).modified
+          counts = m == 0 or m * 1000 >= since
+        end
+        if counts then
           t.logs = t.logs + 1
           scan(log, t)
         end
