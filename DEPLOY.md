@@ -34,8 +34,8 @@ check.
 
        cd ~/dogpark-images && python3 -m http.server 9301
 
-   The URL is `http://143.244.172.148:9301/dogpark-<commit>.img.gz` (the
-   name step 1 printed). Leave it running until step 3 says the import is
+   The URL is `http://<the dev box's public address>:9301/dogpark-<commit>.img.gz` (the
+   name step 1 printed; the address is `curl -s https://ifconfig.me` on the box). Leave it running until step 3 says the import is
    done, then Ctrl-C it.
 
 3. **Import it as a custom image.** DigitalOcean: Backups & Snapshots →
@@ -137,8 +137,8 @@ check.
 
 ## A new release
 
-Steps 1-3 again, then the droplet's Destroy → **Rebuild** from the new
-image. The private address stays, so Caddy needs nothing. Accounts and
+Steps 1-3 again, then the **`dogpark`** droplet's Destroy → **Restore base image** from the new
+image (check the droplet's name: lynrummy.com's image there fails with "no volume attached" and wipes Dog Park's disk; the 2026-10-16 fire drill). The private address stays, so Caddy needs nothing. Accounts and
 games start over.
 
 ## The way back
