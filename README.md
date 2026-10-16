@@ -37,7 +37,12 @@ back, and it's where you left it.
 ## How it works
 
 The page runs the physics itself: the same Zig code as the server,
-compiled to WebAssembly, 16 ticks a second. It sends the server what you
+compiled to WebAssembly, 16 ticks a second. The critters are drawn as
+text emoji, so each device draws them in its own platform's emoji font:
+the dogs, cows and chickens look different on an iPhone, an Android phone
+and a desktop. The park and the physics are the same everywhere; only the
+pictures differ. (Safari's 3D billboards kept their emoji as saved bitmaps
+instead; Dog Park doesn't, for now.) It sends the server what you
 did about once a second. The server re-runs it, keeps it, and says whether
 it agrees. So a player's park survives a reload, and the server is the
 record.
