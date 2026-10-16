@@ -37,15 +37,16 @@ back, and it's where you left it.
 ## How it works
 
 The page runs the physics itself: the same Zig code as the server,
-compiled to WebAssembly, 16 ticks a second. The critters are drawn as
-text emoji, so each device draws them in its own platform's emoji font:
-the dogs, cows and chickens look different on an iPhone, an Android phone
-and a desktop. The park and the physics are the same everywhere; only the
-pictures differ. (Safari's 3D billboards kept their emoji as saved bitmaps
-instead; Dog Park doesn't, for now.) It sends the server what you
+compiled to WebAssembly, 16 ticks a second. It sends the server what you
 did about once a second. The server re-runs it, keeps it, and says whether
 it agrees. So a player's park survives a reload, and the server is the
 record.
+
+The critters are drawn as text emoji, so each device draws them in its own
+platform's emoji font: the dogs, cows and chickens look different on an
+iPhone, an Android phone and a desktop. The park and the physics are the
+same everywhere; only the pictures differ. (Safari's 3D billboards kept
+their emoji as saved bitmaps instead; Dog Park doesn't, for now.)
 
 It is a small web application built on `webbox`, the web-server-in-a-box
 library ([zig-webbox](https://github.com/showell/zig-webbox)). It is meant
@@ -62,8 +63,9 @@ them is the library's.
 
 **Who may play:** the first 80 devices to press Begin Game get an account,
 and up to 5 can play at once. A sixth waits for a turn, which frees 20
-seconds after someone stops dragging. These numbers are small on purpose for now; the capacity study puts
-the cheapest droplet at about 80 playing at once.
+seconds after someone stops dragging. These numbers are small on purpose
+for now; the capacity study puts the cheapest droplet at about 80 playing
+at once.
 
 ## Where it runs
 
@@ -71,8 +73,14 @@ the cheapest droplet at about 80 playing at once.
 on its own droplet, booted from an image with no Linux on it. The image is the
 [zig-metal-unikernel](https://github.com/showell/zig-metal-unikernel)
 kernel with Dog Park built in, the same way lynrummy.com is served.
-Prod's Caddy holds HTTPS and forward to it over the private network. The image is built and rehearsed under QEMU on a
-droplet-sized machine. [DEPLOY.md](DEPLOY.md) is the deploy, step by step.
+Prod's Caddy holds HTTPS and forwards to it over the private network, and
+logs every request (`/var/log/caddy/dogpark-access.log` on prod; angry-gopher's
+`ops/knocks` reads it). The image is built and rehearsed under QEMU on a
+droplet-sized machine. [DEPLOY.md](DEPLOY.md) is the deploy, step by step,
+and a new release, which starts every game over.
+
+On its first afternoon, three players played, two of them won, and the
+server and the page never disagreed.
 
 For development, `zig build play` serves `localhost:9103`.
 
@@ -175,14 +183,19 @@ run going, or the last one that ended, and what it printed. Both take the
 admin key, as the other `/admin` pages do. An atomic script, which could
 write, is refused: Dog Park runs background scripts only.
 
-- **The key** is Dog Park's own, never lynrummy's. Make a pair with
-  zig-webbox's `shale-sign keygen`, then, in the auth dir, set it by hand:
-  `shale.conf` holding `public_key = <64 hex>` and `target = <the host>`
-  (`dogpark.lynrummy.com`), and `shale/sequence` holding the Unix seconds
-  now, so nothing signed before it runs. With no `shale.conf` the route is
-  off (403 `no_key`).
-- **Sign and send** with `shale-sign sign`, adding `mode=background` (or a
-  `mode=kill` to end the run going), and `curl` with the admin bearer.
+- **The key** is Dog Park's own, never lynrummy's: the private half is
+  `~/.shale_signing_key.dogpark.lynrummy.com` on the box, which
+  zig-webbox's `shale-sign` uses for that target. The droplet's image
+  carries the public half (`droplet/image.mjs` makes the pair the first
+  time). On Linux, set it by hand in the auth dir: `shale.conf` holding
+  `public_key = <64 hex>` and `target = <the host>`, and `shale/sequence`
+  holding the Unix seconds now, so nothing signed before it runs. With no
+  `shale.conf` the route is off (403 `no_key`).
+- **Sign and send:** `shale-sign background <file.shale>
+  dogpark.lynrummy.com` writes a signed request (`shale-sign kill
+  dogpark.lynrummy.com` ends the run going); POST it with `curl` and the
+  admin bearer, then GET `/admin/script` for what it printed. DEPLOY.md's
+  step 10 is the whole recipe.
 - **The cookbook,** in `tools/shale/`: `games.shale` (each game's kept tick,
   last log and log bytes), `trouble.shale` (each game's last hour: reports,
   differs, `req ?`, overlaps, idle drags, stuck, refused lines) and `accounts.shale`
@@ -195,8 +208,9 @@ write, is refused: Dog Park runs background scripts only.
   in its main loop, a slice after each request and slices while idle
   (zig-metal-unikernel, metal-vmm QUEUE 216); `/admin/host`'s kernel half
   counts its slices and those over the 50 ms target. The QEMU gate runs
-  `games.shale` in the background while a second client is answered. Not
-  yet on metal: its output ring and stream (QUEUE 216's later chunks).
+  `games.shale` in the background while a second client is answered.
+  Parked (Steve, 2026-10-16): an output ring and a live stream, for a
+  script that must report as it runs.
 
 ## The tests
 
