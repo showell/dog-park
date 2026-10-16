@@ -81,6 +81,28 @@ export function adminKey() {
   return key;
 }
 
+/** The site's name: Caddy's, and the target a Shale script is signed for. */
+const site = "dogpark.lynrummy.com";
+
+/**
+ * **DOG PARK'S SHALE KEY** (README, "Running a script"): its own pair, never
+ * lynrummy's. zig-webbox's shale-sign keeps it as ~/.shale_signing_key.<site>
+ * (made here, the first time, by `shale-sign keygen <site>`; the private half
+ * never leaves that file). The image gets the public half and the target in
+ * auth/shale.conf, and auth/shale/sequence starts at the build's seconds, so
+ * nothing signed before the build runs.
+ */
+function shalePublicKey() {
+  const signer = (...args) => execFileSync("zig", ["build", "-Doptimize=ReleaseSafe", "shale-sign", "--", ...args], { cwd: webboxRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (!existsSync(join(homedir(), `.shale_signing_key.${site}`))) {
+    signer("keygen", site);
+    console.log(`image.mjs: made Dog Park's Shale key pair, ~/.shale_signing_key.${site} (mode 600)`);
+  }
+  const m = /^public_key = ([0-9a-f]{64})$/m.exec(signer("pubkey", site));
+  if (!m) die("shale-sign pubkey printed no public key");
+  return m[1];
+}
+
 function trustedProxy() {
   if (!existsSync(proxyFile)) die(`REFUSING: no ${proxyFile}: write prod's private address (where its Caddy reaches the droplet from), or every request through Caddy counts as one address`);
   const proxy = readFileSync(proxyFile, "utf8").trim();
@@ -88,12 +110,15 @@ function trustedProxy() {
   return proxy;
 }
 
-/** The site's files (solo/, auth/_admin_key) and its conf, for app_image.py. */
+/** The site's files (solo/, auth/_admin_key, auth/shale.conf and auth/shale/sequence) and its conf, for app_image.py. */
 function siteFiles(work, key, proxy) {
   const content = join(work, "content");
   mkdirSync(join(content, "auth"), { recursive: true });
   cpSync(join(root, "solo"), join(content, "solo"), { recursive: true });
   writeFileSync(join(content, "auth", "_admin_key"), key);
+  writeFileSync(join(content, "auth", "shale.conf"), `public_key = ${shalePublicKey()}\ntarget = ${site}\n`);
+  mkdirSync(join(content, "auth", "shale"));
+  writeFileSync(join(content, "auth", "shale", "sequence"), `${Math.floor(Date.now() / 1000)}\n`);
   // As angry-gopher's (zig-metal-unikernel droplet/chat.py), less the volume:
   // a stalled connection let go after 10 s, no `requests` (serve until turned
   // off), only the private card, and Caddy's address believed.

@@ -114,6 +114,18 @@ check.
    Then in a browser: Begin Game, and play. `/admin` takes the same key
    (`cat ~/.dogpark_admin_key` on the box) for the admin pages.
 
+10. **A monitoring script** (optional), from the box. The image carries Dog
+    Park's own Shale public key (`auth/shale.conf`, made by step 1 from
+    `~/.shale_signing_key.dogpark.lynrummy.com`, never lynrummy's key):
+
+        cd ~/showell_repos/dog-park/tools/shale
+        (cd ~/showell_repos/zig-webbox && zig build shale-sign -- background $OLDPWD/accounts.shale dogpark.lynrummy.com)
+        curl -sS -H "Authorization: Bearer $(cat ~/.dogpark_admin_key)" --data-binary @accounts.shale.<sequence>.req https://dogpark.lynrummy.com/admin/script
+        curl -sS -H "Authorization: Bearer $(cat ~/.dogpark_admin_key)" https://dogpark.lynrummy.com/admin/script
+
+    The last line shows the run and what it printed (README, "Running a
+    script").
+
 ## A new release
 
 Steps 1-3 again, then the droplet's Destroy → **Rebuild** from the new
