@@ -4,11 +4,10 @@
 
 const MOST = 80
 
-local claimed = 0
-if exists("players") then claimed = tonumber(trim(read("players"))) end
+local claimed = tonumber(trim(read_or("players", "0")))
 local games = 0
 for name in ls("") do
-  if starts_with(name, "game-") and is_dir(name .. "/physics") then games = games + 1 end
+  if starts_with(name, "game-") and is_dir(path(name, "physics")) then games = games + 1 end
 end
 print("accounts " .. claimed .. " of " .. MOST .. ", " .. (MOST - claimed) .. " left")
 print("games started " .. games .. ", accounts that never played " .. (claimed - games))
