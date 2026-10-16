@@ -1,0 +1,14 @@
+-- Dog Park's accounts against its 80 (players.zig's `most_players`), and
+-- the games started: a game's folder is made at its player's first load,
+-- so an account with no game never played. Reads only.
+
+const MOST = 80
+
+local claimed = 0
+if exists("players") then claimed = tonumber(trim(read("players"))) end
+local games = 0
+for name in ls("") do
+  if starts_with(name, "game-") and is_dir(name .. "/physics") then games = games + 1 end
+end
+print("accounts " .. claimed .. " of " .. MOST .. ", " .. (MOST - claimed) .. " left")
+print("games started " .. games .. ", accounts that never played " .. (claimed - games))

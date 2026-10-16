@@ -6,6 +6,7 @@ test {
     _ = @import("tiles.zig");
     _ = @import("app.zig");
     _ = @import("admin.zig");
+    _ = @import("shale.zig");
     _ = @import("players.zig");
     _ = @import("physics_all_tests.zig");
     _ = @import("physics_log.zig");

@@ -1,0 +1,41 @@
+-- Dog Park's games, one a row: the last kept tick (the snapshot's), the
+-- newest log's start and size (its last activity), and its logs' count and
+-- bytes. A game is data/game-<slot>/physics: a `snapshot` and its logs,
+-- `log-<start ms>`, each rotated at 1 MiB and kept for an hour
+-- (docs/PHYSICS.md). Reads only: a listing a game, a stat a log, and the
+-- snapshot's first 256 bytes.
+
+local rows = {}
+for name in ls("") do
+  local dir = name .. "/physics"
+  if starts_with(name, "game-") and is_dir(dir) then
+    local logs = 0
+    local bytes = 0
+    local newest = 0
+    local newest_bytes = 0
+    for f in ls(dir) do
+      if starts_with(f, "log-") then
+        local size = stat(dir .. "/" .. f).size
+        local started = tonumber(sub(f, 5))
+        logs = logs + 1
+        bytes = bytes + size
+        if started > newest then
+          newest = started
+          newest_bytes = size
+        end
+      end
+    end
+    local kept = "none"
+    if exists(dir .. "/snapshot") then
+      for line in lines(read(dir .. "/snapshot", 0, 256)) do
+        if starts_with(line, "kept ") then kept = sub(line, 6) end
+      end
+    end
+    local last = "none"
+    if newest > 0 then last = date(newest // 1000) end
+    push(rows, {game = name, kept = kept, last_log = last, last_log_size = human(newest_bytes), logs = logs, bytes = human(bytes)})
+  end
+end
+sort(rows, "game")
+print(#rows .. " games")
+if #rows > 0 then print(table(rows, {"game", "kept", "last_log", "last_log_size", "logs", "bytes"})) end

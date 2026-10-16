@@ -1,0 +1,75 @@
+-- Each game's trouble over the last hour, from its logs' entries: the
+-- reports kept, `req ?` (a header the server could not read), the
+-- overlaps and drags with no drag on that reports' checks found, the
+-- times it was stuck (the breaker tripped), and the lines refused. Each
+-- finding is an `entry finding <n>` and its line (physics_log.zig).
+--
+-- A log is scanned a megabyte at a time (one scan brings at most the
+-- call-bytes cap, and a log rotates once it is past 1 MiB, so it may be a
+-- little more). A `differ` is not in the log: a report answered `differ`
+-- is logged as the prefix kept, as any report is.
+
+const HOUR_MS = 3600000
+const PART = 1048576
+
+-- The findings and reports of one log, added to `t`.
+function scan(path, size, t)
+  local at = 0
+  while at < size do
+    local n = min(PART, size - at)
+    t.reports = t.reports + count_in(path, "entry report ", at, n)
+    at = at + n
+  end
+  at = 0
+  while at < size do
+    local f = find_in(path, "entry finding ", at, min(PART, size - at))
+    if f == nil then
+      at = at + PART
+    else
+      local text = lines(read(path, f, 200))[2]
+      if starts_with(text, "req ? ") then
+        t.unreadable = t.unreadable + 1
+      elseif starts_with(text, "stuck at ") then
+        t.stuck = t.stuck + 1
+      elseif starts_with(text, "refused, ") then
+        t.refused = t.refused + 1
+      elseif contains(text, " overlaps, ") then
+        local w = words(text)
+        t.overlaps = t.overlaps + tonumber(w[6])
+        t.idle_drags = t.idle_drags + tonumber(w[8])
+      end
+      at = f + 1
+    end
+  end
+end
+
+local since = now() * 1000 - HOUR_MS
+local rows = {}
+for name in ls("") do
+  local dir = name .. "/physics"
+  if starts_with(name, "game-") and is_dir(dir) then
+    local t = {game = name, logs = 0, reports = 0, unreadable = 0, overlaps = 0, idle_drags = 0, stuck = 0, refused = 0}
+    -- The logs begun in the hour, and the one before them, which runs into it.
+    local before = 0
+    for f in ls(dir) do
+      if starts_with(f, "log-") then
+        local started = tonumber(sub(f, 5))
+        if started < since and started > before then before = started end
+      end
+    end
+    for f in ls(dir) do
+      if starts_with(f, "log-") then
+        local started = tonumber(sub(f, 5))
+        if started >= since or started == before then
+          local path = dir .. "/" .. f
+          t.logs = t.logs + 1
+          scan(path, stat(path).size, t)
+        end
+      end
+    end
+    push(rows, t)
+  end
+end
+sort(rows, "game")
+print(#rows .. " games, the last hour")
+if #rows > 0 then print(table(rows, {"game", "logs", "reports", "unreadable", "overlaps", "idle_drags", "stuck", "refused"})) end

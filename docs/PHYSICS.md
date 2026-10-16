@@ -704,6 +704,10 @@ restart needs, and the logs before are a debugging record, bounded.
   middle.
 - **No account, no game:** a load or report without a verifying cookie
   is a 403, and the page stops and says to go to the start page.
+- **The operator reads, never plays:** `/admin/script` (README, "Running
+  a script") runs a signed Shale script in the background, reading the
+  games' logs and snapshots between requests. It holds no turn and takes
+  no account; a request waits at most one of its slices.
 - **Start over** (the page's button) is `POST /reset`. The account's next
   load is the first layout, and the page reloads.
 - **The cookie is Secure** (`__Host-dogpark`), for the HTTPS deployment.

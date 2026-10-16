@@ -161,6 +161,36 @@ Both need the admin key, either as a bearer token
 (`curl -H "Authorization: Bearer $(cat <auth>/_admin_key)"`) or through
 `/admin`'s login form in a browser.
 
+### Running a script (Shale, for monitoring)
+
+`POST /admin/script` takes a Shale script, signed, and runs it in the
+**background**: it only reads, a slice at a time between requests, so play
+keeps the turn first (src/play/shale.zig; the envelope, the sequence numbers
+and the run are zig-webbox's `script_route`). `GET /admin/script` shows the
+run going, or the last one that ended, and what it printed. Both take the
+admin key, as the other `/admin` pages do. An atomic script, which could
+write, is refused: Dog Park runs background scripts only.
+
+- **The key** is Dog Park's own, never lynrummy's. Make a pair with
+  zig-webbox's `shale-sign keygen`, then, in the auth dir, set it by hand:
+  `shale.conf` holding `public_key = <64 hex>` and `target = <the host>`
+  (`dogpark.lynrummy.com`), and `shale/sequence` holding the Unix seconds
+  now, so nothing signed before it runs. With no `shale.conf` the route is
+  off (403 `no_key`).
+- **Sign and send** with `shale-sign sign`, adding `mode=background` (or a
+  `mode=kill` to end the run going), and `curl` with the admin bearer.
+- **The cookbook,** in `tools/shale/`: `games.shale` (each game's kept tick,
+  last log and log bytes), `trouble.shale` (each game's last hour: reports,
+  `req ?`, overlaps, idle drags, stuck, refused lines) and `accounts.shale`
+  (accounts against the 80, games started).
+- **The budgets** (`shale.budgets`): 50M steps, an 8 MiB arena, 10,000
+  store reads and 256 MiB read in all, no changes; a slice is at most
+  100,000 steps or one store call, and each call's work is capped (a
+  megabyte a read or scan, 256 entries a walk).
+- **On metal, not yet:** the kernel does not step a background run between
+  requests (metal-vmm QUEUE 211, the box's), so there the route refuses one
+  (501 `no_background`). On Linux, `:9103`, it runs.
+
 ## The tests
 
 How the critters move is tested by playing. The automated tests each have

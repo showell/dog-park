@@ -41,6 +41,7 @@ const physics = @import("physics.zig");
 const physics_server = @import("physics_server.zig");
 const players = @import("players.zig");
 const admin = @import("admin.zig");
+const shale = @import("shale.zig");
 
 /// Where the page lives, from the directory the server runs in.
 const page_dir = "solo";
@@ -51,6 +52,7 @@ const page_dir = "solo";
 pub fn bodyLimit(path: []const u8) u64 {
     if (physicsRoute(path) != null) return physics_server.most_body;
     if (std.mem.eql(u8, path, "/admin/login")) return admin.most_login_body;
+    if (std.mem.eql(u8, path, "/admin/script")) return shale.most_body;
     return 0;
 }
 
@@ -213,6 +215,12 @@ fn gamePage(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !vo
     return indexPage(req, io, alloc);
 }
 
+/// **BETWEEN REQUESTS** (webbox's `Site.between`): a slice of the
+/// operator's background script, if one runs (shale.zig).
+pub fn between(io: Io, now: i64) bool {
+    return shale.between(io, now);
+}
+
 /// The operator's pages: the key first (a bearer or the admin cookie),
 /// read before any body; the login form is the one way in without it.
 fn adminRoute(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, path: []const u8) !void {
@@ -227,6 +235,12 @@ fn adminRoute(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, p
         return admin.login(req, cookie_mode, io, alloc, auth_root, now);
     }
     if (!signed_in) return admin.forbidden(req);
+    // The operator's scripts (shale.zig): a signed one in, the run's state out.
+    if (std.mem.eql(u8, path, "/admin/script")) return switch (req.head.method) {
+        .POST => shale.post(req, io, alloc, long_alloc, data_root, auth_root, now),
+        .GET => shale.status(req),
+        else => http.methodNotAllowed(req, .POST),
+    };
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     if (std.mem.eql(u8, path, "/admin/host")) return admin.host(req, io, alloc);
     if (std.mem.eql(u8, path, "/admin/game")) return admin.game(req, io, alloc, .{
