@@ -80,7 +80,10 @@ check.
 
 8. **Caddy on prod.** The site block is
    [`droplet/dogpark.lynrummy.com.caddy`](droplet/dogpark.lynrummy.com.caddy);
-   prod's Caddyfile already imports `/etc/caddy/sites/*.caddy`. On prod:
+   prod's Caddyfile already imports `/etc/caddy/sites/*.caddy`, and defines
+   the `access_log` snippet the block imports (angry-gopher's
+   `deploy/Caddyfile`, metal-vmm QUEUE 221; it must be installed first). On
+   prod:
 
        sudoedit /etc/caddy/sites/dogpark.lynrummy.com.caddy    # paste the file; <dogpark-private-address> → <dogpark>
        sudo install -o caddy -g caddy -m 640 /dev/null /var/log/caddy/dogpark-access.log
@@ -100,13 +103,7 @@ check.
        		Referrer-Policy "strict-origin-when-cross-origin"
        		X-Frame-Options "SAMEORIGIN"
        	}
-       	log {
-       		output file /var/log/caddy/dogpark-access.log {
-       			roll_size 10MiB
-       			roll_keep 5
-       		}
-       		format json
-       	}
+       	import access_log dogpark
        	reverse_proxy <dogpark>:80
        }
 
