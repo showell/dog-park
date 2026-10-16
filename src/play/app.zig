@@ -52,7 +52,12 @@ const page_dir = "solo";
 pub fn bodyLimit(path: []const u8) u64 {
     if (physicsRoute(path) != null) return physics_server.most_body;
     if (std.mem.eql(u8, path, "/admin/login")) return admin.most_login_body;
-    if (std.mem.eql(u8, path, "/admin/script")) return shale.most_body;
+    // **AN UPLOAD, SO ITS SENDER IS KNOWN FIRST** (the box's cold review of
+    // 214): a cap past webbox's `before_turn_most` makes it one, and an
+    // upload is read only once `uploader` names who sent it, from the head:
+    // a stranger's 64 KiB is never read, nor charged to the small bodies'
+    // budget. The route reads at most `shale.most_body` of it.
+    if (std.mem.eql(u8, path, "/admin/script")) return webbox.body.before_turn_most + 1;
     return 0;
 }
 
@@ -213,6 +218,15 @@ fn gamePage(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !vo
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     if (try players.slotOfRequest(cookie_mode, io, alloc, req, auth_root, nowUnix(io)) == null) return http.redirect(req, "/");
     return indexPage(req, io, alloc);
+}
+
+/// **WHO SENDS AN UPLOAD** (webbox's body rule), from the head: the only
+/// upload is a script for the operator's route, and only the operator, by
+/// the admin key, may send one; anyone else's is never read.
+pub fn uploader(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !?[]const u8 {
+    const path = http.pathOf(try http.target(req, alloc));
+    if (!std.mem.eql(u8, path, "/admin/script")) return null;
+    return if (try admin.isAdmin(req, cookie_mode, io, alloc, auth_root, nowUnix(io))) "admin" else null;
 }
 
 /// **BETWEEN REQUESTS** (webbox's `Site.between`): a slice of the

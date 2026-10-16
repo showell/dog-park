@@ -84,18 +84,53 @@ pub fn post(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, lon
         .backing = if (stepped) long else null,
     });
     defer outcome.deinit();
-    var w: std.Io.Writer = .fixed(&reply_buf);
-    script_route.writeReply(&outcome, &w) catch {};
-    return answer(req, outcome.status(), w.buffered());
+    return answer(req, outcome.status(), written(struct {
+        fn f(o: *const script_route.Outcome, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            return script_route.writeReply(o, w);
+        }
+    }.f, &outcome));
 }
 
 /// `GET /admin/script`, the admin key already checked.
 pub fn status(req: *std.http.Server.Request) !void {
-    var w: std.Io.Writer = .fixed(&reply_buf);
-    script_route.writeBackgroundStatus(&w) catch {};
-    return answer(req, .ok, w.buffered());
+    return answer(req, .ok, written(struct {
+        fn f(_: void, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            return script_route.writeBackgroundStatus(w);
+        }
+    }.f, {}));
+}
+
+/// The room kept at the end of the reply for saying it was cut.
+const cut_note = "\n── cut here: the rest is past this reply's room ──\n";
+
+/// **WHAT `write` WROTE, OR SAID TO BE CUT** (the box's cold review of 214:
+/// a status past the reply's room was cut off and answered as if whole).
+fn written(comptime write: anytype, arg: anytype) []const u8 {
+    var w: std.Io.Writer = .fixed(reply_buf[0 .. reply_buf.len - cut_note.len]);
+    write(arg, &w) catch {
+        const n = w.buffered().len;
+        @memcpy(reply_buf[n..][0..cut_note.len], cut_note);
+        return reply_buf[0 .. n + cut_note.len];
+    };
+    return w.buffered();
 }
 
 fn answer(req: *std.http.Server.Request, s: std.http.Status, text: []const u8) !void {
     try req.respond(text, .{ .status = s, .extra_headers = &.{.{ .name = "content-type", .value = "text/plain; charset=utf-8" }} });
+}
+
+test "a reply past its room says it was cut; one within it is whole (the box's cold review of 214)" {
+    const long = written(struct {
+        fn f(_: void, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            for (0..reply_buf.len) |_| try w.writeByte('x');
+        }
+    }.f, {});
+    try std.testing.expect(std.mem.endsWith(u8, long, cut_note));
+    try std.testing.expect(long.len <= reply_buf.len);
+    const short = written(struct {
+        fn f(_: void, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll("finished\n");
+        }
+    }.f, {});
+    try std.testing.expectEqualStrings("finished\n", short);
 }

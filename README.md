@@ -181,7 +181,7 @@ write, is refused: Dog Park runs background scripts only.
   `mode=kill` to end the run going), and `curl` with the admin bearer.
 - **The cookbook,** in `tools/shale/`: `games.shale` (each game's kept tick,
   last log and log bytes), `trouble.shale` (each game's last hour: reports,
-  `req ?`, overlaps, idle drags, stuck, refused lines) and `accounts.shale`
+  differs, `req ?`, overlaps, idle drags, stuck, refused lines) and `accounts.shale`
   (accounts against the 80, games started).
 - **The budgets** (`shale.budgets`): 50M steps, an 8 MiB arena, 10,000
   store reads and 256 MiB read in all, no changes; a slice is at most

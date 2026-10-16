@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import net from "node:net";
 import { scratchServer, root } from "./lib/scratch_server.mjs";
 
 const server = await scratchServer();
@@ -69,6 +70,21 @@ test("the admin key comes first: no bearer, no script", async () => {
   sequence--; // never seen by the route
 });
 
+test("a stranger's script is never read: refused from its head, before its body comes", async () => {
+  // Its head alone, a 60 KiB body promised and never sent: a host that read
+  // a body before checking its sender would wait for it (the box's cold
+  // review of 214, finding 4).
+  const answer = await new Promise((resolve, reject) => {
+    const c = net.connect(server.port, "127.0.0.1");
+    let got = "";
+    const timer = setTimeout(() => { c.destroy(); resolve(`no answer in 2 s; got ${JSON.stringify(got)}`); }, 2000);
+    c.on("data", (d) => { got += d; if (got.includes("\r\n\r\n")) { clearTimeout(timer); c.destroy(); resolve(got); } });
+    c.on("error", reject);
+    c.write(`POST /admin/script HTTP/1.1\r\nHost: x\r\nContent-Length: ${60 * 1024}\r\n\r\n`);
+  });
+  assert.match(answer, /^HTTP\/1\.1 4\d\d /);
+});
+
 test("an unsigned, a wrongly signed or a replayed script is refused; an atomic one is off", async () => {
   const unsigned = await send(`shale-signature ${"0".repeat(128)}\n${envelope('print("hi")\n').split("\n").slice(1).join("\n")}`);
   assert.equal(unsigned.status, 403);
@@ -114,7 +130,7 @@ test("the cookbook on the files a real game writes", async () => {
 
   assert.equal((await send(envelope(cookbook("trouble.shale")))).status, 202);
   const trouble = await ended();
-  assert.match(trouble, /\n1 games, the last hour\ngame +logs +reports +unreadable +overlaps +idle_drags +stuck +refused\ngame-0 +1 +0 +2 +0 +0 +0 +0\n$/);
+  assert.match(trouble, /\n1 games, the last hour\ngame +logs +reports +differs +unreadable +overlaps +idle_drags +stuck +refused\ngame-0 +1 +0 +0 +2 +0 +0 +0 +0\n$/);
 });
 
 test("play goes on while a scan of every game's logs runs: the worst wait a report saw", async () => {
@@ -122,7 +138,8 @@ test("play goes on while a scan of every game's logs runs: the worst wait a repo
   // reports, a finding in each (a scan's worst: everything read).
   const report = "entry report 60\ndogpark 1 physics 00000000 page 1.1 req 1\nfrom 0\nheld 1\nend\n";
   const finding = "entry finding 26\nreq ? number 1 at kept 0\nend\n";
-  const log = finding + report.repeat(Math.floor((1 << 20) / report.length));
+  const differ = "entry finding 24\nreq 1 differ at tick 9\nend\n";
+  const log = finding + differ + report.repeat(Math.floor((1 << 20) / report.length));
   const start = Date.now() - 30 * 60_000;
   for (let g = 1; g <= 5; g++) {
     const dir = join(data, `game-${g}`, "physics");
@@ -148,7 +165,7 @@ test("play goes on while a scan of every game's logs runs: the worst wait a repo
     if (!/ running: /.test((await timed(status)).text)) break;
   }
   const done = await ended();
-  assert.match(done, /game-5 +10 +\d+ +10 +0 +0 +0 +0\n$/);
+  assert.match(done, /game-5 +10 +\d+ +10 +10 +0 +0 +0 +0\n$/);
   console.log(`# a scan of 50 MiB of logs ran beside ${reports} reports; the worst wait a request saw: ${worst.toFixed(1)} ms`);
   // A slice, and the request's own time: never the scan's.
   assert.ok(worst < 250, `a request waited ${worst} ms`);
