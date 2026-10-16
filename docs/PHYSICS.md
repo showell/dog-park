@@ -543,7 +543,8 @@ are for that. Nobody should expect a rewind to fix the rule.
   every open page stops on its next report (`reload epoch`: the server
   restarted), and nothing kept per epoch needs to survive a restart. **The breaker**
   (`reload differs`) counts requests: three in a row on one epoch answered
-  `differ` (a repeated answer to a resend counts nothing new):
+  `differ` (a repeated answer to a resend counts nothing new; each
+  `differ` is logged as a finding, `req N differ at tick T`):
   something is wrong that rewinding won't fix. **The page and its wasm are
   served under the physics hash** (`/physics-5e0c91a2.wasm`; the page that
   names it is never cached), so a reload can't pick up stale code and meet

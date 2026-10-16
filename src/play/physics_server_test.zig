@@ -778,7 +778,7 @@ test "the header's order: language, physics, epoch, then the request number and 
     try expectKept(try rig.report(page.body()), 2, 0);
 }
 
-test "the log: kept reports as written, a differ's kept prefix, the load's view and held; a snapshot every 64 kept ticks" {
+test "the log: kept reports as written, a differ's kept prefix and its own finding line, the load's view and held; a snapshot every 64 kept ticks" {
     var rig: Rig = undefined;
     try rig.init(t0);
     defer rig.deinit();
@@ -798,6 +798,8 @@ test "the log: kept reports as written, a differ's kept prefix, the load's view 
     try testing.expect(std.mem.indexOf(u8, log, want) != null);
     try testing.expect(std.mem.indexOf(u8, log, page.text.items[0..prefix_len]) != null);
     try testing.expect(std.mem.indexOf(u8, log, "entry load ") != null);
+    const differ_line = try std.fmt.bufPrint(&buf, "req {d} differ at tick {d}\n", .{ page.req, rig.server.kept.tick + 1 });
+    try testing.expect(std.mem.indexOf(u8, log, differ_line) != null);
     // The snapshot moves at 64 kept ticks.
     page.last = rig.server.kept.tick;
     page.board = rig.server.kept.board;

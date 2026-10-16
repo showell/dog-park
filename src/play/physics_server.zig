@@ -364,6 +364,9 @@ pub const Server = struct {
             .differ => {
                 self.differs_in_a_row += 1;
                 self.last_differ = self.kept.tick + 1;
+                // Logged as its own line: the report's kept prefix alone
+                // can't say the page and the server disagreed.
+                try entry.appendSlice(alloc, try plog.framed(alloc, .finding, try std.fmt.allocPrint(alloc, "req {d} differ at tick {d}\n", .{ header.req, self.last_differ })));
             },
             .reload, .unreadable => {},
         }
