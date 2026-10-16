@@ -14,7 +14,7 @@
 //!   GET  /dogpark    solo/index.html, the game, for a device with an
 //!                    account; 303 to / for one without
 //!   POST /reset      this device's next load starts its game afresh
-//!   /admin, /admin/login, /admin/host, /admin/game: the operator's pages
+//!   /admin, /admin/login, /admin/host, /admin/log, /admin/game: the operator's pages
 //!                    (admin.zig), by the admin key
 //!   GET  /NAME.js    solo/NAME.js, read from disk each time: the page's
 //!                    modules (park.js its entry), NAME `[a-z_]+`
@@ -235,6 +235,10 @@ pub fn between(io: Io, now: i64) bool {
     return shale.between(io, now);
 }
 
+/// What `/admin/log`'s header says the application is: Dog Park bakes in no
+/// commit, its physics hash says which build it is (as `/admin/host` does).
+const log_names_app = std.fmt.comptimePrint("Dog Park, physics {x:0>8}", .{@import("physics_wire.zig").physics_hash});
+
 /// The operator's pages: the key first (a bearer or the admin cookie),
 /// read before any body; the login form is the one way in without it.
 fn adminRoute(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, path: []const u8) !void {
@@ -257,6 +261,9 @@ fn adminRoute(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, p
     };
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
     if (std.mem.eql(u8, path, "/admin/host")) return admin.host(req, io, alloc);
+    // The host's whole log as plain text, filtered, for an agent (webbox's,
+    // angry-gopher's too: metal-vmm QUEUE 221).
+    if (std.mem.eql(u8, path, "/admin/log")) return webbox.admin_log.render(req, io, alloc, log_names_app);
     if (std.mem.eql(u8, path, "/admin/game")) return admin.game(req, io, alloc, .{
         .claimed = claimed,
         .turn = &turn,

@@ -134,3 +134,19 @@ test("the operator's pages: nothing without the admin key; the bearer or a login
   const cookie = ok.headers["set-cookie"][0].split(";")[0];
   assert.equal((await server.as(cookie, "GET", "/admin/game")).status, 200);
 });
+
+test("the host's log, /admin/log, for the operator only: its header names Dog Park, and a filter spelled wrong is a 400 (metal-vmm QUEUE 221)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const key = readFileSync(join(server.dir, "auth", "_admin_key"), "utf8").trim();
+  assert.equal((await server.as(undefined, "GET", "/admin/log")).status, 403);
+  assert.equal((await server.as(server.cookie, "GET", "/admin/log")).status, 403);
+  assert.equal((await server.bearer("0".repeat(64), "GET", "/admin/log")).status, 403);
+  const log = await server.bearer(key, "GET", "/admin/log");
+  assert.equal(log.status, 200);
+  assert.match(log.headers["content-type"], /^text\/plain/);
+  assert.match(log.text, /^# The host's log, for agents/);
+  assert.match(log.text, /\n# the application: Dog Park, physics [0-9a-f]{8}\n/);
+  assert.match(log.text, /\n# requests since boot: /);
+  assert.equal((await server.bearer(key, "GET", "/admin/log?boot=sometimes")).status, 400);
+});
