@@ -9,6 +9,9 @@ const app = @import("app.zig");
 pub const site = webbox.site.Site(app);
 
 pub const hosting = struct {
+    /// What the application is called, where a host names it (metal's boot
+    /// banner: "Dog Park's route table").
+    pub const name = "Dog Park";
     /// What its data is called, where a host names it.
     pub const data_name = "Dog Park's data";
     /// The largest file a plain read takes whole: the page and its scripts
