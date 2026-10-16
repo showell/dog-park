@@ -53,7 +53,8 @@ check.
      is in another).
    - Image: Custom images → `dogpark-<commit>`.
    - Size: Basic, Regular, the cheapest ($4/month, 512 MB, 10 GB). The
-     rehearsal boots it with 512 MB.
+     rehearsal boots it with 512 MB. On 2026-10-16 nyc2 had no Basic, so
+     the droplet is Premium Intel ($8/month); the image runs on either.
    - Authentication: whatever the form insists on; nothing on the machine
      reads it. No backups, no monitoring (there is no Linux for the agent).
    - Hostname: `dogpark`.
@@ -69,7 +70,7 @@ check.
    `stopped` instead means it refused something, and says what just above.
 
 6. **Read its private address**: the droplet's page, "Private IP" (a
-   `10.x.x.x`). Call it `<dogpark>` below. On prod, it answers:
+   `10.x.x.x`; the first deploy got 10.100.0.3). Call it `<dogpark>` below. On prod, it answers:
 
        curl -s http://<dogpark>/ | grep -c 'Begin Game'     # 1
 
