@@ -51,7 +51,7 @@ for name in ls("") do
   local dir = name .. "/physics"
   if starts_with(name, "game-") and is_dir(dir) then
     local t = {game = name, logs = 0, reports = 0, differs = 0, unreadable = 0, overlaps = 0, idle_drags = 0, stuck = 0, refused = 0}
-    -- The logs begun in the hour, and the one before them, which runs into it.
+    -- The logs begun in the hour, and the one before them if it runs into it.
     local before = 0
     for f in ls(dir) do
       if starts_with(f, "log-") then
@@ -62,8 +62,11 @@ for name in ls("") do
     for f in ls(dir) do
       if starts_with(f, "log-") then
         local started = tonumber(sub(f, 5))
-        if started >= since or started == before then
-          local path = dir .. "/" .. f
+        local path = dir .. "/" .. f
+        -- The one before the hour counts only if it was still written in
+        -- it (a host that keeps no time says 0: then it counts).
+        local m = stat(path).modified
+        if started >= since or (started == before and (m == 0 or m * 1000 >= since)) then
           t.logs = t.logs + 1
           scan(path, stat(path).size, t)
         end
