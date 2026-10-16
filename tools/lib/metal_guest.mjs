@@ -23,14 +23,16 @@ export function freePort() {
 
 /**
  * **AN ERROR LINE IN THE GUEST'S LOG**: a panic, a request whose outcome is
- * not `ok` (an error's name in its place), a disk check with a leak or a
- * problem, a restart after a fatal stop, or a line naming an error or a
- * failure. Expected refusals (303, 403) are `ok` outcomes.
+ * not `ok` (an error's name in its place), an upload's line (the kernel's,
+ * for a POST with a body: `/admin/script`'s) not ending `: ok (<status>)`,
+ * a disk check with a leak or a problem, a restart after a fatal stop, or a
+ * line naming an error or a failure. Expected refusals (303, 403) are `ok`
+ * outcomes.
  */
 export function errorLines(log) {
   return log.split("\n").map((l) => l.replace(/\r$/, "")).filter((l) =>
     /PANIC|fatal/i.test(l) ||
-    (/ request \d+: /.test(l) && !/ -> ok, /.test(l)) ||
+    (/^\s*upload: /.test(l) ? !/: ok \(\d+\)$/.test(l) : / request \d+: /.test(l) && !/ -> ok, /.test(l)) ||
     (/disk check/.test(l) && !/ 0 leaked, 0 problems$/.test(l)) ||
     /\berror\b|\bfailed\b|\bfailure\b/i.test(l.replace(/\b0 (failed|failures)\b/g, "")));
 }

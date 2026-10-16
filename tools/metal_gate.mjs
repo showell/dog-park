@@ -21,6 +21,7 @@
 // and the kernel has no general disk builder yet.
 
 import { execFileSync } from "node:child_process";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtempSync, mkdirSync, cpSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,11 +38,19 @@ const MTOOLS_ENV = { ...process.env, TZ: "UTC", MTOOLS_SKIP_CHECK: "1" };
 const boot_deadline_ms = 30_000;
 const admin_key = "d06fa4c0".repeat(8);
 const cookie_name = "__Host-dogpark";
+// **THE SHALE KEY** (README, "Running a script"): a pair made for this run,
+// its public half in the scratch disk's auth/shale.conf.
+const shale_target = "dogpark.test";
+const shale_key = (() => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  return { privateKey, hex: Buffer.from(publicKey.export({ format: "jwk" }).x, "base64url").toString("hex") };
+})();
 
 const scratch = mkdtempSync(join(tmpdir(), "dogpark-metal-gate-"));
 const image = join(scratch, "disk.img");
 const times = [];
 let step = "start";
+let background_said = "";
 
 const ms = (t0) => Math.round(performance.now() - t0);
 function fail(why) {
@@ -62,6 +71,9 @@ function buildDisk() {
   mkdirSync(join(content, "auth"), { recursive: true });
   cpSync(join(root, "solo"), join(content, "solo"), { recursive: true });
   writeFileSync(join(content, "auth", "_admin_key"), admin_key);
+  mkdirSync(join(content, "auth", "shale"));
+  writeFileSync(join(content, "auth", "shale.conf"), `public_key = ${shale_key.hex}\ntarget = ${shale_target}\n`);
+  writeFileSync(join(content, "auth", "shale", "sequence"), "0\n");
   writeFileSync(image, "");
   execFileSync("truncate", ["-s", String(64 << 20), image]);
   mt("sgdisk", "-o", "-n", `1:${PART_FIRST}:0`, "-t", "1:0700", "-c", "1:dogpark", image);
@@ -203,6 +215,69 @@ async function adminGame(port, claimed, keptTick) {
   status(await request(port, "GET", "/admin/game", { headers: { authorization: `Bearer ${"0".repeat(64)}` } }), 403, "/admin/game with a wrong key");
 }
 
+/** A signed background envelope (zig-webbox script_route.zig's format), as tools/test_shale.mjs signs one. */
+function shaleEnvelope(source, sequence) {
+  const expires = Math.floor(Date.now() / 1000) + 600;
+  const signed = `shale-1 target=${shale_target} sequence=${sequence} expires=${expires} mode=background\n${source}`;
+  return `shale-signature ${sign(null, Buffer.from(signed), shale_key.privateKey).toString("hex")}\n${signed}`;
+}
+
+/** How long the second client's slowest answer may take while the run goes: QEMU's user network and a Debug-free kernel answer a GET in a few ms; a run that held the loop would hold it for its whole length. */
+const prompt_ms = 500;
+
+/**
+ * **A BACKGROUND RUN ON METAL** (metal-vmm QUEUE 216): games.shale posted
+ * signed, answered at once (202), stepped by the kernel between requests
+ * (webbox's `Site.between`) until GET /admin/script says it finished, with
+ * game-0's row; meanwhile a second client's GETs are each answered within
+ * `prompt_ms`. Then /admin/host's kernel half counts the calls, none over
+ * the target.
+ */
+async function backgroundRun(port) {
+  const bearer = { authorization: `Bearer ${admin_key}` };
+  const source = readFileSync(join(root, "tools/shale/games.shale"), "utf8");
+  const posted = await request(port, "POST", "/admin/script", { body: shaleEnvelope(source, 1), headers: bearer });
+  status(posted, 202, "POST /admin/script, a signed background run");
+  let done = false;
+  const waits = [];
+  const second = (async () => {
+    while (!done) {
+      const t0 = performance.now();
+      status(await request(port, "GET", "/park.js"), 200, "the second client's GET /park.js");
+      waits.push(performance.now() - t0);
+    }
+  })();
+  let text = "";
+  let polls_running = 0;
+  const deadline = performance.now() + 20_000;
+  try {
+    for (;;) {
+      const s = await request(port, "GET", "/admin/script", { headers: bearer });
+      status(s, 200, "GET /admin/script");
+      text = s.text;
+      if (!/ running: /.test(text)) break;
+      polls_running++;
+      expect(performance.now() < deadline, `the background run is still running after 20 s:\n${text.slice(0, 600)}`);
+    }
+  } finally {
+    done = true;
+    await second;
+  }
+  expect(/^background seq=1 finished: /.test(text), `the background run did not finish:\n${text.slice(0, 600)}`);
+  expect(/1 games\n/.test(text) && /game-0/.test(text), `games.shale printed no row for game-0:\n${text.slice(0, 600)}`);
+  // Seen running at least once: the 202 came before the run's end, and the run went on between other requests.
+  expect(polls_running > 0, `the background run was never seen running:\n${text.slice(0, 600)}`);
+  expect(waits.length > 0, "the second client sent nothing while the run went");
+  const slowest = Math.max(...waits);
+  expect(slowest < prompt_ms, `the second client waited ${slowest.toFixed(0)} ms (over ${prompt_ms}) while the run went`);
+  const host = await request(port, "GET", "/admin/host", { headers: bearer });
+  status(host, 200, "/admin/host");
+  const m = /(\d+) calls of the application.{0,6}s work, (\d+) over the (\d+) ms target, the longest (\d+) ms/.exec(host.text);
+  expect(m, `/admin/host has no between-requests row:\n${host.text.slice(0, 600)}`);
+  expect(Number(m[1]) > 0 && Number(m[2]) === 0, `/admin/host: ${m[0]}`);
+  return `${text.split("\n")[0]}; seen running ${polls_running} times; ${waits.length} GETs beside it, the slowest ${slowest.toFixed(0)} ms; ${m[0].replace("&#39;", "'")}`;
+}
+
 /** The physics logs' start times (log-<ms>) on the disk, ascending. */
 function logStarts() {
   return diskNames("data/game-0/physics").map((n) => /^log-(\d+)$/.exec(n)).filter(Boolean).map((m) => Number(m[1])).sort((a, b) => a - b);
@@ -263,6 +338,12 @@ async function gate() {
   await checkSerial();
   times.push(["session 1", ms(t)]);
 
+  step = "a background Shale run";
+  t = performance.now();
+  background_said = await backgroundRun(port);
+  await checkSerial();
+  times.push(["background run", ms(t)]);
+
   step = "stop 1";
   await stopQemu();
   const after1 = Date.now();
@@ -313,6 +394,7 @@ async function gate() {
 try {
   await gate();
   console.log(`metal-gate PASS: ${times.map(([k, v]) => `${k} ${(v / 1000).toFixed(1)} s`).join(", ")}`);
+  console.log(`  the background run: ${background_said}`);
   rmSync(scratch, { recursive: true, force: true });
 } catch (e) {
   await stopQemu().catch(() => {});

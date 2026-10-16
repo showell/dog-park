@@ -187,9 +187,12 @@ write, is refused: Dog Park runs background scripts only.
   store reads and 256 MiB read in all, no changes; a slice is at most
   100,000 steps or one store call, and each call's work is capped (a
   megabyte a read or scan, 256 entries a walk).
-- **On metal, not yet:** the kernel does not step a background run between
-  requests (metal-vmm QUEUE 211, the box's), so there the route refuses one
-  (501 `no_background`). On Linux, `:9103`, it runs.
+- **Both hosts step it:** Linux on a thread of its own, the metal kernel
+  in its main loop, a slice after each request and slices while idle
+  (zig-metal-unikernel, metal-vmm QUEUE 216); `/admin/host`'s kernel half
+  counts its slices and those over the 50 ms target. The QEMU gate runs
+  `games.shale` in the background while a second client is answered. Not
+  yet on metal: its output ring and stream (QUEUE 216's later chunks).
 
 ## The tests
 

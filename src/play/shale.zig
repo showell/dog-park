@@ -20,9 +20,12 @@
 //! off (403 `no_key`).
 //!
 //! **ONLY WHERE A HOST STEPS IT**: the Linux host calls `between` from its
-//! start; metal's kernel does not yet (metal-vmm QUEUE 211, the box's). A
-//! background run is accepted only once `between` has been called, so on
-//! metal it is refused (501 `no_background`) rather than left never run.
+//! start, on a thread of its own; metal's kernel from its main loop, a slice
+//! after each request and slices in idle turns (metal-vmm QUEUE 216). A
+//! background run is accepted only once `between` has been called, so a
+//! host that never calls it refuses one (501 `no_background`) rather than
+//! leaving it never run. Its memory is `long`, the site's long-lived heap
+//! (the page allocator's, on metal), never a request's.
 
 const std = @import("std");
 const Io = @import("host_io").Io;
