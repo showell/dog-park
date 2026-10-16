@@ -130,7 +130,7 @@ touched by any of it.
 ## What the image holds, and why
 
 - **Partition 1**: `dogpark.elf`, the kernel (zig-metal-unikernel's
-  `droplet/image.sh` and its boot loader lay the disk out).
+  `droplet/app_image.py`, any application's image builder, lays the disk out).
 - **Partition 2**, FAT16, 1 GiB: `solo/`, `auth/_admin_key`, and
   `zig-metal-unikernel.conf`:
 

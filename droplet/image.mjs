@@ -1,7 +1,8 @@
 // **DOG PARK'S BOOT IMAGE, FOR A DROPLET** (DEPLOY.md, step 1). One disk,
-// laid out by zig-metal-unikernel's droplet/image.sh: its boot loader, then
-// dogpark.elf in partition 1, then partition 2, a FAT16 filesystem holding
-// solo/, auth/_admin_key and zig-metal-unikernel.conf. **THERE IS NO DATA
+// laid out by zig-metal-unikernel's droplet/app_image.py, any application's
+// image builder: its boot loader, then dogpark.elf in partition 1, then
+// partition 2, a FAT16 filesystem holding solo/, auth/_admin_key and
+// zig-metal-unikernel.conf. **THERE IS NO DATA
 // VOLUME**: with no `volume` line in the conf and none attached, the kernel
 // keeps data/ and auth/ on the boot disk (probe/gopher.zig, "data: the boot
 // disk"). So a new image starts Dog Park empty: accounts, games and the
@@ -39,13 +40,13 @@ const elf = join(root, "zig-out/bin/dogpark.elf");
 export const adminKeyPath = join(homedir(), ".dogpark_admin_key");
 const proxyFile = join(root, "droplet/trusted-proxy");
 /**
- * **THE SITE PARTITION'S SIZE**: all of Dog Park's data lives here. A game's
+ * **THE DISK SIZE** (the site partition is it, less the GPT's sectors): all of
+ * Dog Park's data lives there. A game's
  * logs are capped at about 25 MB (docs/PHYSICS.md), so 80 games could in
  * principle pass 1 GiB; 5 playing at once, with closed logs kept an hour,
  * stays far under it. gzip takes the empty space to almost nothing.
  */
 const site_mib = 1024;
-const MTOOLS_ENV = { ...process.env, TZ: "UTC", MTOOLS_SKIP_CHECK: "1" };
 
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], ...opts });
 
@@ -87,8 +88,8 @@ function trustedProxy() {
   return proxy;
 }
 
-/** The site partition: a FAT16 filesystem image of solo/, auth/_admin_key and the conf. */
-function sitePartition(work, key, proxy) {
+/** The site's files (solo/, auth/_admin_key) and its conf, for app_image.py. */
+function siteFiles(work, key, proxy) {
   const content = join(work, "content");
   mkdirSync(join(content, "auth"), { recursive: true });
   cpSync(join(root, "solo"), join(content, "solo"), { recursive: true });
@@ -96,14 +97,9 @@ function sitePartition(work, key, proxy) {
   // As angry-gopher's (zig-metal-unikernel droplet/chat.py), less the volume:
   // a stalled connection let go after 10 s, no `requests` (serve until turned
   // off), only the private card, and Caddy's address believed.
-  writeFileSync(join(content, "zig-metal-unikernel.conf"),
-    `idle_timeout_ms = 10000\ncard = private\ntrusted_proxy = ${proxy}\n`);
-  const fat = join(work, "site.fat");
-  run("mkfs.vfat", ["-F", "16", "-S", "512", "-n", "DOGPARK", "-C", fat, String(site_mib * 1024)]);
-  for (const entry of ["auth", "solo", "zig-metal-unikernel.conf"]) {
-    run("mcopy", ["-s", "-m", "-o", "-D", "o", "-i", fat, join(content, entry), "::/"], { env: MTOOLS_ENV });
-  }
-  return fat;
+  const conf = join(work, "zig-metal-unikernel.conf");
+  writeFileSync(conf, `idle_timeout_ms = 10000\ncard = private\ntrusted_proxy = ${proxy}\n`);
+  return { content, conf };
 }
 
 function sha256(path) {
@@ -130,11 +126,11 @@ async function main() {
 
   const work = mkdtempSync(join(tmpdir(), "dogpark-image-"));
   try {
-    const fat = sitePartition(work, key, proxy);
+    const { content, conf } = siteFiles(work, key, proxy);
     try {
-      run(join(kernelRoot, "droplet/image.sh"), [elf, out, fat]);
+      run("python3", [join(kernelRoot, "droplet/app_image.py"), elf, content, conf, out, "--disk-mib", String(site_mib), "--fat", "16", "--label", "DOGPARK"]);
     } catch (e) {
-      die(`zig-metal-unikernel's droplet/image.sh failed:\n${e.stdout}${e.stderr}`);
+      die(`zig-metal-unikernel's droplet/app_image.py failed:\n${e.stdout}${e.stderr}`);
     }
   } finally {
     rmSync(work, { recursive: true, force: true });
