@@ -61,14 +61,14 @@ them is the library's.
 
 **Who may play:** the first 80 devices to press Begin Game get an account,
 and up to 5 can play at once. A sixth waits for a turn, which frees 20
-seconds after someone stops dragging. These numbers are small on purpose
-for now; the capacity study puts the cheapest droplet at about 80 playing
-at once.
+seconds after someone stops dragging (`src/play/players.zig`). The cap of 5
+is small on purpose: [the capacity study](https://github.com/showell/essay-repl-server/blob/master/notes/dog-park-capacity.md) puts about 20 turns held at
+once on a 1 vCPU / 1 GiB droplet. The study is an estimate for that size,
+not a measurement of the deployed droplet.
 
 ## Where it runs
 
-**Dog Park is live at https://dogpark.lynrummy.com** (since 2026-10-16),
-on its own droplet, booted from an image with no Linux on it. The image is the
+**Dog Park is live at https://dogpark.lynrummy.com**, on its own droplet, booted from an image with no Linux on it. The image is the
 [zig-metal-unikernel](https://github.com/showell/zig-metal-unikernel)
 kernel with Dog Park built in, the same way lynrummy.com is served.
 Prod's Caddy holds HTTPS and forwards to it over the private network, and
@@ -77,22 +77,32 @@ logs every request (`/var/log/caddy/dogpark-access.log` on prod; angry-gopher's
 droplet-sized machine. [DEPLOY.md](DEPLOY.md) is the deploy, step by step,
 and a new release, which starts every game over.
 
-On its first afternoon, three players played, two of them won, and the
-server and the page never disagreed.
-
-For development, `zig build play` serves `localhost:9103`.
+To see which build the droplet runs: `curl -s
+https://dogpark.lynrummy.com/version` (below). A droplet running an image
+built before `/version` existed answers 404 there.
 
 ## Running it
 
-    zig build play       # serve on localhost:9103, from the checkout
+    zig build play       # serve on port 9103, from the checkout
+
+With `DOGPARK_BIND` unset it listens on **every interface**, so on a
+machine with a public address the game is public;
+`DOGPARK_BIND=127.0.0.1 zig build play` keeps it to the machine. With no
+`DOGPARK_CONFIG`, the games go in `./data` and the auth files in `./auth`
+in the checkout, so the local admin key is `auth/_admin_key`.
 
 Every build needs its sibling checkouts beside this one:
 - `../zig-webbox`;
 - `../zig-metal-unikernel`;
-- `../zig-coverage-sdk`, at the commit the kernel pins.
+- `../zig-coverage-sdk`, at the commit the kernel pins (zig-metal-unikernel's
+  `build.zig`, `pinnedSdk`; the build fails, saying so, on another).
 
 Zig runs a path dependency's build at every configure, so even a plain
 `zig build` needs all three.
+
+The tools: zig 0.16 (`build.zig.zon`), and node for the node tests. The
+QEMU gate and the image also need qemu with KVM, sgdisk, mtools and
+fsck.fat, and python3 (zig-metal-unikernel's `droplet/app_image.py`).
 
 The cookie is Secure, which a browser keeps only over HTTPS (or from
 localhost). A development server on plain http at an address sets
@@ -100,7 +110,7 @@ localhost). A development server on plain http at an address sets
 
 ### On metal
 
-    zig build metal      # zig-out/bin/dogpark.elf, ReleaseSafe (~30 s)
+    zig build metal      # zig-out/bin/dogpark.elf, ReleaseSafe
 
 zig-metal-unikernel's `addAppKernel` builds `src/play/hosted.zig` (its
 `site` and `hosting`) into the kernel. The kernel's own host replaces
@@ -121,7 +131,7 @@ page's wasm, so neither can be stale. What differs from Linux:
 
 ### The QEMU gate: last, before a deploy
 
-    zig build metal-gate --summary all   # ~6 s warm
+    zig build metal-gate --summary all
 
 **Run it last, before a Dog Park deploy, never out of habit;** it is in no
 test tier. `tools/metal_gate.mjs` boots dogpark.elf under QEMU on a fresh
@@ -131,20 +141,30 @@ disk, then checks, failing loudly with the step and the guest's log:
 - **A session:** a load, a leash and a drag through the page's own code,
   with every report kept.
 - **The admin page:** it works with the key and refuses without it.
-- **The guest:** its log has no errors, and the disk passes `fsck`.
+- **`/version`:** it answers after each boot, and the second boot's
+  `started_ms` is later than the first's. It does not compare the commit it
+  serves with the checkout's.
+- **A background Shale run:** `games.shale` posted, signed, and run while
+  a second client is answered, and what it printed.
+- **The guest:** its log has no errors, the log files' names fall in each
+  boot's wall-clock window (the guest's clock), and the disk passes `fsck`.
 - **A second boot on the same disk:** the cookie still reads, and the game
   is picked up where it was.
 
+Its time is in its step's description (`zig build --help`), measured warm
+on the box.
+
 ### On Linux, behind Caddy
 
-The metal droplet is the plan, but the Linux server can serve it just as
-well:
+Linux can serve it too:
 - **The binary:** `zig build -Doptimize=ReleaseSafe`. The server reads
   the page from `solo/` in the directory it runs in, so ship
   `zig-out/bin/dog-park-play` and `solo/` together, and start it from
   there.
 - **The config:** `DOGPARK_CONFIG` names a file with `data_dir = …` and
-  `auth_dir = …`.
+  `auth_dir = …`. A file with no `data_dir` is refused; one with no
+  `auth_dir` uses `~/DogParkAuth`. Other keys are ignored: the host's
+  settings are its environment.
   - The data dir holds the games (`game-<slot>/`) and the account count
     (`players`). Each game's log rotates at 1 MiB. Closed logs are kept
     for an hour, at most 25 MB a game.
@@ -152,10 +172,16 @@ well:
     the first start.
   - To hand out the accounts again, stop the server and delete `players`
     and `game-*`. Delete the secret too to make every old cookie invalid.
-- **The environment:**
-  - `DOGPARK_PORT` (default 9103);
-  - `DOGPARK_BIND` (bind 127.0.0.1 behind Caddy);
-  - `DOGPARK_TRUSTED_PROXY` (default 127.0.0.1).
+- **The environment** (`src/play/main.zig`):
+
+  | variable | default |
+  |---|---|
+  | `DOGPARK_PORT` | 9103 |
+  | `DOGPARK_BIND` | every interface (bind 127.0.0.1 behind Caddy) |
+  | `DOGPARK_CONFIG` | none: `./data` and `./auth` |
+  | `DOGPARK_TRUSTED_PROXY` | 127.0.0.1 |
+  | `DOGPARK_KEEPALIVE_MS` | webbox's (a quiet stream's ping window, for tests) |
+  | `DOGPARK_INSECURE_COOKIE` | unset: the cookie is Secure |
 
   Never set `DOGPARK_INSECURE_COOKIE` behind HTTPS.
 - **Caddy:** `reverse_proxy 127.0.0.1:9103` for the site's name. Every
@@ -166,7 +192,7 @@ well:
 `GET /version` answers small JSON, with no secret and nobody's name: which
 commit serves (`+dirty` for a tree with uncommitted changes), `started_ms`
 (a restart shows as a new one), `now_ms`, the accounts handed out of the most,
-and the turns held now of the most. It is what the Observatory polls
+and the turns held now of the most. It is what the [Observatory](https://github.com/showell/observatory) polls
 (metal-vmm QUEUE 228); `curl -s <site>/version` is the quickest way to see
 which build a machine runs.
 
@@ -174,10 +200,14 @@ which build a machine runs.
 
 `/admin/game` shows accounts, turns, and each game's state: its last
 request, leash, tick, herd, poops, logs, and any findings. `/admin/host`
-shows requests, errors, memory and the host's facts.
+shows requests, errors, memory and the host's facts. `/admin/log` is the
+host's whole log as plain text, for an agent to fetch and grep, narrowed by
+`since=`, `until=`, `request=`, `path=` and `boot=` (zig-webbox's
+`admin_log`).
 
-Both need the admin key, either as a bearer token
-(`curl -H "Authorization: Bearer $(cat <auth>/_admin_key)"`) or through
+All need the admin key, either as a bearer token
+(`curl -H "Authorization: Bearer $(cat <auth>/_admin_key)"`; `<auth>` is
+the auth dir, `auth/` in a checkout) or through
 `/admin`'s login form in a browser.
 
 ### Running a script (Shale, for monitoring)
@@ -216,33 +246,46 @@ write, is refused: Dog Park runs background scripts only.
   (zig-metal-unikernel, metal-vmm QUEUE 216); `/admin/host`'s kernel half
   counts its slices and those over the 50 ms target. The QEMU gate runs
   `games.shale` in the background while a second client is answered.
-  Parked (Steve, 2026-10-16): an output ring and a live stream, for a
-  script that must report as it runs.
+  Parked (Steve): an output ring and a live stream, for a script that must
+  report as it runs.
 
 ## The tests
 
 How the critters move is tested by playing. The automated tests each have
-a purpose, and [docs/PHYSICS.md](docs/PHYSICS.md) lists them:
-- critters never overlap;
-- the page and the server agree;
-- the protocol;
-- the wrapping world and its tiles;
-- poop and chickens never landing anyone on anything.
+a purpose:
+- **the physics** ([docs/PHYSICS.md](docs/PHYSICS.md) lists them, file by
+  file): critters never overlap; the page and the server agree; the
+  protocol; the wrapping world and its tiles; poop and chickens never
+  landing anyone on anything;
+- **the app** (`src/play/app.zig`, `admin.zig`, `players.zig`): `/version`'s
+  answer, the admin key, accounts and turns;
+- **the Shale cookbook** (`src/play/shale_tools_test.zig`): each script in
+  `tools/shale/` on a fixture store, against golden output;
+- **the node tests** (`tools/test_*.mjs`): the page's modules and engine
+  with no server (`test_page_modules`, `test_engine`), and against a scratch
+  server the page's physics, the physics server, accounts and the admin
+  pages (`test_players`), and a signed Shale run (`test_shale`).
 
-A test that no longer proves anything goes.
+A test that no longer proves anything goes. `src/play/all_tests.zig` is the
+root of every Zig test.
 
-    zig build test       # after every edit, ~4 s
-    zig build check      # before a commit, ~14 s
-    zig build slow       # the slow tier, ~20 s
+    zig build physics-test   # the physics' tests alone, natively: the fastest
+    zig build test           # after every edit, ~4 s
+    zig build check          # before a commit, ~14 s
+    zig build slow           # the slow tier, ~20 s
+
+The times were measured warm on the box, and nothing checks them; a cold
+cache takes longer.
 
 - **`test`:** every Zig unit test natively, with the seeded fuzz loops at a
   tenth, and the node tests that need no server.
-- **`check`:** `test`, plus the physics' tests compiled to wasm and run
-  under node, and the node tests against a scratch server.
+- **`check`:** `test`, plus `physics-wasm` (the physics' tests compiled to
+  wasm32 in Debug and run under node, and its freestanding compile probe),
+  and the node tests against a scratch server.
 - **`slow`:** the full fuzz, the physics' tests on wasm in ReleaseSafe as
   the page is served, and every node test.
 
-`-Dfuzz=full` gives any step the full fuzz; `zig build physics-test` runs
-the physics' tests alone. The benches (`zig build physics-bench`,
+`check-node` runs the node tests that need no server alone. `-Dfuzz=full`
+gives any step the full fuzz. The benches (`zig build physics-bench`,
 `zig build physics-server-bench`, `node tools/bench_page.mjs`) are in no
 tier.
