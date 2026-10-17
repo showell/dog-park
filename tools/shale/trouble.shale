@@ -7,7 +7,9 @@
 --
 -- A log is scanned a part at a time by the prelude's count_all and
 -- find_next (one scan brings at most the call-bytes cap, and a log rotates
--- once it is past 1 MiB, so it may be a little more).
+-- once it is past 1 MiB, so it may be a little more). A finding's line is
+-- read whole (line_at), however long; a number in it that is none counts
+-- 0, and a file in the folder whose name is no log's is passed by.
 
 const HOUR_MS = 3600000
 
@@ -18,7 +20,8 @@ function scan(log, t)
   while true do
     local f = find_next(log, "entry finding ", at)
     if f == nil then break end
-    local text = lines(read(log, f, 200))[2]
+    -- The finding is the line after its entry's.
+    local text = line_at(log, f + #line_at(log, f) + 1) or ""
     if starts_with(text, "req ? ") then
       t.unreadable = t.unreadable + 1
     elseif contains(text, " differ at tick ") then
@@ -29,11 +32,17 @@ function scan(log, t)
       t.refused = t.refused + 1
     elseif contains(text, " overlaps, ") then
       local w = words(text)
-      t.overlaps = t.overlaps + tonumber(w[6])
-      t.idle_drags = t.idle_drags + tonumber(w[8])
+      t.overlaps = t.overlaps + (parse_int(get(w, 6)) or 0)
+      t.idle_drags = t.idle_drags + (parse_int(get(w, 8)) or 0)
     end
     at = f + 1
   end
+end
+
+-- A log's start from its name, `log-<ms>`, or nil for a file that is no log.
+function log_start(f)
+  if not starts_with(f, "log-") then return nil end
+  return parse_int(sub(f, 5))
 end
 
 local since = now() * 1000 - HOUR_MS
@@ -45,14 +54,12 @@ for name in ls("") do
     -- The logs begun in the hour, and the one before them if it runs into it.
     local before = 0
     for f in ls(dir) do
-      if starts_with(f, "log-") then
-        local started = tonumber(sub(f, 5))
-        if started < since and started > before then before = started end
-      end
+      local started = log_start(f)
+      if started ~= nil and started < since and started > before then before = started end
     end
     for f in ls(dir) do
-      if starts_with(f, "log-") then
-        local started = tonumber(sub(f, 5))
+      local started = log_start(f)
+      if started ~= nil then
         local log = path(dir, f)
         -- The one before the hour counts only if it was still written in
         -- it (a host that keeps no time says 0: then it counts). Only it

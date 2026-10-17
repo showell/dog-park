@@ -4,7 +4,8 @@
 
 const MOST = 80
 
-local claimed = tonumber(trim(read_or("players", "0")))
+local claimed = parse_int(read_or("players", "0"))
+if claimed == nil then claimed = 0 print("the players file holds no number: read as 0") end
 local games = 0
 for name in ls("") do
   if starts_with(name, "game-") and is_dir(path(name, "physics")) then games = games + 1 end

@@ -3,7 +3,8 @@
 -- bytes. A game is data/game-<slot>/physics: a `snapshot` and its logs,
 -- `log-<start ms>`, each rotated at 1 MiB and kept for an hour
 -- (docs/PHYSICS.md). Reads only: a listing a game, a stat a log, and the
--- snapshot's first 256 bytes.
+-- snapshot's first lines. A file in the folder whose name is no log's
+-- (`log-` and a number) is passed by.
 
 local rows = {}
 for name in ls("") do
@@ -14,9 +15,10 @@ for name in ls("") do
     local newest = 0
     local newest_bytes = 0
     for f in ls(dir) do
-      if starts_with(f, "log-") then
+      local started = nil
+      if starts_with(f, "log-") then started = parse_int(sub(f, 5)) end
+      if started ~= nil then
         local size = stat(path(dir, f)).size
-        local started = tonumber(sub(f, 5))
         logs = logs + 1
         bytes = bytes + size
         if started > newest then
@@ -27,7 +29,7 @@ for name in ls("") do
     end
     local kept = "none"
     if exists(path(dir, "snapshot")) then
-      for line in lines(read(path(dir, "snapshot"), 0, 256)) do
+      for line in read_lines(path(dir, "snapshot"), 0, 256).lines do
         if starts_with(line, "kept ") then kept = sub(line, 6) end
       end
     end
