@@ -64,7 +64,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);
     if (b.args) |args| play_run.addArgs(args);
-    b.step("play", "Serve the played Dog Park (solo/) on localhost:9103").dependOn(&play_run.step);
+    b.step("play", "Serve the played Dog Park (solo/) on port 9103, every interface unless DOGPARK_BIND names one").dependOn(&play_run.step);
 
     // **DOG PARK ON METAL** (metal-vmm QUEUE 215): zig-metal-unikernel's
     // kernel, a sibling checkout, hosting hosted.zig's `site` in place of
@@ -235,7 +235,7 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| physics_bench_run.addArgs(args);
     b.step("physics-bench", "Time a physics tick natively (ReleaseSafe); -- herd, busiest, strewn or rerun: that one alone, for a profiler").dependOn(&physics_bench_run.step);
 
-    // A 32-tick report's round trip through POST /report, in process
+    // A 16-tick report's round trip through POST /report, in process
     // (ReleaseSafe): the route, the judge's re-run, the log's append.
     const webbox_rs = b.dependency("webbox", .{ .target = target, .optimize = .ReleaseSafe });
     const server_bench_mod = b.createModule(.{
@@ -251,7 +251,7 @@ pub fn build(b: *std.Build) void {
     });
     server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
-    b.step("physics-server-bench", "Time a 32-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
+    b.step("physics-server-bench", "Time a 16-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
 }
 
 /// One node test file, run after the install, its exit code the verdict.
