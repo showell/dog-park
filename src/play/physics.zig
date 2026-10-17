@@ -24,9 +24,8 @@
 //! leashed dog, shortest link first, then the herd's deepest dog poops if
 //! one is due. A critter reacts only to critters in motion (the leashed
 //! dog and those the walk moved before it this step), and takes its step
-//! whole or not at all, or once more sideways: never onto anyone, never
-//! onto poop, and never near the edge of what the physics sees. After the
-//! drag, the chickens' turn.
+//! whole or not at all, or once more sideways: never onto anyone and never
+//! onto poop. After the drag, the chickens' turn.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -136,7 +135,6 @@ pub const poop_grid: i32 = px(4);
 pub const chicken_sight: i32 = px(500);
 pub const chicken_step: i32 = px(8);
 pub const home_band: i32 = px(32);
-
 
 pub const Tick = u64;
 
@@ -1429,12 +1427,11 @@ pub const Veto = struct {
 /// - **The shove:** a chicken a dog or cow of the group would overlap is
 ///   knocked by the step plus as much again sideways, away from that
 ///   critter's centre line (`shoveAside`), up to `nudge_most` chickens.
-///   Each must land clear of everyone, every poop and the edge: of every
+///   Each must land clear of everyone and every poop: of every
 ///   critter that stays put, every one the step moves where it lands, and
 ///   every other chicken shoved. A chicken shoves nobody.
 /// - **The veto,** for every one of them, if any would overlap a critter
-///   not kin and not a chicken it shoves, come within `cow_half` of the
-///   seen tiles' edge (decision 23), or stand on a poop (for a chicken's
+///   not kin and not a chicken it shoves, or stand on a poop (for a chicken's
 ///   own step only the newest, which isn't ripe).
 /// All is checked before anyone moves. The group moves by one vector, so
 /// its members keep clear of each other; no two critters overlap, by
@@ -1616,7 +1613,7 @@ fn tryPoop(sc: *Scene, slot: u16, p: Point, dx: i32, dy: i32) bool {
 }
 
 /// Whether a poop at `q` overlaps no critter and no other poop the physics
-/// sees, and keeps clear of the seen tiles' edge as a step must.
+/// sees.
 fn poopFits(sc: *const Scene, q: Point, slot: u16) bool {
     var near = sc.critters(q, poop_half + cow_half);
     var it = near.iterator(.{});

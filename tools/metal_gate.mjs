@@ -30,6 +30,14 @@ import { pageRig, letGoTicks } from "./lib/page_rig.mjs";
 import { bootGuest } from "./lib/metal_guest.mjs";
 
 const elf = join(root, "zig-out/bin/dogpark.elf");
+// The commit the elf must name in /version: this checkout's, as build.zig's
+// commitOf says it (`+dirty` with uncommitted changes), so an elf left from
+// another build fails here by name.
+function checkoutCommit() {
+  const git = (...a) => execFileSync("git", ["-C", root, ...a], { encoding: "utf8" }).trim();
+  const head = git("rev-parse", "--short", "HEAD");
+  return git("status", "--porcelain", "--untracked-files=no") === "" ? head : `${head}+dirty`;
+}
 const wasm = join(root, "zig-out/web/physics.wasm");
 const PART_FIRST = 2048; // the partition's first sector, as judge_gopher.py's
 const SECTOR = 512;
@@ -307,6 +315,8 @@ async function gate() {
   step = "GET /version";
   const v1 = JSON.parse((await request(port, "GET", "/version")).text);
   expect(v1.app === "dog-park" && v1.started_ms >= before1 - 2000 && v1.started_ms <= Date.now() + 2000, `/version after boot 1: ${JSON.stringify(v1)} (its start not in the boot's window from ${before1})`);
+  const want_commit = checkoutCommit();
+  expect(v1.commit === want_commit, `/version names commit ${v1.commit}; this checkout is ${want_commit}: the elf is from another build (zig build metal)`);
 
   step = "POST /begin";
   const begun = await request(port, "POST", "/begin", { body: "" });
