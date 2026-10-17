@@ -1,14 +1,14 @@
 # Dog Park's physics, and the report that carries it
 
-**Status: played by Steve** (2026-10-15, the small world). The board, the tick, the wire
+**Status: played by Steve** (the small world). The board, the tick, the wire
 and the server's re-run are `src/play/physics*.zig`, with the first
-layout in `layout.zig`; the server speaks only `GET /`, the page's
-scripts, `/physics-<hash>.wasm`, `POST /load` and `POST /report`, and
-keeps its own board under `data/physics/`. The page runs the same Zig as
+layout in `layout.zig`. The physics' routes are `/physics-<hash>.wasm`,
+`POST /load` and `POST /report` (the README has the rest), and each game
+keeps its board under `<data>/game-<slot>/physics`. The page runs the same Zig as
 `physics.wasm` (`physics_page.zig`'s exports, in the physics hash, named
 by `index.html`); `solo/engine.js` keeps the record and the protocol.
 The client-driven design (the essay
-[the client drives](http://143.244.172.148:9100/notes/the-client-drives.md)):
+[the client drives](https://github.com/showell/essay-repl-server/blob/master/notes/the-client-drives.md)):
 the page runs every tick, and the server re-runs, keeps and acks. Steve
 tunes the physics by playing it.
 
@@ -117,8 +117,8 @@ never attract or repel.
   knocked by the step plus as much again sideways, away from that
   critter's centre line (on the line: south, or east for a step north or
   south). It counts only if every chicken shoved lands clear of every
-  critter (where the step leaves each one: still, nudged or shoved), of
-  every poop and of the edge; all is checked before anyone moves, and
+  critter (where the step leaves each one: still, nudged or shoved) and of
+  every poop; all is checked before anyone moves, and
   then all move or none. So a chicken slides off the front of a dog
   within about 30 px instead of being plowed ahead. A chicken shoves
   nobody.
@@ -152,8 +152,7 @@ around, not stopped at.
   anchor; for the leashed dog, back along its step. That spot taken, the
   spots on rings 4 px apart around it, out to 200 px, each ring walked
   clockwise from its north-west corner. A spot must overlap no critter
-  and no poop the physics sees, and keep clear of the seen tiles' edge as
-  a step must. None fits: no poop.
+  and no poop the physics sees. None fits: no poop.
 - **Poop stays until a chicken eats it.** The park's poops take 2048
   slots in turn, counted since the load (`laid`, on the `state` line), so
   only the 2049th would take the first one's slot.
@@ -329,7 +328,9 @@ stops where it is, and the page stops ticking until the next leash.
 runs 16 a second by its own clock (`requestAnimationFrame`), and that's
 the only place wall time paces anything. A slow laptop ticks slowly and
 the physics is unchanged; a page in a background tab doesn't tick at
-all, and catches up nothing.
+all, and on its return catches up at most 8 ticks
+(`most_catch_up_ticks`, `solo/engine.js`); the rest are dropped, never
+owed.
 
 **The report records it anyway,** as data, not proof:
 - **`wall`** in the header: the wall-clock time (Unix ms) at the report's
@@ -663,7 +664,7 @@ sync. Of the two ways to restart, this is the simpler:
   tiles sent and last answer are all made again at the next load.
 
 **The log is rotated and kept for an hour** (2026-10-15;
-notes/dog-park-capacity.md): the snapshot and the log after it are all a
+[the capacity study](https://github.com/showell/essay-repl-server/blob/master/notes/dog-park-capacity.md)): the snapshot and the log after it are all a
 restart needs, and the logs before are a debugging record, bounded.
 - **Rotation:** at a snapshot, a log past `rotate_bytes` (1 MiB) is
   closed. The snapshot names a new log, `log-<its start, ms>`, at its first
@@ -679,7 +680,7 @@ restart needs, and the logs before are a debugging record, bounded.
 
 `src/play/players.zig` and `app.zig`:
 - **80 accounts, first come, first served** (Steve, 2026-10-15; sized by
-  notes/dog-park-capacity.md). The landing page (`GET /`)
+  [the capacity study](https://github.com/showell/essay-repl-server/blob/master/notes/dog-park-capacity.md)). The landing page (`GET /`)
   has one button, Begin Game, a form posting to `/begin`. A device with
   no account gets the next one, as a signed cookie naming its slot, and
   goes on to `/dogpark`. After 80, the park is full. The count is kept
