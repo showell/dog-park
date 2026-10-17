@@ -287,10 +287,11 @@ export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), co
 // was.chickens Maps of
 // them by id), each drawn `between` there and here, the leashed dog too.
 // Across the seam, each thing is drawn at its copy nearest the viewport's
-// centre, and each tile's copy on screen. `more.dogNumbers` ("hidden", or
-// "shown" in the page's debugging mode, "d") says whether a dog's number is
-// in its label; a tile's coordinates are always shown.
-export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map(), more = { chickens: [], poops: [], dogNumbers: "hidden" }) {
+// centre, and each tile's copy on screen. `more.labels` ("hidden", or
+// "shown" in the page's debugging mode, "d") says whether a dog's number and
+// the critters' places in the last walk are drawn; a tile's coordinates are
+// always shown.
+export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map(), more = { chickens: [], poops: [], labels: "hidden" }) {
   const { alpha, was } = motion;
   const viewport = { ...viewportNow, ...between(was.viewport, viewportNow, alpha) };
   const out = [];
@@ -305,9 +306,9 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
   }
   const onScreen = (p) => viewportFromPark(viewport,
     nearest(p.parkX, viewport.parkX + viewport.width / 2), nearest(p.parkY, viewport.parkY + viewport.height / 2));
-  // A dog's label: its number (in debugging mode only), and its place in
-  // the last walk (1 to 30) when it had one. A cow shows only its place in
-  // the walk.
+  // In debugging mode only, a dog's label: its number, and its place in the
+  // last walk (1 to 30) when it had one. A cow's: only its place in the walk.
+  const shown = more.labels === "shown";
   const sprite = (id, critter, drawn, emoji, size, role, label = "none") => {
     const at = onScreen(drawn);
     out.push({ id, shape: "glyph", x: at.viewportX, y: at.viewportY, w: size, h: size,
@@ -324,7 +325,7 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
   }
   for (const c of cows) {
     const visit = visits.get(`cow:${c.id}`);
-    sprite(`cow:${c.id}`, c, between(was.cows.get(c.id), c, alpha), cow_emoji, cow_px, "scenery", visit === undefined ? "none" : `#${visit}`);
+    sprite(`cow:${c.id}`, c, between(was.cows.get(c.id), c, alpha), cow_emoji, cow_px, "scenery", !shown || visit === undefined ? "none" : `#${visit}`);
   }
   for (const d of dogs) {
     const drawn = between(was.dogs.get(d.id), d, alpha);
@@ -334,9 +335,7 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
         stroke: leashed.kind === "in_hand" ? "#2a2" : "#d33", lineWidth: 3, role: "scenery" });
     }
     const visit = visits.get(`dog:${d.id}`);
-    const number = more.dogNumbers === "shown" ? `${d.id}` : "";
-    const place = visit === undefined ? "" : `#${visit}`;
-    sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target", [number, place].filter((x) => x !== "").join(" ") || "none");
+    sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target", !shown ? "none" : visit === undefined ? `${d.id}` : `${d.id} #${visit}`);
   }
   return out;
 }

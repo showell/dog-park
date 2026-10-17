@@ -186,7 +186,7 @@ test("the near scene between ticks: the viewport, the cows and the dogs each par
     alpha: 0.5,
     was: { viewport: { parkX: 440, parkY: 0 }, dogs: new Map([[7, { parkX: 500, parkY: 100 }]]), cows: new Map([[23, { parkX: 500, parkY: 250 }]]) },
   };
-  const byId = new Map(scene.nearScene(viewport, dogs, cows, { kind: "in_hand", dogId: 7 }, motion, new Map(), { chickens: [], poops: [], dogNumbers: "shown" }).map((o) => [o.id, o]));
+  const byId = new Map(scene.nearScene(viewport, dogs, cows, { kind: "in_hand", dogId: 7 }, motion, new Map(), { chickens: [], poops: [], labels: "shown" }).map((o) => [o.id, o]));
   // The viewport drawn at 445: dog 7 at 510, so x 65; its ring with it.
   assert.equal(byId.get("tile:1,0").x, scene.tile_px - 445);
   assert.deepEqual([byId.get("dog:7").x, byId.get("dog:7").y], [65, 100]);
@@ -212,7 +212,7 @@ test("the near scene: tiles, then cows, then dogs, the leashed dog ringed", () =
     "tile:0,0", "tile:0,0:label", "tile:1,0", "tile:1,0:label", "tile:2,0", "tile:2,0:label",
     "cow:23", "dog:7:ring", "dog:7", "dog:3",
   ]);
-  const near = scene.nearScene(viewport, dogs, cows, { kind: "kept", dogId: 7 }, undefined, new Map(), { chickens: [], poops: [], dogNumbers: "shown" });
+  const near = scene.nearScene(viewport, dogs, cows, { kind: "kept", dogId: 7 }, undefined, new Map(), { chickens: [], poops: [], labels: "shown" });
   assert.deepEqual(ids(near), [
     "tile:0,0", "tile:0,0:label", "tile:1,0", "tile:1,0:label", "tile:2,0", "tile:2,0:label",
     "cow:23", "dog:7:ring", "dog:7", "dog:7:label", "dog:3", "dog:3:label",
@@ -233,6 +233,14 @@ test("the near scene: tiles, then cows, then dogs, the leashed dog ringed", () =
   assert.equal(byId.get("dog:3:label").text, "3");
   // No leash, no ring.
   assert.ok(!ids(scene.nearScene(viewport, dogs, cows, { kind: "none" })).includes("dog:7:ring"));
+  // The last walk's places (#n) are debugging labels too: none unless shown.
+  const visits = new Map([["dog:7", 3], ["cow:23", 5]]);
+  const quiet = new Map(scene.nearScene(viewport, dogs, cows, { kind: "none" }, undefined, visits).map((o) => [o.id, o]));
+  assert.equal(quiet.get("dog:7:label"), undefined);
+  assert.equal(quiet.get("cow:23:label"), undefined);
+  const shown = new Map(scene.nearScene(viewport, dogs, cows, { kind: "none" }, undefined, visits, { chickens: [], poops: [], labels: "shown" }).map((o) => [o.id, o]));
+  assert.equal(shown.get("dog:7:label").text, "7 #3");
+  assert.equal(shown.get("cow:23:label").text, "#5");
 });
 
 test("the overview scene: the world's tiles shaded by subscription, its dots by freshness, the last leashed ringed, the margins, the view, the scrollbars", () => {
@@ -516,7 +524,7 @@ test("across the seam, the near scene: a viewport straddling x = 0, y = 0 and th
   const viewport = { parkX: W - 300, parkY: W - 200, width: 800, height: 600 };
   const dogs = [{ id: 1, emoji: "🐕", parkX: W - 10, parkY: 100 }, { id: 2, emoji: "🐕", parkX: 10, parkY: 100 }];
   const cows = [{ id: 5, parkX: 200, parkY: W - 50 }];
-  const near = scene.nearScene(viewport, dogs, cows, { kind: "kept", dogId: 2 }, undefined, new Map(), { chickens: [], poops: [], dogNumbers: "shown" });
+  const near = scene.nearScene(viewport, dogs, cows, { kind: "kept", dogId: 2 }, undefined, new Map(), { chickens: [], poops: [], labels: "shown" });
   const byId = new Map(near.map((o) => [o.id, o]));
   // The tiles: the last row and column above and west of the seam, the first ones past it.
   const tileIds = ids(near).filter((i) => /^tile:[^:]*$/.test(i));

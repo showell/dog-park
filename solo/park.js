@@ -98,9 +98,10 @@ async function start() {
   });
   // Near (the park at its size) or the overview (a window onto the world).
   let mode = "near";
-  // **DEBUGGING MODE** ("d", or the Debug button): each dog's number in its
-  // label. Off by default; the tiles' coordinates show either way.
-  let dogNumbers = "hidden";
+  // **DEBUGGING MODE** ("d", or the Debug button): each dog's number and the
+  // critters' places in the last walk. Off by default; the tiles'
+  // coordinates show either way.
+  let labels = "hidden";
   // The overview's window's top-left, a park point (scene.js's
   // overviewFrame keeps it in the world); "m" centres it on the view.
   let overviewAt = { parkX: world_px / 2, parkY: world_px / 2 };
@@ -143,10 +144,10 @@ async function start() {
   window.addEventListener("resize", () => engine.resize(fit()));
   window.addEventListener("keydown", (e) => {
     if (e.key === "m") handle({ type: "map" });
-    if (e.key === "d") dogNumbers = dogNumbers === "hidden" ? "shown" : "hidden";
+    if (e.key === "d") labels = labels === "hidden" ? "shown" : "hidden";
   });
   const debugButton = document.getElementById("debug");
-  debugButton?.addEventListener("click", () => { dogNumbers = dogNumbers === "hidden" ? "shown" : "hidden"; });
+  debugButton?.addEventListener("click", () => { labels = labels === "hidden" ? "shown" : "hidden"; });
   // The Map button: its label says what a press (or "m") does now.
   const mapButton = document.getElementById("map");
   mapButton?.addEventListener("click", () => handle({ type: "map" }));
@@ -201,7 +202,7 @@ async function start() {
     }
     drawn = mode === "overview"
       ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed, overviewAt, v.chickens ?? []) }
-      : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }, v.visits, { chickens: v.chickens ?? [], poops: v.poops ?? [], dogNumbers }) };
+      : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }, v.visits, { chickens: v.chickens ?? [], poops: v.poops ?? [], labels }) };
     const note = v.status.kind === "stopped" ? v.status.message
       : v.status.kind === "reloading" ? `reloading: ${v.status.why}`
       : v.waitingS !== null ? `Someone else is playing right now. Your turn comes in about ${v.waitingS} s.`
@@ -223,7 +224,7 @@ async function start() {
       if (mapButton.textContent !== label) mapButton.textContent = label;
     }
     if (debugButton) {
-      const pressed = dogNumbers === "shown" ? "true" : "false";
+      const pressed = labels === "shown" ? "true" : "false";
       if (debugButton.getAttribute("aria-pressed") !== pressed) debugButton.setAttribute("aria-pressed", pressed);
     }
     if (nowMs - savedMs >= 500 && (v.viewport.parkX !== savedAt.parkX || v.viewport.parkY !== savedAt.parkY)) {
