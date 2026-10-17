@@ -2,8 +2,10 @@
 
 One droplet, booted from a custom image this repo builds, with no Linux on
 it, as lynrummy.com's metal droplet is (zig-metal-unikernel's README, "Where
-lynrummy.com runs" and "A deploy"). Prod's Caddy (162.243.1.123) holds HTTPS
-for `dogpark.lynrummy.com` and forwards to it over the private network.
+lynrummy.com runs" and "A deploy"). Prod's Caddy holds HTTPS for
+`dogpark.lynrummy.com` and forwards to it over the private network. Prod's
+addresses are in zig-metal-unikernel's `DEPLOY.md`, "The machines"; call its
+public one `<prod>` below.
 
 **One disk, no volume.** The image holds the kernel, the page (`solo/`), the
 admin key and the machine's settings, and Dog Park writes its accounts and
@@ -17,18 +19,26 @@ check.
 
 ## The first deploy
 
-1. **Build the image** (box-verified). From a clean, pushed tree:
+1. **Build the image** (box-verified). With all three trees compiled into
+   it clean (this one, ../zig-metal-unikernel and ../zig-webbox), and
+   pushed (nothing checks that):
 
        cd ~/showell_repos/dog-park
-       zig build metal-gate            # the QEMU gate, ~6 s
+       zig build metal-gate            # the QEMU gate (README)
        node droplet/image.mjs
 
    It builds `zig-out/bin/dogpark.elf`, writes
-   `~/dogpark-images/dogpark-<commit>.img` and `.img.gz` beside it (about
-   1 GiB raw, under 2 MiB gzipped), prints both sha256s, and then boots the
-   image on QEMU laid out as a droplet (`droplet/rehearse.mjs`, ~5 s): it
-   must end `ready to deploy`. It makes `~/.dogpark_admin_key` the first
-   time (mode 600; it never prints it). It refuses on a dirty tree.
+   `~/dogpark-images/dogpark-<commit>.img` (`<commit>` is 12 characters)
+   and `.img.gz` beside it (1 GiB raw; under 2 MiB gzipped when last
+   measured), prints both sha256s, and then boots the image on QEMU laid out
+   as a droplet (`droplet/rehearse.mjs`): it must end `ready to deploy`.
+   - **It refuses** on uncommitted changes in any of the three trees
+     (`DOGPARK_IMAGE_DIRTY=1` builds anyway, and says so: an image no
+     commit describes), and without `droplet/trusted-proxy` (prod's
+     private address).
+   - **The first time,** it makes `~/.dogpark_admin_key` (mode 600; it
+     never prints it), and builds zig-webbox's `shale-sign` to make Dog
+     Park's Shale key pair, `~/.shale_signing_key.dogpark.lynrummy.com`.
 
 2. **Serve the .gz to DigitalOcean**, in a terminal on the box:
 
@@ -52,9 +62,9 @@ check.
    - Region: nyc2. VPC: **the one prod is in** (nyc2's default, unless prod
      is in another).
    - Image: Custom images → `dogpark-<commit>`.
-   - Size: Basic, Regular, the cheapest ($4/month, 512 MB, 10 GB). The
-     rehearsal boots it with 512 MB. On 2026-10-16 nyc2 had no Basic, so
-     the droplet is Premium Intel ($8/month); the image runs on either.
+   - Size: the cheapest Basic (512 MB), or the cheapest Premium when the
+     region offers no Basic; the image runs on either. The rehearsal boots
+     it with 512 MB.
    - Authentication: whatever the form insists on; nothing on the machine
      reads it. No backups, no monitoring (there is no Linux for the agent).
    - Hostname: `dogpark`.
@@ -70,12 +80,12 @@ check.
    `stopped` instead means it refused something, and says what just above.
 
 6. **Read its private address**: the droplet's page, "Private IP" (a
-   `10.x.x.x`; the first deploy got 10.100.0.3). Call it `<dogpark>` below. On prod, it answers:
+   `10.x.x.x`). Call it `<dogpark>` below. On prod, it answers:
 
        curl -s http://<dogpark>/ | grep -c 'Begin Game'     # 1
 
-7. **DNS**: an A record `dogpark.lynrummy.com` → `162.243.1.123` (prod, not
-   the new droplet), wherever lynrummy.com's records live (DigitalOcean →
+7. **DNS**: an A record `dogpark.lynrummy.com` → `<prod>` (prod's public
+   address, not the new droplet), wherever lynrummy.com's records live (DigitalOcean →
    Networking → Domains, if that is where they are).
 
 8. **Caddy on prod.** The site block is
@@ -137,16 +147,31 @@ check.
 
 ## A new release
 
-Steps 1-3 again, then the **`dogpark`** droplet's Destroy → **Restore base image** from the new
-image (check the droplet's name: lynrummy.com's image there fails with "no volume attached" and wipes Dog Park's disk; the 2026-10-16 fire drill). The private address stays, so Caddy needs nothing. Accounts and
-games start over.
+1. Steps 1-3 again.
+2. On the **`dogpark`** droplet: Destroy → **Restore base image**, from
+   the new Dog Park image. Check the droplet's and the image's names
+   first: lynrummy.com's image restored on this droplet stops at "no volume
+   attached", and the restore has already wiped Dog Park's disk.
+3. Step 9's smoke test again, and the commit:
+
+       curl -s https://dogpark.lynrummy.com/version
+
+   Its `commit` (git's short form) must begin the 12-character commit in
+   the image's name. An image built before `/version` existed answers 404;
+   check the image's name on the droplet's page instead.
+
+The private address stays, so Caddy needs nothing. Accounts and games start
+over.
 
 ## The way back
 
-Destroy the droplet. Nothing else depends on it: remove
-`/etc/caddy/sites/dogpark.lynrummy.com.caddy` on prod and reload Caddy,
-delete the DNS record, and delete the custom images. lynrummy.com is not
-touched by any of it.
+- **A bad release:** restore the droplet's base image from the previous
+  release (Custom Images keeps every imported one), as in "A new release",
+  step 2. Accounts and games start over again.
+- **No Dog Park at all:** destroy the droplet. Nothing else depends on it:
+  remove `/etc/caddy/sites/dogpark.lynrummy.com.caddy` on prod and reload
+  Caddy, delete the DNS record, and delete the custom images. lynrummy.com
+  is not touched by any of it.
 
 ## What the image holds, and why
 
@@ -157,11 +182,11 @@ touched by any of it.
 
       idle_timeout_ms = 10000
       card = private
-      trusted_proxy = 10.100.0.2
+      trusted_proxy = <prod's private address>
 
   `card = private`: nothing on the internet reaches it, only the private
   network, prod among it. `trusted_proxy` is prod's private address, from
-  `droplet/trusted-proxy` (the kernel's own copy says the same): Caddy's
+  `droplet/trusted-proxy` (`cat` it; the kernel's own copy says the same): Caddy's
   `X-Forwarded-For` is believed from it alone. With no `volume` line and no
   volume attached, the kernel keeps `data/` and `auth/` on this partition
   (its `probe/gopher.zig`, "the disks"; its README says what each conf key
