@@ -304,6 +304,10 @@ async function gate() {
   status(landing, 200, "GET /");
   expect(/Begin Game/.test(landing.text) && /<form method="post" action="\/begin">/.test(landing.text), "the landing page has no Begin Game form");
 
+  step = "GET /version";
+  const v1 = JSON.parse((await request(port, "GET", "/version")).text);
+  expect(v1.app === "dog-park" && v1.started_ms >= before1 - 2000 && v1.started_ms <= Date.now() + 2000, `/version after boot 1: ${JSON.stringify(v1)} (its start not in the boot's window from ${before1})`);
+
   step = "POST /begin";
   const begun = await request(port, "POST", "/begin", { body: "" });
   status(begun, 303, "POST /begin");
@@ -358,6 +362,10 @@ async function gate() {
   port = await boot(2);
   times.push(["boot 2", ms(t)]);
   t = performance.now();
+
+  step = "GET /version after the reboot";
+  const v2 = JSON.parse((await request(port, "GET", "/version")).text);
+  expect(v2.started_ms > v1.started_ms && v2.started_ms >= before2 - 2000, `/version after boot 2 started ${v2.started_ms}, boot 1 ${v1.started_ms}: a restart must show`);
 
   step = "the cookie after the reboot";
   status(await request(port, "GET", "/dogpark", { cookie }), 200, "GET /dogpark with boot 1's cookie");

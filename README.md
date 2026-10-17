@@ -163,6 +163,15 @@ well:
 - **Caddy:** `reverse_proxy 127.0.0.1:9103` for the site's name. Every
   route is a plain request and answer.
 
+### What anyone may ask: `/version`
+
+`GET /version` answers small JSON, with no secret and nobody's name: which
+commit serves (`+dirty` for a tree with uncommitted changes), `started_ms`
+(a restart shows as a new one), `now_ms`, the accounts handed out of the most,
+and the turns held now of the most. It is what the Observatory polls
+(metal-vmm QUEUE 228); `curl -s <site>/version` is the quickest way to see
+which build a machine runs.
+
 ### The operator's pages
 
 `/admin/game` shows accounts, turns, and each game's state: its last

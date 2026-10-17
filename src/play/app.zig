@@ -81,6 +81,9 @@ var reset_next: [players.most_players]bool = @splat(false);
 var last_ms: [players.most_players]u64 = @splat(0);
 /// The accounts handed out (players.claimed_file), and the turn.
 var claimed: u8 = 0;
+/// When this server started, by the wall clock in ms: /version's
+/// `started_ms`, so a restart shows as a new value.
+var started_ms: u64 = 0;
 var turn: players.Turn = .{};
 var long_alloc: std.mem.Allocator = undefined;
 var data_root: []const u8 = undefined;
@@ -111,6 +114,7 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     try webbox.store.makeDir(io, base, data_root);
     try webbox.store.makeDir(io, base, auth_root);
     claimed = try players.readClaimed(io, base, data_root);
+    started_ms = nowMs(io);
     var secret: @FieldType(StartReport, "secret") = .found;
     if (try webbox.site_secret.load(io, base, auth_root) == null) {
         try webbox.site_secret.create(io, base, auth_root);
@@ -162,6 +166,12 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     if (std.mem.eql(u8, path, "/begin")) return begin(req, io, alloc);
     if (std.mem.eql(u8, path, "/dogpark")) return gamePage(req, io, alloc);
     if (std.mem.eql(u8, path, "/reset")) return resetGame(req, io, alloc);
+    if (std.mem.eql(u8, path, "/version")) {
+        if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
+        const now = nowMs(io);
+        const body = try versionText(alloc, @import("dogpark_build").commit, started_ms, now, claimed, turnsHeld(&turn, now));
+        return req.respond(body, .{ .extra_headers = &.{http.json_ct} });
+    }
     if (std.mem.eql(u8, path, "/admin") or std.mem.startsWith(u8, path, "/admin/")) return adminRoute(req, io, alloc, path);
     if (physicsWasm(path)) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
@@ -173,6 +183,56 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     if (pageScript(path)) |name| return pageFile(req, io, alloc, name, "text/javascript; charset=utf-8");
     if (physicsRoute(path)) |which| return physicsAnswer(req, io, alloc, which);
     return http.notFound(req);
+}
+
+/// **WHAT AN OBSERVER ASKS** (`GET /version`, metal-vmm QUEUE 228.2): which
+/// commit serves, since when, the time now, and how much is in use: the
+/// accounts handed out of the most, and the turns held now of the most. No
+/// secret, nobody's name: anyone may ask, as of lynrummy.com's.
+fn versionText(alloc: std.mem.Allocator, commit: []const u8, started: u64, now: u64, accounts: u8, held: usize) ![]u8 {
+    return std.fmt.allocPrint(alloc,
+        \\{{"result":"success","app":"dog-park","commit":"{s}","started_ms":{d},"now_ms":{d},"accounts":{d},"accounts_most":{d},"turns_held":{d},"turns_most":{d}}}
+    , .{ commit, started, now, accounts, players.most_players, held, players.most_playing });
+}
+
+/// The turns held at `now`: a holder whose time has run out holds none, though
+/// it stays in the list until the next ask.
+fn turnsHeld(t: *const players.Turn, now: u64) usize {
+    var n: usize = 0;
+    for (t.holders[0..t.len]) |h| {
+        if (now < h.until_ms) n += 1;
+    }
+    return n;
+}
+
+test "/version says the commit, the start, the time, the accounts and the turns, as JSON with no secret" {
+    const text = try versionText(std.testing.allocator, "47ad787", 1_789_000_000_000, 1_789_000_060_000, 3, 2);
+    defer std.testing.allocator.free(text);
+    const parsed = try std.json.parseFromSlice(struct {
+        result: []const u8,
+        app: []const u8,
+        commit: []const u8,
+        started_ms: u64,
+        now_ms: u64,
+        accounts: u8,
+        accounts_most: u8,
+        turns_held: usize,
+        turns_most: usize,
+    }, std.testing.allocator, text, .{});
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("47ad787", parsed.value.commit);
+    try std.testing.expectEqual(@as(u64, 1_789_000_060_000), parsed.value.now_ms);
+    try std.testing.expectEqual(@as(u8, 3), parsed.value.accounts);
+    try std.testing.expectEqual(@as(u8, players.most_players), parsed.value.accounts_most);
+    try std.testing.expectEqual(@as(usize, 2), parsed.value.turns_held);
+}
+
+test "a turn whose time ran out is not held, though it is still listed" {
+    var t: players.Turn = .{};
+    _ = t.ask(1, 1000);
+    _ = t.ask(2, 1000);
+    try std.testing.expectEqual(@as(usize, 2), turnsHeld(&t, 1000));
+    try std.testing.expectEqual(@as(usize, 0), turnsHeld(&t, 1000 + players.turn_ms));
 }
 
 fn nowMs(io: Io) u64 {

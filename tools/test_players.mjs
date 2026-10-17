@@ -107,6 +107,22 @@ test("Start over: the account's next load is answered, and a device with no acco
   assert.equal((await server.as(undefined, "POST", "/reset", "")).status, 403);
 });
 
+test("/version: anyone may ask which commit serves, since when, and how much is in use", async () => {
+  const r = await server.as(undefined, "GET", "/version");
+  assert.equal(r.status, 200);
+  assert.match(r.headers["content-type"], /^application\/json/);
+  const v = JSON.parse(r.text);
+  assert.equal(v.result, "success");
+  assert.equal(v.app, "dog-park");
+  assert.match(v.commit, /^([0-9a-f]{7,}(\+dirty)?|unknown)$/);
+  assert.ok(v.started_ms > 0 && v.started_ms <= v.now_ms, r.text);
+  assert.equal(v.accounts_most, most_players);
+  assert.equal(v.turns_most, most_playing);
+  assert.ok(v.accounts >= 0 && v.accounts <= most_players, r.text);
+  assert.ok(v.turns_held >= 0 && v.turns_held <= most_playing, r.text);
+  assert.equal((await server.as(undefined, "POST", "/version", "")).status, 405);
+});
+
 test("the operator's pages: nothing without the admin key; the bearer or a login's cookie opens them", async () => {
   const { readFileSync } = await import("node:fs");
   const { join } = await import("node:path");

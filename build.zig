@@ -22,6 +22,9 @@ pub fn build(b: *std.Build) void {
     // files src/play/physics_sources.zon lists, read here at configure
     // time and handed to every module that compiles the physics.
     const physics_mod = physicsOptions(b);
+    // **WHICH COMMIT THIS IS** (`dogpark_build`), for /version: the
+    // checkout's, `+dirty` when it has uncommitted changes.
+    const build_mod = buildOptions(b);
 
     const wasm32 = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const wasi = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
@@ -53,6 +56,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "host_io", .module = host_io },
             .{ .name = "webbox_linux", .module = webbox_linux },
             .{ .name = "physics_options", .module = physics_mod },
+            .{ .name = "dogpark_build", .module = build_mod },
         },
     });
     play_main.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
@@ -72,7 +76,7 @@ pub fn build(b: *std.Build) void {
     // DOGPARK_INSECURE_COOKIE). Installed to zig-out/bin/dogpark.elf.
     const metal_app = b.createModule(.{
         .root_source_file = b.path("src/play/hosted.zig"),
-        .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
+        .imports = &.{ .{ .name = "physics_options", .module = physics_mod }, .{ .name = "dogpark_build", .module = build_mod } },
     });
     metal_app.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
     // **THE KERNEL, BESIDE THIS REPO**: ../zig-metal-unikernel, a path
@@ -116,6 +120,7 @@ pub fn build(b: *std.Build) void {
         webbox: *std.Build.Module,
         host_io: *std.Build.Module,
         physics_mod: *std.Build.Module,
+        build_mod: *std.Build.Module,
         page_wasm: std.Build.LazyPath,
 
         /// Every file's tests, from src/play/all_tests.zig, natively.
@@ -170,10 +175,11 @@ pub fn build(b: *std.Build) void {
                 .imports = &.{
                     .{ .name = "physics_options", .module = u.physics_mod },
                     .{ .name = "test_options", .module = test_options.createModule() },
+                    .{ .name = "dogpark_build", .module = u.build_mod },
                 },
             });
         }
-    }{ .b = b, .target = target, .optimize = optimize, .webbox = webbox, .host_io = host_io, .physics_mod = physics_mod, .page_wasm = page_wasm };
+    }{ .b = b, .target = target, .optimize = optimize, .webbox = webbox, .host_io = host_io, .physics_mod = physics_mod, .build_mod = build_mod, .page_wasm = page_wasm };
 
     // **NODE AGAINST A FRESH BUILD**: each node test file after the install
     // (zig-out/web/physics.wasm, zig-out/bin/dog-park-play), each its own
@@ -240,6 +246,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "webbox", .module = webbox_rs.module("webbox") },
             .{ .name = "host_io", .module = webbox_rs.module("host_io") },
             .{ .name = "physics_options", .module = physics_mod },
+            .{ .name = "dogpark_build", .module = build_mod },
         },
     });
     server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
@@ -277,6 +284,24 @@ fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.built
     exe.entry = .disabled;
     exe.rdynamic = true;
     return exe;
+}
+
+/// The build's own facts, `dogpark_build`: the commit.
+fn buildOptions(b: *std.Build) *std.Build.Module {
+    const options = b.addOptions();
+    options.addOption([]const u8, "commit", commitOf(b, b.pathFromRoot(".")));
+    return options.createModule();
+}
+
+/// `git rev-parse --short HEAD` in `dir`, with `+dirty` when its tree has
+/// uncommitted changes; `unknown` when git cannot say (as
+/// zig-metal-unikernel's build.zig says its own).
+fn commitOf(b: *std.Build, dir: []const u8) []const u8 {
+    var code: u8 = 0;
+    const head = b.runAllowFail(&.{ "git", "-C", dir, "rev-parse", "--short", "HEAD" }, &code, .ignore) catch return "unknown";
+    const short = std.mem.trim(u8, head, " \n");
+    const status = b.runAllowFail(&.{ "git", "-C", dir, "status", "--porcelain", "--untracked-files=no" }, &code, .ignore) catch return short;
+    return if (std.mem.trim(u8, status, " \n").len == 0) short else b.fmt("{s}+dirty", .{short});
 }
 
 /// The physics' build options, `physics_options`: its hash.
