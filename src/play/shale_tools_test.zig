@@ -97,6 +97,16 @@ test "tools/shale/accounts.shale: the accounts against the 80, and the games sta
     , try d.run("accounts"));
 }
 
+test "tools/shale/accounts.shale: its MOST is players.zig's most_players" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const src = try std.Io.Dir.cwd().readFileAlloc(threaded.io(), "tools/shale/accounts.shale", testing.allocator, .limited(64 * 1024));
+    defer testing.allocator.free(src);
+    var want: [32]u8 = undefined;
+    const line = try std.fmt.bufPrint(&want, "\nconst MOST = {d}\n", .{@import("players.zig").most_players});
+    try testing.expect(std.mem.indexOf(u8, src, line) != null);
+}
+
 test "tools/shale/games.shale: each game's last kept tick, its newest log, and its logs" {
     var d: Data = undefined;
     try d.init();
