@@ -11,6 +11,8 @@
   canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
   #score { position: fixed; top: 10px; left: 10px; font: 600 16px system-ui, sans-serif; color: #234; background: rgba(255,255,255,0.85); border: 1px solid #9ab; border-radius: 8px; padding: 6px 12px; pointer-events: none; }
   #score.won { background: #ffe680; border-color: #c9a400; font-size: 20px; }
+  #debug { position: fixed; top: 10px; right: 220px; font: 600 14px system-ui, sans-serif; color: #234; background: rgba(255,255,255,0.85); border: 1px solid #9ab; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  #debug[aria-pressed="true"] { color: white; background: #556; border-color: #556; }
   #map { position: fixed; top: 10px; right: 120px; font: 600 14px system-ui, sans-serif; color: white; background: #1f6fd1; border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
   #toast { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px); max-width: min(90vw, 560px); font: 600 17px system-ui, sans-serif; color: white; background: rgba(40, 30, 20, 0.92); border-radius: 12px; padding: 12px 18px; text-align: center; opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none; }
   #toast.shown { opacity: 1; transform: translate(-50%, 0); }
@@ -22,6 +24,7 @@
 <div id="score"></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <button id="map" type="button">Map (m)</button>
+<button id="debug" type="button" aria-pressed="false" title="Show each dog's number">Debug (d)</button>
 <button id="reset" type="button" title="Put every critter back where the game began">Start over</button>
 <script type="module" src="park.js"></script>
 </body>

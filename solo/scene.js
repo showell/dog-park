@@ -287,8 +287,10 @@ export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), co
 // was.chickens Maps of
 // them by id), each drawn `between` there and here, the leashed dog too.
 // Across the seam, each thing is drawn at its copy nearest the viewport's
-// centre, and each tile's copy on screen.
-export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map(), more = { chickens: [], poops: [] }) {
+// centre, and each tile's copy on screen. `more.dogNumbers` ("hidden", or
+// "shown" in the page's debugging mode, "d") says whether a dog's number is
+// in its label; a tile's coordinates are always shown.
+export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map(), more = { chickens: [], poops: [], dogNumbers: "hidden" }) {
   const { alpha, was } = motion;
   const viewport = { ...viewportNow, ...between(was.viewport, viewportNow, alpha) };
   const out = [];
@@ -303,8 +305,9 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
   }
   const onScreen = (p) => viewportFromPark(viewport,
     nearest(p.parkX, viewport.parkX + viewport.width / 2), nearest(p.parkY, viewport.parkY + viewport.height / 2));
-  // A dog's label: its number, and its place in the last walk (1 to 30)
-  // when it had one. A cow shows only its place in the walk.
+  // A dog's label: its number (in debugging mode only), and its place in
+  // the last walk (1 to 30) when it had one. A cow shows only its place in
+  // the walk.
   const sprite = (id, critter, drawn, emoji, size, role, label = "none") => {
     const at = onScreen(drawn);
     out.push({ id, shape: "glyph", x: at.viewportX, y: at.viewportY, w: size, h: size,
@@ -331,7 +334,9 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
         stroke: leashed.kind === "in_hand" ? "#2a2" : "#d33", lineWidth: 3, role: "scenery" });
     }
     const visit = visits.get(`dog:${d.id}`);
-    sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target", visit === undefined ? `${d.id}` : `${d.id} #${visit}`);
+    const number = more.dogNumbers === "shown" ? `${d.id}` : "";
+    const place = visit === undefined ? "" : `#${visit}`;
+    sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target", [number, place].filter((x) => x !== "").join(" ") || "none");
   }
   return out;
 }
