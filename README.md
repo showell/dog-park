@@ -94,8 +94,9 @@ in the checkout, so the local admin key is `auth/_admin_key`.
 Every build needs its sibling checkouts beside this one:
 - `../zig-webbox`;
 - `../zig-metal-unikernel`;
-- `../zig-coverage-sdk`, at the commit the kernel pins (zig-metal-unikernel's
-  `build.zig`, `pinnedSdk`; the build fails, saying so, on another).
+- `../zig-coverage-sdk`, holding the code the kernel pins (zig-metal-unikernel's
+  `build.zig`, `pinnedSdk`, a hash of the SDK's code; the build fails, saying
+  so, on any other).
 
 Zig runs a path dependency's build at every configure, so even a plain
 `zig build` needs all three.
