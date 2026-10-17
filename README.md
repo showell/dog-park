@@ -58,8 +58,6 @@ them is the library's.
   report the page sends, in full.
 - `src/play/`: the server and the physics (`physics*.zig`).
 - `solo/`: the page.
-- The older docs (`docs/*-BRIEF.md` and the amendments) are history: they
-  describe the first version, since retired.
 
 **Who may play:** the first 80 devices to press Begin Game get an account,
 and up to 5 can play at once. A sixth waits for a turn, which frees 20
