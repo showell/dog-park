@@ -7,19 +7,18 @@
 // it is on the screen, from the screen's top-left. The viewport's own
 // top-left is a park point; north is smaller parkY.
 
-// Dogs and cows at 70% of their first sizes, with the tiles (Steve,
-// 2026-10-15); chickens and poop kept.
-export const dog_px = 28;
-export const cow_px = dog_px * 1.5;
+// The critters' squares and a poop's, in CSS pixels, and the breeds:
+// world.js's, which roc/world.roc prints, as it prints the physics' world.
+import { dog_px, cow_px, chicken_px, poop_px, breeds } from "./world.js";
+export { dog_px, cow_px, chicken_px, poop_px, breeds };
 export const cow_emoji = "🐄";
 // Full-bodied.
-export const chicken_px = 20;
 export const chicken_emoji = "🐓";
 // A dog's poop: a little brown circle, under every critter.
-export const poop_px = 12;
 export const poop_fill = "#7a4a1a";
-// The four breeds: dog n has look n mod 4 (the physics' breeds).
+// The breeds: dog n has look n mod `breeds`, one look each.
 export const dog_looks = ["🐕", "🐩", "🦮", "🐕‍🦺"];
+if (dog_looks.length !== breeds) throw new Error("a look for each breed: as many dog_looks as world.js's breeds");
 
 // ── frames ──────────────────────────────────────────────────────────────────
 

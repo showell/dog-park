@@ -17,6 +17,11 @@ pub const World = struct {
     /// The populated park: `tiles` by `tiles` tiles from tile (`first`,
     /// `first`). The rest of the world is empty ground.
     park: struct { first: comptime_int, tiles: comptime_int },
+    /// The critters' squares and a poop's, in whole pixels, as the physics
+    /// moves them and the page draws them.
+    sizes: struct { dog_px: comptime_int, cow_px: comptime_int, chicken_px: comptime_int, poop_px: comptime_int },
+    /// Dog n is of breed n mod `breeds`.
+    breeds: comptime_int,
     /// Each kind in its own numbering: dog n is `dogs[n]`. A chicken's spot
     /// is its home too (docs/PHYSICS.md, "Poop and chickens").
     dogs: []const Spot,

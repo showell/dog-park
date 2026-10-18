@@ -96,6 +96,21 @@ export fn tilePx() u32 {
 export fn worldTiles() u32 {
     return tiles.world_tiles;
 }
+export fn dogPx() u32 {
+    return physics.dog_px;
+}
+export fn cowPx() u32 {
+    return physics.cow_px;
+}
+export fn chickenPx() u32 {
+    return physics.chicken_px;
+}
+export fn poopPx() u32 {
+    return physics.poop_px;
+}
+export fn breeds() u32 {
+    return physics.breeds;
+}
 export fn dogCount() u32 {
     return physics.dog_count;
 }

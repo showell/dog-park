@@ -31,6 +31,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const tiles = @import("tiles.zig");
 const layout = @import("layout.zig");
+const world_file = @import("world.zig").world;
 
 pub const dog_count = layout.dog_count;
 pub const cow_count = layout.cow_count;
@@ -62,14 +63,14 @@ pub const tile: i32 = px(tiles.tile_px);
 // larger axis** (Chebyshev, decision 19): every reach is a square, as the
 // critters are.
 
-/// The squares, in whole pixels, as the page draws them. Each critter is
-/// its square, centred on its point.
-/// Dogs and cows at 70% of their first sizes, with the tiles and the
+/// The squares, in whole pixels, as the page draws them: the world's
+/// (world.zig, roc/world.roc). Each critter is its square, centred on its
+/// point. Dogs and cows at 70% of their first sizes, with the tiles and the
 /// spacings below (Steve, 2026-10-15: "on a small screen we need a little
 /// more density"); chickens and poop kept.
-pub const dog_px = 28;
-pub const cow_px = 42;
-pub const chicken_px = 20;
+pub const dog_px = world_file.sizes.dog_px;
+pub const cow_px = world_file.sizes.cow_px;
+pub const chicken_px = world_file.sizes.chicken_px;
 pub const dog_half: i32 = px(dog_px / 2);
 pub const cow_half: i32 = px(cow_px / 2);
 pub const chicken_half: i32 = px(chicken_px / 2);
@@ -102,8 +103,8 @@ pub const most_humans = 16;
 pub const let_go_ticks = seconds(20);
 /// The most ticks a report runs past the last kept one.
 pub const most_ticks = 32;
-/// Breeds: dog n has look n mod 4.
-pub const breeds = 4;
+/// Breeds: dog n has look n mod `breeds` (the world's).
+pub const breeds = world_file.breeds;
 /// **THE WALK**: the most critters a pixel-tick moves, the leashed dog
 /// aside, and how many each visited critter lines up.
 pub const walk_most = 48;
@@ -119,7 +120,7 @@ pub const nudge_most = 8;
 /// the `poop_count` slots in turn (`Board.laid`), so only the 2049th poop
 /// since the load would take the first one's slot.
 pub const poop_every: u32 = @intCast(px(700));
-pub const poop_px = 12;
+pub const poop_px = world_file.sizes.poop_px;
 pub const poop_half: i32 = px(poop_px / 2);
 pub const poop_count = 2048;
 /// How far behind its dog a poop lands, centre to centre; taken, the

@@ -12,24 +12,52 @@
 
 ## The world is `world_tiles` by `world_tiles` square tiles of `tile_px`
 ## pixels, a torus.
+tile_px : I64
 tile_px = 350
 
+world_tiles : I64
 world_tiles = 6
 
 ## The populated park: `park_tiles` by `park_tiles` tiles in the world's
 ## middle; the rest of the world is empty ground.
+park_tiles : I64
 park_tiles = 4
 
+park_first : I64
 park_first = (world_tiles - park_tiles) // 2
+
+## The critters' squares, in whole pixels, as the physics moves them and
+## the page draws them (each centred on its point); a dog's poop is a
+## square too, drawn as a circle. Dogs and cows at 70% of their first
+## sizes, with the tiles (Steve, 2026-10-15); chickens and poop kept.
+dog_px : I64
+dog_px = 28
+
+cow_px : I64
+cow_px = 42
+
+chicken_px : I64
+chicken_px = 20
+
+poop_px : I64
+poop_px = 12
+
+## Dog n is of breed n mod `breeds`, and stands in its tile's corner of
+## that number: so there are as many breeds as a tile has corners.
+breeds : I64
+breeds = 4
 
 ## How far in from its corner of a tile a dog stands, on each axis; how far
 ## each of a blue tile's two chickens stands from its middle.
+corner_in : I64
 corner_in = 52
 
+chicken_off : I64
 chicken_off = 15
 
 expect park_first >= 0 and park_first * 2 + park_tiles == world_tiles
 expect park_tiles % 2 == 0
+expect breeds == 4
 
 ## Pixels to the physics' units, 256ths of a pixel.
 px : I64 -> I64
@@ -40,8 +68,8 @@ Kind : [Dog, Cow, Chicken]
 Spot : { kind : Kind, x : I64, y : I64 }
 
 ## Who stands in one tile of the park, and where, in pixels from its
-## top-left corner. Every tile holds four dogs, breed b in corner b (NW, NE,
-## SW, SE); a white tile (column plus row even) a cow in the middle; a blue
+## top-left corner. Every tile holds a dog of each breed, breed b in corner
+## b (NW, NE, SW, SE); a white tile (column plus row even) a cow in the middle; a blue
 ## one two chickens either side of it.
 tile_spots : I64, I64 -> List(Spot)
 tile_spots = |col, row| {
@@ -108,6 +136,8 @@ zon =
 	\\    .tile_px = ${tile_px.to_str()},
 	\\    .world_tiles = ${world_tiles.to_str()},
 	\\    .park = .{ .first = ${park_first.to_str()}, .tiles = ${park_tiles.to_str()} },
+	\\    .sizes = .{ .dog_px = ${dog_px.to_str()}, .cow_px = ${cow_px.to_str()}, .chicken_px = ${chicken_px.to_str()}, .poop_px = ${poop_px.to_str()} },
+	\\    .breeds = ${breeds.to_str()},
 	\\    .dogs = .{
 	\\${points(Dog)}    },
 	\\    .cows = .{
@@ -127,6 +157,11 @@ js =
 	\\export const world_tiles = ${world_tiles.to_str()};
 	\\export const park_tiles = ${park_tiles.to_str()};
 	\\export const cow_count = ${of_kind(Cow).len().to_str()};
+	\\export const dog_px = ${dog_px.to_str()};
+	\\export const cow_px = ${cow_px.to_str()};
+	\\export const chicken_px = ${chicken_px.to_str()};
+	\\export const poop_px = ${poop_px.to_str()};
+	\\export const breeds = ${breeds.to_str()};
 	\\
 
 main! = |args| {

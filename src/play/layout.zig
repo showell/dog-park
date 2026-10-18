@@ -109,11 +109,12 @@ const original = struct {
     }
 };
 
-test "the world is the original, exactly: its size, its park, and every critter and chicken's home where Zig put them before Roc said them" {
+test "the world is the original, exactly: its size, its park, its critters' sizes and breeds, and every critter and chicken's home where Zig put them before Roc said them" {
     try testing.expectEqual(original.tile_px, tiles.tile_px);
     try testing.expectEqual(6, tiles.world_tiles);
     try testing.expectEqual(original.park_tiles, tiles.park_tiles);
     try testing.expectEqual(original.park_first * original.tile_px, tiles.park_offset_px);
+    try testing.expectEqual(.{ 28, 42, 20, 12, 4 }, .{ physics.dog_px, physics.cow_px, physics.chicken_px, physics.poop_px, physics.breeds });
     try testing.expect(std.meta.eql(original.board(), board()));
     for (0..chicken_count) |n| try testing.expectEqual(original.home(@intCast(n)), chickenHome(@intCast(n)));
 }
