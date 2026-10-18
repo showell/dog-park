@@ -117,7 +117,55 @@ park = {
 of_kind : Kind -> List(Spot)
 of_kind = |kind| park.keep_if(|s| s.kind == kind)
 
-expect of_kind(Dog).len() == 64 and of_kind(Cow).len() == 8 and of_kind(Chicken).len() == 16
+expect of_kind(Dog).len() == (park_tiles * park_tiles * breeds).to_u64_wrap()
+expect of_kind(Cow).len() + of_kind(Chicken).len() // 2 == (park_tiles * park_tiles).to_u64_wrap()
+
+## A critter's square's half side, in pixels.
+half : Kind -> I64
+half = |kind| match kind {
+	Dog => dog_px // 2
+	Cow => cow_px // 2
+	Chicken => chicken_px // 2
+}
+
+## The short way between two coordinates round the torus, its length.
+gap : I64, I64 -> I64
+gap = |a, b| {
+	world_px = world_tiles * tile_px
+	d = (a - b) % world_px
+	w = if (d < 0) d + world_px else d
+	if (w > world_px - w) world_px - w else w
+}
+
+## The physics needs no two critters overlapping where they start (a load
+## puts them back without resolving): each pair's squares apart on one axis.
+no_overlap : List(Spot) -> Bool
+no_overlap = |spots| {
+	var $ok = Bool.True
+	var $i = 0
+	while $i < spots.len() {
+		var $j = $i + 1
+		while $j < spots.len() {
+			match (spots.get($i), spots.get($j)) {
+				(Ok(a), Ok(b)) => {
+					reach = half(a.kind) + half(b.kind)
+					if gap(a.x, b.x) < reach and gap(a.y, b.y) < reach {
+						$ok = Bool.False
+					} else {
+						{}
+					}
+				}
+				_ => {}
+			}
+			$j = $j + 1
+		}
+		$i = $i + 1
+	}
+	$ok
+}
+
+expect no_overlap(park)
+expect !no_overlap([{ kind: Dog, x: 10, y: 10 }, { kind: Cow, x: 40, y: 30 }])
 
 points : Kind -> Str
 points = |kind| {

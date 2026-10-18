@@ -76,15 +76,11 @@ test("tiles: a point's tile, its key, and those meeting a rectangle", () => {
   assert.deepEqual(scene.tileCopiesMeeting(-10, -10, 20, 20), [{ col: -1, row: -1 }, { col: 0, row: -1 }, { col: -1, row: 0 }, { col: 0, row: 0 }]);
 });
 
-test("the world is 6 x 6 tiles, the server's; the 4 x 4 park in its middle, an empty ring round it; the page may hold all of it", () => {
+test("the world is world_tiles square tiles a side, the page may hold all of it, and a point is named round the torus", () => {
   const T = scene.tile_px;
   const W = scene.world_px;
-  assert.equal(scene.world_tiles, 6);
-  assert.equal(W, 6 * T);
-  assert.equal(scene.park_tiles, 4);
-  assert.equal(scene.cow_count, 8);
-  // The park from one tile in (tiles.zig's park_offset_px): its middle is the world's.
-  assert.equal(W / 2, T + scene.park_tiles * T / 2);
+  assert.equal(W, scene.world_tiles * T);
+  assert.ok(scene.park_tiles <= scene.world_tiles);
   assert.ok(scene.world_tiles * scene.world_tiles <= scene.most_tiles);
   assert.deepEqual(scene.wrappedPoint(W - 0.5, W), { parkX: W - 0.5, parkY: 0 });
   const last = scene.world_tiles - 1;
@@ -118,7 +114,7 @@ test("the overview frame: the whole world once, a square window as large as fits
   assert.deepEqual(scene.overviewFromPark(o, W / 2, W / 2), { viewportX: 520, viewportY: 350 });
   // The window's top-left at (700, 1050): half a world on from it is the window's middle.
   const mid = scene.overviewFrame(1040, 700, { parkX: 700, parkY: 1050 });
-  assert.deepEqual(scene.overviewFromPark(mid, 700 + W / 2, 0), { viewportX: 520, viewportY: 350 });
+  assert.deepEqual(scene.overviewFromPark(mid, 700 + W / 2, 1050 + W / 2), { viewportX: 520, viewportY: 350 });
   // Past the world's far corner, or before its near one, the window wraps round.
   assert.deepEqual(scene.overviewFrame(1040, 700, { parkX: 99999, parkY: 99999 }).at, { parkX: 99999 % W, parkY: 99999 % W });
   assert.deepEqual(scene.overviewFrame(1040, 700, { parkX: -5, parkY: -5 }).at, { parkX: W - 5, parkY: W - 5 });
@@ -131,10 +127,12 @@ test("the overview frame: the whole world once, a square window as large as fits
 
 test("the overview opens centred on the view, round the torus", () => {
   const W = scene.world_px;
+  // Named in the world, [0, W), whatever its size.
+  const named = (v) => ((v % W) + W) % W;
   // The view's centre (1400, 1200) in the window's middle.
-  assert.deepEqual(scene.overviewCentredOn({ parkX: 1000, parkY: 900, width: 800, height: 600 }), { parkX: 1400 - W / 2, parkY: 1200 - W / 2 });
+  assert.deepEqual(scene.overviewCentredOn({ parkX: 1000, parkY: 900, width: 800, height: 600 }), { parkX: named(1400 - W / 2), parkY: named(1200 - W / 2) });
   // At the world's corner: centred across the seam.
-  assert.deepEqual(scene.overviewCentredOn({ parkX: 0, parkY: 0, width: 800, height: 600 }), { parkX: W + 400 - W / 2, parkY: W + 300 - W / 2 });
+  assert.deepEqual(scene.overviewCentredOn({ parkX: 0, parkY: 0, width: 800, height: 600 }), { parkX: named(400 - W / 2), parkY: named(300 - W / 2) });
 });
 
 test("the overview's window moves: by a thumb's drag and the wheel, round the torus; a view is always in it", () => {

@@ -120,11 +120,13 @@ fn judged(report: []const u8, buf: []u8, kept: *judge_mod.Kept) ![]const u8 {
 }
 
 test "the worked example from the page's side: its own run writes the doc's report, byte for byte" {
+    try @import("physics_golden_test.zig").recordedOrSkip("the worked example (docs/PHYSICS.md)");
     var buf: [8192]u8 = undefined;
     try testing.expectEqualStrings(example_report, try examplePageRun(&buf));
 }
 
 test "the worked example: the report is kept through 1043, the drag ended at the letgo, the leash on" {
+    try @import("physics_golden_test.zig").recordedOrSkip("the worked example (docs/PHYSICS.md)");
     var k = exampleKept();
     var buf: [4096]u8 = undefined;
     try testing.expectEqualStrings("req 4\nkept 1043\n", try judged(example_report, &buf, &k));
@@ -144,6 +146,7 @@ fn exampleLine(t: physics.Tick, who: []const u8, buf: []u8) ![]const u8 {
 }
 
 test "the worked example, dog 23's step at 1041 a 256th off: differ at that line, the server's own line and its state and board at 1041" {
+    try @import("physics_golden_test.zig").recordedOrSkip("the worked example (docs/PHYSICS.md)");
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -219,6 +222,7 @@ test "a refused input: a leash while one is leashed is differ none at that line"
 }
 
 test "a report missing a line the server's run has, and one with a line it doesn't" {
+    try @import("physics_golden_test.zig").recordedOrSkip("the worked example (docs/PHYSICS.md)");
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -242,6 +246,7 @@ test "a report missing a line the server's run has, and one with a line it doesn
 }
 
 test "a drag with no drag on is ignored and noted as a finding" {
+    try @import("physics_golden_test.zig").recordedOrSkip("the worked example (docs/PHYSICS.md)");
     var k = exampleKept();
     var buf: [4096]u8 = undefined;
     const report = try std.mem.replaceOwned(u8, testing.allocator, example_report, "t 1043 +125\n", "t 1043 +125 drag +1.00,0@5\n");

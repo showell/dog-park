@@ -1,18 +1,41 @@
 //! **THE GOLDEN RUNS**: the physics, played, is what it was. Eight drags
 //! from the first layout, one leashed dog each (two of every breed), each
-//! a seeded wander of up to 100 px a tick through the park, and the board
-//! hashed after each. The hashes are the physics' before the rules moved
-//! into roc/rules.roc (dog-park 47adb9d): any change to how critters
-//! answer each other, or to the world, changes them. A change meant to
-//! change the physics takes new hashes, from `print` below, with its
-//! reason.
+//! a seeded wander of up to 100 px a tick through the park, and one long
+//! drag; the board hashed after each. They guard the physics' mechanisms
+//! against a change meant to change nothing (a refactor, a speed-up).
+//!
+//! **THEY ARE THE CONFIGURATION'S**: recorded under one world and one set
+//! of rules (world.zon, rules.zon, whose hash is `recorded_under`). With
+//! another, the game is another game, and they step aside, saying so; a
+//! new configuration records its own with `print`. A change meant to
+//! change the physics itself records new ones too, with its reason.
 
 const std = @import("std");
 const physics = @import("physics.zig");
 const Board = physics.Board;
 
-/// Set to print the hashes instead of checking them (a deliberate change).
+/// Set to print the hashes, and the configuration's, instead of checking
+/// them (a new configuration, or a change meant to change the physics).
 const print = false;
+
+/// The configuration the hashes were recorded under: world.zon and
+/// rules.zon, hashed.
+pub const recorded_under: u64 = 0x3cac1161a5694da0;
+
+/// Steps a recording's test aside under another configuration than the
+/// one it was recorded under, saying which recording.
+pub fn recordedOrSkip(what: []const u8) error{SkipZigTest}!void {
+    if (configuration() == recorded_under) return;
+    std.debug.print("{s} steps aside: world.zon or rules.zon is not the configuration it was recorded under\n", .{what});
+    return error.SkipZigTest;
+}
+
+pub fn configuration() u64 {
+    var h = std.hash.Wyhash.init(0);
+    h.update(@embedFile("world.zon"));
+    h.update(@embedFile("rules.zon"));
+    return h.final();
+}
 
 const dogs = [8]u16{ 0, 1, 2, 3, 21, 22, 41, 63 };
 const ticks = 48;
@@ -61,14 +84,18 @@ fn played(dog: u16, n_ticks: physics.Tick) u64 {
     return hashOf(&b);
 }
 
-test "the golden runs: eight drags through the first layout come out as the physics did before its rules were Roc's" {
+test "the golden runs: under the configuration they were recorded for, eight drags and a long one come out as recorded" {
+    if (!print and configuration() != recorded_under) {
+        std.debug.print("the golden runs step aside: world.zon or rules.zon is not the configuration they were recorded under (record anew with `print`)\n", .{});
+        return error.SkipZigTest;
+    }
     var got: [dogs.len + 1]u64 = undefined;
     for (dogs, got[0..dogs.len]) |dog, *h| h.* = played(dog, ticks);
     got[dogs.len] = played(0, long_ticks);
     if (print) {
         std.debug.print("const want = [dogs.len + 1]u64{{", .{});
         for (got) |h| std.debug.print(" 0x{x:0>16},", .{h});
-        std.debug.print(" }};\n", .{});
+        std.debug.print(" }};\npub const recorded_under: u64 = 0x{x:0>16};\n", .{configuration()});
         return;
     }
     try std.testing.expectEqual(want, got);

@@ -678,9 +678,7 @@ test "the torus' seam (decision 14): a leash at the world's corner views and hol
     try dragTicks(&rig, &page, 4);
 }
 
-test "25. the park in the world: the first layout's counts; the empty world reads as empty" {
-    try testing.expectEqual(@as(usize, tiles.park_tiles * tiles.park_tiles * physics.breeds), physics.dog_count);
-    try testing.expectEqual(@as(usize, tiles.park_tiles * tiles.park_tiles / 2), physics.cow_count);
+test "25. the park in the world: the empty world reads as empty" {
     // Through the protocol: the world's corner tile and the one beside the
     // park are empty; the park's tiles are not.
     var rig: Rig = undefined;
@@ -914,6 +912,7 @@ fn post(io: std.Io, alloc: std.mem.Allocator, hub: *webbox.bus.Hub, path: []cons
 }
 
 test "the worked example through POST /report: the doc's report in, req 4 kept 1043 out, byte for byte; and a body past 64 KiB is a 413" {
+    try @import("physics_golden_test.zig").recordedOrSkip("the worked example (docs/PHYSICS.md)");
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

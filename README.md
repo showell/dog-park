@@ -107,7 +107,14 @@ Roc (a nightly of the new compiler) only for `zig build roc`, which
 prints the world again from `roc/world.roc` (its size, the park in it and
 where every critter starts) into `src/play/world.zon` and `solo/world.js`,
 and the rules from `roc/rules.roc` (what critters do about each other) into
-`src/play/rules.zon`; every other build reads the checked-in files. The
+`src/play/rules.zon`; every other build reads the checked-in files.
+Any world and rules that fit their types will play: Zig refuses at compile
+time only what the physics can't take (a critter outside the world, a
+park past its edge, poop slots not a power of two), and the tests of the
+physics hold under any of them. The recordings of today's game (the
+golden runs and the worked example in docs/PHYSICS.md) step aside under
+another configuration, saying so; record them anew with
+`physics_golden_test.zig`'s `print`. The
 QEMU gate and the image also need qemu with KVM, sgdisk, mtools and
 fsck.fat, and python3 (zig-metal-unikernel's `droplet/app_image.py`).
 

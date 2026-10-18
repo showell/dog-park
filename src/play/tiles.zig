@@ -21,6 +21,9 @@ pub const world_px = world_tiles * tile_px;
 /// the world is empty ground.
 pub const park_tiles: comptime_int = world.park.tiles;
 pub const park_offset_px: comptime_int = world.park.first * tile_px;
+comptime {
+    if (world.park.first + world.park.tiles > world_tiles) @compileError("world.zon: the park runs past the world's edge");
+}
 
 pub const Tile = struct {
     col: i32,
@@ -52,10 +55,4 @@ test "a tile's edges: 349 is the last of tile 0, 350 the first of tile 1; -1 is 
 test "a tile wraps into the world: world_tiles is 0, -1 is the last, the last stays" {
     try testing.expectEqual(Tile{ .col = 0, .row = world_tiles - 1 }, (Tile{ .col = world_tiles, .row = -1 }).wrapped());
     try testing.expectEqual(Tile{ .col = world_tiles - 1, .row = 0 }, (Tile{ .col = world_tiles - 1, .row = 0 }).wrapped());
-}
-
-test "the park sits a whole number of tiles in from the world's edge, its middle the world's" {
-    try testing.expectEqual(@as(i32, 0), @mod(park_offset_px, tile_px));
-    try testing.expectEqual(world_px, 2 * park_offset_px + park_tiles * tile_px);
-    try testing.expect(park_tiles <= world_tiles);
 }
