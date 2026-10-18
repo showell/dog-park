@@ -1,9 +1,8 @@
 ## WHAT A CRITTER WANTS (docs/PHYSICS.md, decisions 21-24), in Roc: its
 ## wish, from the moving critters it sees, by the rules (Rules.roc). The
-## physics' Zig calls it for each critter the walk visits
-## (src/play/physics.zig's `wishOf`, through roc/physics.roc), handing it
-## only what the arithmetic needs: who each one is to the wisher, and the
-## two vectors between them, already the short way round the world. All
+## walk (Walk.roc) takes it for each critter it visits, handing it only
+## what the arithmetic needs: who each one is to the wisher, and the two
+## vectors between them, already the short way round the world. All
 ## lengths are in 256ths of a pixel; a length is a vector's larger axis.
 
 import Rules
@@ -26,131 +25,142 @@ Wish := [].{
 	Out : { anchor : I32, x : I32, y : I32 }
 
 	wish : Me, List(Near) -> Out
-	wish = |me, near| wish_by(
-		me,
-		near.len(),
-		|k| match near.get(k) {
-			Ok(n) => n
-			Err(_) => nobody
-		},
-	)
-
-	## No critter: what `wish` reads past a list's end (it never does).
-	nobody : Near
-	nobody = { ax: 0, ay: 0, half: 0, tx: 0, ty: 0, j: 0, kin: Bool.False, kind: 0 }
-
-	## The wish from `count` critters, the `k`th `near_at(k)`: for a caller
-	## that holds them otherwise than as a list (roc/Walk.roc, which makes
-	## each from the walk's own lists as it is read).
-	wish_by : Me, U64, (U64 -> Near) -> Out
-	wish_by = |me, count, near_at| {
-		sees = if (me.kind == 1) Rules.cow else Rules.dog
-
-		## The summed answers; the anchor (the nearest critter a `Herd`
-		## answer named; -1, none), its distance and band; and for
-		## `Nearest`, the nearest so far (-1, none yet).
-		var $x = 0
-		var $y = 0
-		var $anchor = -1
-		var $anchor_d = 0
-		var $inner = 0
-		var $outer = 0
-		var $a = nobody
-		var $best = nobody
-		var $best_d = -1
-		var $k = 0
-		while $k < count {
-			n = near_at($k)
-			$k = $k + 1
-			match sees.gathers {
-				Each => {
-					rule = rule_for(sees, n)
-					match rule {
-						Herd({ inner, outer }) => {
-							d = measure(n.ax.to_i64(), n.ay.to_i64())
-							j = n.j.to_i64()
-							if $anchor < 0 or d < $anchor_d or (d == $anchor_d and j < $anchor) {
-								$anchor = j
-								$anchor_d = d
-								$inner = px(inner)
-								$outer = px(outer)
-								$a = n
-							} else {
-								{}
-							}
-						}
-						_ => {
-							w = contrib(rule, me, n)
-							$x = $x + w.x
-							$y = $y + w.y
-						}
-					}
-				}
-				Nearest => {
-					d = measure(n.ax.to_i64(), n.ay.to_i64())
-					if $best_d < 0 or d < $best_d or (d == $best_d and n.j < $best.j) {
-						$best = n
-						$best_d = d
-					} else {
-						{}
-					}
-				}
-			}
+	wish = |me, near| {
+		var $s = start
+		for n in near {
+			$s = add(me, $s, n)
 		}
-		if $best_d >= 0 {
-			n = $best
-			rule = rule_for(sees, n)
-			match rule {
-				Herd({ inner, outer }) => {
-					$anchor = n.j.to_i64()
-					$anchor_d = $best_d
-					$inner = px(inner)
-					$outer = px(outer)
-					$a = n
-				}
-				_ => {
-					w = contrib(rule, me, n)
-					$x = $x + w.x
-					$y = $y + w.y
-				}
-			}
-		} else {
-			{}
-		}
-		band = if $anchor < 0 {
-			{ x: 0, y: 0 }
-		} else if $anchor_d > $outer {
-			along($a.tx.to_i64(), $a.ty.to_i64(), $anchor_d - $outer)
-		} else if $anchor_d < $inner {
-			away($a.ax.to_i64(), $a.ay.to_i64(), $inner - $anchor_d)
-		} else {
-			{ x: 0, y: 0 }
-		}
-		{ anchor: $anchor.to_i32_wrap(), x: ($x + band.x).to_i32_wrap(), y: ($y + band.y).to_i32_wrap() }
+		finish(me, $s)
 	}
 
-	## The rule for who `n` is to the wisher.
-	rule_for : Rules.Sees, Near -> Rules.Rule
-	rule_for = |sees, n| if (n.kind == 0 and n.kin) sees.kin else if (n.kind == 0) sees.dog else if (n.kind == 1) sees.cow else sees.chicken
+	## **THE WISH AS A FOLD**: `start`, then `add` each moving critter, then
+	## `finish`; for a caller that holds them otherwise than as a list
+	## (Walk.roc, which makes each from its own lists as it goes). The state
+	## is numbers only, and the anchor and the nearest are kept as what the
+	## wish needs of them: in the walk's loop, a record, a tag or a call
+	## carried round it is kept on the stack.
+	##
+	## The summed answers (`x`, `y`); the anchor (the nearest critter a `Herd`
+	## answer named, by its `j`; -1, none), its distance and band, and the
+	## vectors to and from it (`a_`); and for `Nearest`, the nearest so far
+	## (`b_`; `b_d` -1, none yet), all it is to the wisher.
+	State : {
+		a_ax : I64,
+		a_ay : I64,
+		a_tx : I64,
+		a_ty : I64,
+		anchor : I64,
+		anchor_d : I64,
+		b_ax : I64,
+		b_ay : I64,
+		b_d : I64,
+		b_half : I32,
+		b_j : U16,
+		b_kin : Bool,
+		b_kind : U8,
+		b_tx : I64,
+		b_ty : I64,
+		inner : I64,
+		outer : I64,
+		x : I64,
+		y : I64,
+	}
 
-	## What a rule but `Herd` (the anchor's, gathered above) adds.
-	contrib : Rules.Rule, Me, Near -> { x : I64, y : I64 }
-	contrib = |rule, me, n| {
+	start : State
+	start = { a_ax: 0, a_ay: 0, a_tx: 0, a_ty: 0, anchor: -1, anchor_d: 0, b_ax: 0, b_ay: 0, b_d: -1, b_half: 0, b_j: 0, b_kin: Bool.False, b_kind: 0, b_tx: 0, b_ty: 0, inner: 0, outer: 0, x: 0, y: 0 }
+
+	## The rules of a wisher of kind `kind`.
+	sees_of : U8 -> Rules.Sees
+	sees_of = |kind| if (kind == 1) Rules.cow else Rules.dog
+
+	## The rule, as numbers, for who `n` is to the wisher.
+	pick : Rules.Sees, Near -> Flat
+	pick = |sees, n| flat(if (n.kind == 0 and n.kin) sees.kin else if (n.kind == 0) sees.dog else if (n.kind == 1) sees.cow else sees.chicken)
+
+	## One moving critter, `n`, taken in.
+	add : Me, State, Near -> State
+	add = |me, s, n| {
+		sees = sees_of(me.kind)
 		ax = n.ax.to_i64()
 		ay = n.ay.to_i64()
-		match rule {
-			Keep(reach) => {
-				d = measure(ax, ay)
-				r = px(reach)
-				if (d > r) { x: 0, y: 0 } else away(ax, ay, r - d)
+		d = measure(ax, ay)
+		match sees.gathers {
+			Each => answer(s, pick(sees, n), me.half.to_i64(), n, d)
+			Nearest => {
+				if s.b_d < 0 or d < s.b_d or (d == s.b_d and n.j < s.b_j) {
+					{ ..s, b_ax: ax, b_ay: ay, b_d: d, b_half: n.half, b_j: n.j, b_kin: n.kin, b_kind: n.kind, b_tx: n.tx.to_i64(), b_ty: n.ty.to_i64() }
+				} else {
+					s
+				}
 			}
-			Close(reach) => {
-				d = measure(ax, ay)
-				touch = me.half.to_i64() + n.half.to_i64()
-				if (d > touch and d <= px(reach)) along(n.tx.to_i64(), n.ty.to_i64(), d - touch) else { x: 0, y: 0 }
-			}
-			_ => { x: 0, y: 0 }
 		}
+	}
+
+	## The answer of rule `r` to `n`, `d` away, taken in.
+	answer : State, Flat, I64, Near, I64 -> State
+	answer = |s, r, half, n, d| {
+		ax = n.ax.to_i64()
+		ay = n.ay.to_i64()
+		if r.code == 2 {
+			j = n.j.to_i64()
+			if s.anchor < 0 or d < s.anchor_d or (d == s.anchor_d and j < s.anchor) {
+				{ ..s, anchor: j, anchor_d: d, inner: r.a, outer: r.b, a_ax: ax, a_ay: ay, a_tx: n.tx.to_i64(), a_ty: n.ty.to_i64() }
+			} else {
+				s
+			}
+		} else if r.code == 1 {
+			if d <= r.a {
+				w = away(ax, ay, r.a - d)
+				{ ..s, x: s.x + w.x, y: s.y + w.y }
+			} else {
+				s
+			}
+		} else if r.code == 3 {
+			touch = half + n.half.to_i64()
+			if d > touch and d <= r.a {
+				w = along(n.tx.to_i64(), n.ty.to_i64(), d - touch)
+				{ ..s, x: s.x + w.x, y: s.y + w.y }
+			} else {
+				s
+			}
+		} else {
+			s
+		}
+	}
+
+	## The wish, from all taken in: for `Nearest`, the nearest's answer;
+	## then the anchor's band.
+	finish : Me, State -> Out
+	finish = |me, s0| {
+		s = if s0.b_d < 0 {
+			s0
+		} else {
+			n = { ax: s0.b_ax.to_i32_wrap(), ay: s0.b_ay.to_i32_wrap(), half: s0.b_half, tx: s0.b_tx.to_i32_wrap(), ty: s0.b_ty.to_i32_wrap(), j: s0.b_j, kin: s0.b_kin, kind: s0.b_kind }
+			answer(s0, pick(sees_of(me.kind), n), me.half.to_i64(), n, s0.b_d)
+		}
+		band = if s.anchor < 0 {
+			{ x: 0, y: 0 }
+		} else if s.anchor_d > s.outer {
+			along(s.a_tx, s.a_ty, s.anchor_d - s.outer)
+		} else if s.anchor_d < s.inner {
+			away(s.a_ax, s.a_ay, s.inner - s.anchor_d)
+		} else {
+			{ x: 0, y: 0 }
+		}
+		{ anchor: s.anchor.to_i32_wrap(), x: (s.x + band.x).to_i32_wrap(), y: (s.y + band.y).to_i32_wrap() }
+	}
+
+	## A rule as numbers: `code` 0 `Ignore`, 1 `Keep` (`a` its reach), 2
+	## `Herd` (`a`, `b` its band's edges), 3 `Close` (`a` its reach); in
+	## 256ths.
+	Flat : { a : I64, b : I64, code : U8 }
+
+	flat : Rules.Rule -> Flat
+	flat = |rule| match rule {
+		Ignore => { a: 0, b: 0, code: 0 }
+		Keep(reach) => { a: px(reach), b: 0, code: 1 }
+		Herd({ inner, outer }) => { a: px(inner), b: px(outer), code: 2 }
+		Close(reach) => { a: px(reach), b: 0, code: 3 }
 	}
 
 	## Whole pixels to 256ths.

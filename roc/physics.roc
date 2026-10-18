@@ -1,10 +1,7 @@
 ## THE PHYSICS IN ROC, as the app its Zig links (roc/platform/main.roc).
-app [walk, wish] { pf: platform "./platform/main.roc" }
+app [walk] { pf: platform "./platform/main.roc" }
 
-import Wish
 import Walk
-
-wish = Wish.wish
 
 ## The walk, its arguments unpacked into Walk.roc's records.
 walk = |most, side, from, poops, cells, crits, depth, moving| {

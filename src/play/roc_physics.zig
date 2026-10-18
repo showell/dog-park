@@ -1,7 +1,7 @@
-//! **THE PHYSICS' ROC**: the critters' wish (roc/Wish.roc) and the walk
-//! (roc/Walk.roc), compiled by `zig build roc` into
+//! **THE PHYSICS' ROC**: the walk (roc/Walk.roc, with the critters' wish
+//! in it, roc/Wish.roc), compiled by `zig build roc` into
 //! roc/lib/physics-<target>.a (checked in; no build runs Roc), which every
-//! build of the physics links. This file is the seam: the C functions Roc
+//! build of the physics links. This file is the seam: the C function Roc
 //! provides, their arguments laid out as Roc lays records out (fields by
 //! alignment, largest first, then by name), and the host functions the
 //! archive calls.
@@ -15,48 +15,9 @@
 
 const std = @import("std");
 
-/// One moving critter the wisher sees (roc/Wish.roc's `Near`): who it is to
-/// the wisher (`kind`: physics.zig's `Kind`; `kin`: a dog of the wisher's
-/// breed, the wisher a dog), its seen index `j` for ties, its square's half
-/// side, and the vectors from it to the wisher (`ax`, `ay`) and back
-/// (`tx`, `ty`), the short way round the world.
-pub const Near = extern struct { ax: i32, ay: i32, half: i32, tx: i32, ty: i32, j: u16, kin: bool, kind: u8 };
-
-/// The wisher (`Me`): its square's half side, and its kind.
-pub const Me = extern struct { half: i32, kind: u8 };
-
-/// What it wants (`Out`): a step, and its anchor's seen index, or -1.
-pub const Out = extern struct { anchor: i32, x: i32, y: i32 };
-
 /// Roc's `List`: its elements, how many, and its capacity shifted left one
 /// (the low bit clear: no seamless slice).
 pub const RocList = extern struct { bytes: ?[*]u8, length: usize, capacity_or_alloc_ptr: usize };
-
-extern fn roc_wish(me: Me, near: RocList) callconv(.c) Out;
-
-/// The nearby critters, after Roc's refcount word: 0, static data.
-pub fn Neighbours(comptime most: usize) type {
-    return extern struct {
-        refcount: isize align(@alignOf(usize)) = 0,
-        items: [most]Near = undefined,
-        len: usize = 0,
-
-        pub fn push(self: *@This(), n: Near) void {
-            self.items[self.len] = n;
-            self.len += 1;
-        }
-
-        /// The wish of `me`, from these.
-        pub fn wish(self: *@This(), me: Me) Out {
-            std.debug.assert(self.refcount == 0);
-            return roc_wish(me, .{
-                .bytes = if (self.len == 0) null else @ptrCast(&self.items),
-                .length = self.len,
-                .capacity_or_alloc_ptr = self.len << 1,
-            });
-        }
-    };
-}
 
 /// **A LENT LIST**: room for `most` of `T`, after Roc's refcount word,
 /// which Roc reads just before a list's first element: where `T` is aligned
@@ -207,5 +168,4 @@ export fn roc_realloc(ptr: *anyopaque, len: usize, alignment: usize) callconv(.c
 comptime {
     // The layouts Roc's records have.
     std.debug.assert(@sizeOf(Crit) == 24 and @sizeOf(Poop) == 12 and @sizeOf(Walked) == 4 * @sizeOf(RocList) + 8);
-    std.debug.assert(@sizeOf(Near) == 24 and @sizeOf(Me) == 8 and @sizeOf(Out) == 12);
 }

@@ -128,32 +128,47 @@ Walk := [].{
 			poops: lent.poops,
 			words: work0.park.cells.len() // (side * side).to_u64_wrap(),
 		}
-		var $w = work0
-		$w = { ..$w, depth: put($w.depth, 0, 0), moving: $w.moving.append(0) }
-		herd = (get_c($w.park.crits, 0)).kin
-		$w = { ..$w, park: line_up(s, $w.park, 0) }
+
+		## **ONE OWNER FOR EACH LIST**: each in a variable of its own, and
+		## every park a function hands back taken apart at once. A list read
+		## out of a record that is still alive (`w.park.crits`) is shared for
+		## the moment: Roc counts it up, and down again, each time, and the
+		## lists the host lends are counted atomically (the walk's first cut
+		## did 30 of these a visit, more than a third of its time).
+		{ depth: depth0, moving: moving0, park: park0 } = work0
+		{ cells: cells0, crits: crits0 } = park0
+		var $depth = put(depth0, 0, 0)
+		var $moving = moving0.append(0)
+		herd = (get_c(crits0, 0)).kin
+		{ cells: cells1, crits: crits1 } = line_up(s, { cells: cells0, crits: crits0 }, 0)
+		var $cells = cells1
+		var $crits = crits1
 		var $pooper = 0
 		var $anchor = -1
 		var $count = 0
 		var $going = Bool.True
 		while $going and $count < walk_most {
-			i = least_waiting($w.park.crits)
+			i = least_waiting($crits)
 			if i < 0 {
 				$going = Bool.False
 			} else {
 				iu = i.to_u64_wrap()
-				me = get_c($w.park.crits, iu)
-				$w = { ..$w, park: visit($w.park, iu, me) }
-				wished = wish_of($w, iu)
-				$w = { ..$w, moving: $w.moving.append(iu.to_u16_wrap()) }
+				me = get_c($crits, iu)
+				$crits = put($crits, iu, { ..me, key: -2 })
+				{ crits: k1, moving: m1, out: wished } = wish_of($crits, $moving, iu)
+				$crits = k1
+				$moving = m1
+				$moving = $moving.append(iu.to_u16_wrap())
 				$count = $count + 1
 				pace = if (me.kind == 1) Rules.cow.pace else Rules.dog.pace
-				$w = { ..$w, park: step_around(s, $w.park, iu, step_at_most({ x: wished.x, y: wished.y }, share(pace, most))) }
+				{ cells: c2, crits: k2 } = step_around(s, { cells: $cells, crits: $crits }, iu, step_at_most({ x: wished.x, y: wished.y }, share(pace, most)))
+				$cells = c2
+				$crits = k2
 				if me.kind == 0 and me.kin == herd and wished.anchor >= 0 {
 					a = wished.anchor.to_u64_wrap()
-					d = get_u16($w.depth, a) + 1
-					$w = { ..$w, depth: put($w.depth, iu, d) }
-					if d >= get_u16($w.depth, $pooper.to_u64_wrap()) {
+					d = get_u16($depth, a) + 1
+					$depth = put($depth, iu, d)
+					if d >= get_u16($depth, $pooper.to_u64_wrap()) {
 						$pooper = i.to_i32_wrap()
 						$anchor = wished.anchor
 					} else {
@@ -162,10 +177,12 @@ Walk := [].{
 				} else {
 					{}
 				}
-				$w = { ..$w, park: line_up(s, $w.park, iu) }
+				{ cells: c3, crits: k3 } = line_up(s, { cells: $cells, crits: $crits }, iu)
+				$cells = c3
+				$crits = k3
 			}
 		}
-		{ anchor: $anchor, pooper: $pooper, work: $w }
+		{ anchor: $anchor, pooper: $pooper, work: { depth: $depth, moving: $moving, park: { cells: $cells, crits: $crits } } }
 	}
 
 	## `pace` of `v`, rounded toward zero.
@@ -205,7 +222,8 @@ Walk := [].{
 	## on holds a nearer one, nor an equal, and the search stops there.
 	line_up : Seen, Park, U64 -> Park
 	line_up = |s, park, from| {
-		p = pt(get_c(park.crits, from))
+		{ cells, crits } = park
+		p = pt(get_c(crits, from))
 		n = side
 		pc = p.x // cell
 		pr = p.y // cell
@@ -219,62 +237,42 @@ Walk := [].{
 				## Round the torus, ring `r` holds the cells `r` away on the
 				## larger axis; at `2r = n`, offset `+r` is `-r`'s cell, so
 				## only `-r` is taken.
+				## A side row's cells are its two ends, so `dx` steps from one
+				## to the other.
 				top = if (2 * $r == n) $r - 1 else $r
-				var $dy = (0 - $r)
+				var $dy = 0 - $r
 				while $dy <= top {
 					row = (pr + $dy).mod_by(n)
-					if $dy == (0 - $r) or $dy == $r {
-						var $dx = (0 - $r)
-						while $dx <= top {
-							$t = offer_cell(s, park, p, row * n + (pc + $dx).mod_by(n), $t)
-							$dx = $dx + 1
+					edge = $dy == 0 - $r or $dy == $r
+					var $dx = 0 - $r
+					while $dx <= top {
+						## The dogs and cows of the cell not yet visited, offered
+						## to the three nearest `p` (here, not in a function: one
+						## that took the park took its lists' refcounts up and down).
+						base = (row * n + (pc + $dx).mod_by(n)).to_u64_wrap() * s.words
+						var $w = 0
+						while $w < s.words {
+							var $bits = get_u64(cells, base + $w)
+							while $bits != 0 {
+								j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
+								o = get_c(crits, j)
+								if o.key != -2 and o.kind != 2 {
+									$t = nearer($t, measure(delta(pt(o), p)), j.to_i64_wrap())
+								} else {
+									{}
+								}
+								$bits = $bits.bitwise_and($bits - 1)
+							}
+							$w = $w + 1
 						}
-					} else {
-						$t = offer_cell(s, park, p, row * n + (pc - $r).mod_by(n), $t)
-						if $r > 0 and top == $r {
-							$t = offer_cell(s, park, p, row * n + (pc + $r).mod_by(n), $t)
-						} else {
-							{}
-						}
+						$dx = if (edge) $dx + 1 else if ($dx == 0 - $r and $r > 0 and top == $r) $r else top + 1
 					}
 					$dy = $dy + 1
 				}
 				$r = $r + 1
 			}
 		}
-		{ cells, crits } = park
 		{ cells, crits: crits |> offer($t.k1, $t.d1) |> offer($t.k2, $t.d2) |> offer($t.k3, $t.d3) }
-	}
-
-	## The dogs and cows of cell `c` not yet visited, offered to the three
-	## nearest `p`.
-	offer_cell : Seen, Park, Pt, I32, Three -> Three
-	offer_cell = |s, park, p, c, t0| {
-		var $t = t0
-		base = c.to_u64_wrap() * s.words
-		var $w = 0
-		while $w < s.words {
-			var $bits = get_u64(park.cells, base + $w)
-			while $bits != 0 {
-				j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
-				o = get_c(park.crits, j)
-				if o.key != -2 and o.kind != 2 {
-					$t = nearer($t, measure(delta(pt(o), p)), j.to_i64_wrap())
-				} else {
-					{}
-				}
-				$bits = $bits.bitwise_and($bits - 1)
-			}
-			$w = $w + 1
-		}
-		$t
-	}
-
-	## Critter `i`, `me`, is visited.
-	visit : Park, U64, Crit -> Park
-	visit = |park, i, me| {
-		{ cells, crits } = park
-		{ cells, crits: put(crits, i, { ..me, key: -2 }) }
 	}
 
 	## The three with critter `j`, `d` away, in its place among them.
@@ -310,18 +308,18 @@ Walk := [].{
 
 	## Seen critter `i`'s wish, from the critters in motion where they now
 	## stand.
-	wish_of : Work, U64 -> Wish.Out
-	wish_of = |w, i| {
-		crits = w.park.crits
+	wish_of : List(Crit), List(U16), U64 -> { crits : List(Crit), moving : List(U16), out : Wish.Out }
+	wish_of = |crits, moving, i| {
 		me = get_c(crits, i)
-		Wish.wish_by(
-			{ half: me.half, kind: me.kind },
-			w.moving.len(),
-			|k| {
-				j = get_u16(w.moving, k)
-				o = get_c(crits, j.to_u64())
-				tx = short(o.x - me.x)
-				ty = short(o.y - me.y)
+		wisher = { half: me.half, kind: me.kind }
+		var $s = Wish.start
+		for j in moving {
+			o = get_c(crits, j.to_u64())
+			tx = short(o.x - me.x)
+			ty = short(o.y - me.y)
+			$s = Wish.add(
+				wisher,
+				$s,
 				{
 					ax: back(tx),
 					ay: back(ty),
@@ -331,9 +329,10 @@ Walk := [].{
 					j,
 					kin: me.kind == 0 and o.kind == 0 and o.kin == me.kin,
 					kind: o.kind,
-				}
-			},
-		)
+				},
+			)
+		}
+		{ crits, moving, out: Wish.finish(wisher, $s) }
 	}
 
 	## A short-way difference turned round: in [-half_world, half_world),
@@ -371,11 +370,12 @@ Walk := [].{
 	## chicken it can't shove, it tries once more with `sidestep`'s.
 	step_around : Seen, Park, U64, Pt -> Park
 	step_around = |s, park, i, step| {
-		r = step_whole(s, park, i, step)
-		if r.veto.why == 2 or r.veto.why == 3 {
-			(step_whole(s, r.park, i, sidestep(r.veto, step))).park
+		{ park: tried, veto } = step_whole(s, park, i, step)
+		if veto.why == 2 or veto.why == 3 {
+			{ park: again, veto: _ } = step_whole(s, tried, i, sidestep(veto, step))
+			again
 		} else {
-			r.park
+			tried
 		}
 	}
 
@@ -408,15 +408,18 @@ Walk := [].{
 		if step.x == 0 and step.y == 0 {
 			{ park, veto: went }
 		} else {
-			grouped = gather(s, park, i, step)
+			## The park goes through each and comes back, never held by two:
+			## a list one function reads while its caller keeps it is counted
+			## up and down, atomically.
+			{ group: grouped, park: park1 } = gather(s, park, i, step)
 			if grouped.veto.why != 0 {
-				{ park, veto: grouped.veto }
+				{ park: park1, veto: grouped.veto }
 			} else {
-				cannot = shove_veto(s, park, step, grouped)
+				{ park: park2, veto: cannot } = shove_veto(s, park1, step, grouped)
 				if cannot.why != 0 {
-					{ park, veto: cannot }
+					{ park: park2, veto: cannot }
 				} else {
-					{ park: move_all(s, park, step, grouped), veto: went }
+					{ park: move_all(s, park2, step, grouped), veto: went }
 				}
 			}
 		}
@@ -431,7 +434,7 @@ Walk := [].{
 	## critter whose square that one's would overlap, in seen index order:
 	## a chicken it shoves, kin it nudges into the group, anyone else (or
 	## one past the most) a veto.
-	gather : Seen, Park, U64, Pt -> Group
+	gather : Seen, Park, U64, Pt -> { group : Group, park : Park }
 	gather = |s, park, i, step| {
 		breed = (get_c(park.crits, i)).kin
 		var $g = { by: 0, group: lane_put(0, 0, i), n: 1, ns: 0, shoved: 0, veto: went }
@@ -477,7 +480,7 @@ Walk := [].{
 			}
 			$k = $k + 1
 		}
-		$g
+		{ group: $g, park }
 	}
 
 	## Whether seen critter `j` is in the move: in the group, or shoved.
@@ -495,7 +498,7 @@ Walk := [].{
 	## The veto of the first shove that cannot land: on a poop, on a critter
 	## not in the move, on one of the group where it steps to, or on a
 	## chicken shoved before it.
-	shove_veto : Seen, Park, Pt, Group -> Veto
+	shove_veto : Seen, Park, Pt, Group -> { park : Park, veto : Veto }
 	shove_veto = |s, park, step, g| {
 		crits = park.crits
 		var $v = went
@@ -541,7 +544,7 @@ Walk := [].{
 			}
 			$m = $m + 1
 		}
-		$v
+		{ park, veto: $v }
 	}
 
 	## The shoved chickens land, then the group steps: each land is from

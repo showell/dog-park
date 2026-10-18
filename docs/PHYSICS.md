@@ -89,9 +89,11 @@ The leashed dog's own step (the sweep, the bump, going around), the poop
 laid after the walk and the chickens' turn stay Zig's. Its tests are
 Roc's (`zig build roc-test`); while the Zig tests run, the Zig walk it
 replaced walks a copy of every pixel-tick too, and must agree to the bit.
-Its cost (2026-10-18, the busiest spot's full drag, 20 ticks): about 1.5x
-the Zig walk's natively (190 ms against 120), and on the page's wasm a
-tick of 0.3 ms against 0.2, a packed herd's full drag 16 ms against 12.
+Its cost (2026-10-18, the busiest spot's full drag, 20 ticks): about 1.4x
+the all-Zig walk's natively (144 ms against 105), and on the page's wasm
+a 32-tick replay of 7.3 ms against 6.7, a packed herd's full drag 13.5 ms
+against 11.8. Why it costs what it does, and the rules that keep Roc
+fast, are [ROC-SPEED.md](ROC-SPEED.md).
 
 After each pixel-tick of the leashed dog, up to **48** critters move, one
 at a time, out from the leashed dog, **shortest link first.** Only dogs
