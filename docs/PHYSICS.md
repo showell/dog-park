@@ -2,7 +2,8 @@
 
 **Status: played by Steve** (the small world). The board, the tick, the wire
 and the server's re-run are `src/play/physics*.zig`, with the first
-layout in `layout.zig`. The physics' routes are `/physics-<hash>.wasm`,
+layout said in Roc (`roc/layout.roc`, printed by `zig build roc-layout` into
+`src/play/layout.txt`, checked in, which `layout.zig` embeds). The physics' routes are `/physics-<hash>.wasm`,
 `POST /load` and `POST /report` (the README has the rest), and each game
 keeps its board under `<data>/game-<slot>/physics`. The page runs the same Zig as
 `physics.wasm` (`physics_page.zig`'s exports, in the physics hash, named
@@ -217,7 +218,7 @@ Tuned by playing; each is a constant in `physics.zig`.
 | the leashed dog stopped by poop or a chicken | slides 1 px sideways; shoves a chicken first |
 | a shove | the step, plus as much again sideways |
 | a chicken | once a tick; sees ripe poop 500 px off; steps at most half the leashed dog's net move, and 8 px; goes home past 32 px off |
-| the first layout | `layout.zig`: 64 dogs, four to a tile, one breed per corner; 8 cows, one in each white tile; 16 chickens, two side by side in the middle of each blue tile |
+| the first layout | `roc/layout.roc`, through `layout.txt` and `layout.zig`: 64 dogs, four to a tile, one breed per corner; 8 cows, one in each white tile; 16 chickens, two side by side in the middle of each blue tile |
 | the goal | the 8 cows in one herd: linked when within two cow-widths (84 px), round the torus (`scene.js`'s `largestHerd`) |
 
 **Arithmetic.** Positions are integer 256ths; every product is `i64`, and

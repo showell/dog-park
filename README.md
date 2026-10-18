@@ -101,7 +101,10 @@ Every build needs its sibling checkouts beside this one:
 Zig runs a path dependency's build at every configure, so even a plain
 `zig build` needs all three.
 
-The tools: zig 0.16 (`build.zig.zon`), and node for the node tests. The
+The tools: zig 0.16 (`build.zig.zon`), and node for the node tests.
+Roc (a nightly of the new compiler) only for `zig build roc-layout`, which
+prints the first layout again from `roc/layout.roc` into
+`src/play/layout.txt`; every other build reads the checked-in table. The
 QEMU gate and the image also need qemu with KVM, sgdisk, mtools and
 fsck.fat, and python3 (zig-metal-unikernel's `droplet/app_image.py`).
 

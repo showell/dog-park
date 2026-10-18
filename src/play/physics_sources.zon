@@ -7,5 +7,6 @@
     "physics_wire.zig",
     "tiles.zig",
     "layout.zig",
+    "layout.txt",
     "physics_page.zig",
 }
