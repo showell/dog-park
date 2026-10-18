@@ -31,8 +31,9 @@ const std = @import("std");
 const Io = @import("host_io").Io;
 const webbox = @import("webbox");
 const http = webbox.http;
-const script = webbox.script;
-const script_route = webbox.script_route;
+const shale = @import("shale");
+const script = shale.script;
+const script_route = shale.script_route;
 
 /// **THE ROUTE'S BUDGETS.** A background run holds no turn, so its budgets
 /// bound its memory and its total work, not a request's wait: a slice ends

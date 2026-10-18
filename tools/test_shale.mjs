@@ -5,7 +5,7 @@
 //     zig build && node tools/test_shale.mjs
 //
 // The envelope, its signature, its sequence and the background run are
-// zig-webbox's (script_route.zig) and tested there; this is what only Dog
+// shale's (script_route.zig) and tested there; this is what only Dog
 // Park shows: the admin key first, atomic off, the cookbook (tools/shale/)
 // on the files a real game writes, and play going on while a scan runs.
 

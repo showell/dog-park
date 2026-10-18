@@ -223,7 +223,7 @@ async function adminGame(port, claimed, keptTick) {
   status(await request(port, "GET", "/admin/game", { headers: { authorization: `Bearer ${"0".repeat(64)}` } }), 403, "/admin/game with a wrong key");
 }
 
-/** A signed background envelope (zig-webbox script_route.zig's format), as tools/test_shale.mjs signs one. */
+/** A signed background envelope (shale's script_route.zig format), as tools/test_shale.mjs signs one. */
 function shaleEnvelope(source, sequence) {
   const expires = Math.floor(Date.now() / 1000) + 600;
   const signed = `shale-1 target=${shale_target} sequence=${sequence} expires=${expires} mode=background\n${source}`;

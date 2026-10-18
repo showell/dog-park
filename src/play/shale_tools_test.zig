@@ -6,8 +6,7 @@
 //! against a scratch server checked them.
 
 const std = @import("std");
-const webbox = @import("webbox");
-const script = webbox.script;
+const script = @import("shale").script;
 const plog = @import("physics_log.zig");
 const physics = @import("physics.zig");
 const judge = @import("physics_judge.zig");
