@@ -14,8 +14,8 @@
 // boots the image under QEMU (droplet/rehearse.mjs); a failed rehearsal
 // fails the build.
 //
-// **REFUSES** on a dirty tree (this one, ../zig-metal-unikernel or
-// ../zig-webbox: each is compiled into the image), unless
+// **REFUSES** on a dirty tree (this one, ../zig-metal-unikernel,
+// ../zig-webbox or ../shale: each is compiled into the image), unless
 // DOGPARK_IMAGE_DIRTY=1, which builds it anyway and says so. **REFUSES**
 // without droplet/trusted-proxy (prod's private address, whose
 // X-Forwarded-For names the client): without it every request through Caddy
@@ -36,6 +36,7 @@ import { rehearse } from "./rehearse.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const kernelRoot = resolve(root, "../zig-metal-unikernel");
 const webboxRoot = resolve(root, "../zig-webbox");
+const shaleRoot = resolve(root, "../shale");
 const elf = join(root, "zig-out/bin/dogpark.elf");
 export const adminKeyPath = join(homedir(), ".dogpark_admin_key");
 const proxyFile = join(root, "droplet/trusted-proxy");
@@ -58,7 +59,7 @@ function die(why) {
 /** Each tree compiled into the image, clean, or the override said loudly. */
 function checkTrees() {
   const dirty = [];
-  for (const tree of [root, kernelRoot, webboxRoot]) {
+  for (const tree of [root, kernelRoot, webboxRoot, shaleRoot]) {
     if (run("git", ["-C", tree, "status", "--porcelain"]).trim()) dirty.push(tree);
   }
   if (dirty.length === 0) return;
@@ -86,14 +87,14 @@ const site = "dogpark.lynrummy.com";
 
 /**
  * **DOG PARK'S SHALE KEY** (README, "Running a script"): its own pair, never
- * lynrummy's. zig-webbox's shale-sign keeps it as ~/.shale_signing_key.<site>
+ * lynrummy's. shale's shale-sign keeps it as ~/.shale_signing_key.<site>
  * (made here, the first time, by `shale-sign keygen <site>`; the private half
  * never leaves that file). The image gets the public half and the target in
  * auth/shale.conf, and auth/shale/sequence starts at the build's seconds, so
  * nothing signed before the build runs.
  */
 function shalePublicKey() {
-  const signer = (...args) => execFileSync("zig", ["build", "-Doptimize=ReleaseSafe", "shale-sign", "--", ...args], { cwd: webboxRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  const signer = (...args) => execFileSync("zig", ["build", "-Doptimize=ReleaseSafe", "shale-sign", "--", ...args], { cwd: shaleRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (!existsSync(join(homedir(), `.shale_signing_key.${site}`))) {
     signer("keygen", site);
     console.log(`image.mjs: made Dog Park's Shale key pair, ~/.shale_signing_key.${site} (mode 600)`);

@@ -21,6 +21,8 @@ pub fn build(b: *std.Build) void {
     // `host_io`: the one file the application's sources take their `Io`
     // from, std's here; a metal kernel hands the same files its own.
     const host_io = webbox_dep.module("host_io");
+    // Shale, portable (`shale`): the park's signed scripts and its suite.
+    const shale = b.dependency("shale", .{ .target = target, .optimize = optimize }).module("shale");
 
     // **THE PHYSICS HASH, ONCE** (physics_wire.zig): a CRC-32 over the
     // files src/play/physics_sources.zon lists, read here at configure
@@ -59,6 +61,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "webbox", .module = webbox },
             .{ .name = "host_io", .module = host_io },
             .{ .name = "webbox_linux", .module = webbox_linux },
+            .{ .name = "shale", .module = shale },
             .{ .name = "physics_options", .module = physics_mod },
             .{ .name = "dogpark_build", .module = build_mod },
         },
@@ -73,8 +76,8 @@ pub fn build(b: *std.Build) void {
     // **DOG PARK ON METAL** (metal-vmm QUEUE 215): zig-metal-unikernel's
     // kernel, a sibling checkout, hosting hosted.zig's `site` in place of
     // main.zig's Linux host. The module names no target or optimize mode
-    // (the kernel's) and imports neither webbox nor host_io (the kernel
-    // supplies its own); the physics hash and the wasm are this build's, so
+    // (the kernel's) and imports neither webbox, shale nor host_io (the
+    // kernel supplies its own); the physics hash and the wasm are this build's, so
     // the kernel never embeds a stale zig-out/web/physics.wasm. Its cookie
     // is Secure (app.cookie_mode's default: nothing on metal reads
     // DOGPARK_INSECURE_COOKIE). Installed to zig-out/bin/dogpark.elf.
@@ -122,6 +125,7 @@ pub fn build(b: *std.Build) void {
         target: std.Build.ResolvedTarget,
         optimize: std.builtin.OptimizeMode,
         webbox: *std.Build.Module,
+        shale: *std.Build.Module,
         host_io: *std.Build.Module,
         physics_mod: *std.Build.Module,
         build_mod: *std.Build.Module,
@@ -131,6 +135,7 @@ pub fn build(b: *std.Build) void {
         fn all(u: @This(), size: Fuzz) *std.Build.Step {
             const m = u.module("src/play/all_tests.zig", u.target, u.optimize, size);
             m.addImport("webbox", u.webbox);
+            m.addImport("shale", u.shale);
             m.addImport("host_io", u.host_io);
             m.addAnonymousImport("physics.wasm", .{ .root_source_file = u.page_wasm });
             return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m })).step;
@@ -183,7 +188,7 @@ pub fn build(b: *std.Build) void {
                 },
             });
         }
-    }{ .b = b, .target = target, .optimize = optimize, .webbox = webbox, .host_io = host_io, .physics_mod = physics_mod, .build_mod = build_mod, .page_wasm = page_wasm };
+    }{ .b = b, .target = target, .optimize = optimize, .webbox = webbox, .shale = shale, .host_io = host_io, .physics_mod = physics_mod, .build_mod = build_mod, .page_wasm = page_wasm };
 
     // **NODE AGAINST A FRESH BUILD**: each node test file after the install
     // (zig-out/web/physics.wasm, zig-out/bin/dog-park-play), each its own
@@ -249,6 +254,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "webbox", .module = webbox_rs.module("webbox") },
             .{ .name = "host_io", .module = webbox_rs.module("host_io") },
+            .{ .name = "shale", .module = b.dependency("shale", .{ .target = target, .optimize = .ReleaseSafe }).module("shale") },
             .{ .name = "physics_options", .module = physics_mod },
             .{ .name = "dogpark_build", .module = build_mod },
         },

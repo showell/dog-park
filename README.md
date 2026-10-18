@@ -93,6 +93,7 @@ in the checkout, so the local admin key is `auth/_admin_key`.
 
 Every build needs its sibling checkouts beside this one:
 - `../zig-webbox`;
+- `../shale`;
 - `../zig-metal-unikernel`;
 - `../zig-coverage-sdk`, holding the code the kernel pins (zig-metal-unikernel's
   `build.zig`, `pinnedSdk`, a hash of the SDK's code; the build fails, saying
@@ -219,14 +220,14 @@ the auth dir, `auth/` in a checkout) or through
 `POST /admin/script` takes a Shale script, signed, and runs it in the
 **background**: it only reads, a slice at a time between requests, so play
 keeps the turn first (src/play/shale.zig; the envelope, the sequence numbers
-and the run are zig-webbox's `script_route`). `GET /admin/script` shows the
+and the run are shale's `script_route`). `GET /admin/script` shows the
 run going, or the last one that ended, and what it printed. Both take the
 admin key, as the other `/admin` pages do. An atomic script, which could
 write, is refused: Dog Park runs background scripts only.
 
 - **The key** is Dog Park's own, never lynrummy's: the private half is
   `~/.shale_signing_key.dogpark.lynrummy.com` on the box, which
-  zig-webbox's `shale-sign` uses for that target. The droplet's image
+  shale's `shale-sign` uses for that target. The droplet's image
   carries the public half (`droplet/image.mjs` makes the pair the first
   time). On Linux, set it by hand in the auth dir: `shale.conf` holding
   `public_key = <64 hex>` and `target = <the host>`, and `shale/sequence`

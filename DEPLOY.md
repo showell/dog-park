@@ -19,8 +19,8 @@ check.
 
 ## The first deploy
 
-1. **Build the image** (box-verified). With all three trees compiled into
-   it clean (this one, ../zig-metal-unikernel and ../zig-webbox), and
+1. **Build the image** (box-verified). With all four trees compiled into
+   it clean (this one, ../zig-metal-unikernel, ../zig-webbox and ../shale), and
    pushed (nothing checks that):
 
        cd ~/showell_repos/dog-park
@@ -37,7 +37,7 @@ check.
      commit describes), and without `droplet/trusted-proxy` (prod's
      private address).
    - **The first time,** it makes `~/.dogpark_admin_key` (mode 600; it
-     never prints it), and builds zig-webbox's `shale-sign` to make Dog
+     never prints it), and builds shale's `shale-sign` to make Dog
      Park's Shale key pair, `~/.shale_signing_key.dogpark.lynrummy.com`.
 
 2. **Serve the .gz to DigitalOcean**, in a terminal on the box:
@@ -138,7 +138,7 @@ check.
     `~/.shale_signing_key.dogpark.lynrummy.com`, never lynrummy's key):
 
         cd ~/showell_repos/dog-park/tools/shale
-        (cd ~/showell_repos/zig-webbox && zig build shale-sign -- background $OLDPWD/accounts.shale dogpark.lynrummy.com)
+        (cd ~/showell_repos/shale && zig build shale-sign -- background $OLDPWD/accounts.shale dogpark.lynrummy.com)
         curl -sS -H "Authorization: Bearer $(cat ~/.dogpark_admin_key)" --data-binary @accounts.shale.<sequence>.req https://dogpark.lynrummy.com/admin/script
         curl -sS -H "Authorization: Bearer $(cat ~/.dogpark_admin_key)" https://dogpark.lynrummy.com/admin/script
 
