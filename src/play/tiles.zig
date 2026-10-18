@@ -6,21 +6,21 @@ const std = @import("std");
 const world = @import("world.zig").world;
 
 /// The world's numbers are world.zig's (roc/world.roc says them).
-pub const tile_px = world.tile_px;
+pub const tile_px: comptime_int = world.tile_px;
 /// The most tiles a page holds at once: 8 x 8, the display's tiles on a
 /// large screen with the leash's region partly off it (docs/PHYSICS.md).
 pub const most_subscribed = 64;
 /// The world is `world_tiles` by `world_tiles` tiles, from tile (0, 0): park
 /// points 0 to `world_px` - 1 on each axis. A torus: tile `world_tiles` is
 /// tile 0 again, tile -1 the last (`wrapped`).
-pub const world_tiles = world.world_tiles;
+pub const world_tiles: comptime_int = world.world_tiles;
 pub const world_px = world_tiles * tile_px;
 /// **THE POPULATED PARK**: `park_tiles` by `park_tiles` tiles, its critters
 /// laid out in them (layout.zig), its top-left corner `park_offset_px` in
 /// from the world's on each axis, so its middle is the world's. The rest of
 /// the world is empty ground.
-pub const park_tiles = world.park.tiles;
-pub const park_offset_px = world.park.first * tile_px;
+pub const park_tiles: comptime_int = world.park.tiles;
+pub const park_offset_px: comptime_int = world.park.first * tile_px;
 
 pub const Tile = struct {
     col: i32,
