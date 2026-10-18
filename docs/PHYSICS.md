@@ -3,9 +3,11 @@
 **Status: played by Steve** (the small world). The board, the tick, the wire
 and the server's re-run are `src/play/physics*.zig`, with the world
 said in Roc: `roc/world.roc` says its size, the park in it and the first
-layout, and `zig build roc-world` prints them into `src/play/world.zon`
+layout, and `zig build roc` prints them into `src/play/world.zon`
 (which `world.zig` imports, checked in) and `solo/world.js` (the page's
-numbers). The physics' routes are `/physics-<hash>.wasm`,
+numbers); and what critters do about each other said in Roc too:
+`roc/rules.roc`, printed into `src/play/rules.zon`, which `rules.zig`
+imports and `physics.zig`'s `wishOf` applies. The physics' routes are `/physics-<hash>.wasm`,
 `POST /load` and `POST /report` (the README has the rest), and each game
 keeps its board under `<data>/game-<slot>/physics`. The page runs the same Zig as
 `physics.wasm` (`physics_page.zig`'s exports, in the physics hash, named
@@ -90,7 +92,10 @@ and cows: chickens have left the walk (decision 31) and take none of its
 
 **A critter reacts only to critters in motion:** the leashed dog and the
 critters the walk visited before it this pixel-tick, where they now
-stand.
+stand. How it reacts is the rules' (`roc/rules.roc`): for each kind, an
+answer to each kind it sees (keep a distance, herd against the nearest,
+close in, or nothing), and whether it sums every answer or takes its
+nearest moving critter's alone.
 - **A dog** keeps `wary` (158 px) from each moving dog of another breed,
   `cow_room` (63 px) from each moving cow, and its place in the herd: its
   **anchor** is the nearest moving dog of its own breed (the leashed dog
@@ -199,7 +204,9 @@ every poop in the region's tiles; the page drops its others there.
 
 ## The numbers
 
-Tuned by playing; each is a constant in `physics.zig`.
+Tuned by playing; each is a constant in `physics.zig`, but the critters'
+distances from each other (wary, the herd band, a dog's room from a cow,
+`cow_pull`), which are `roc/rules.roc`'s.
 
 | knob | value |
 |---|---|

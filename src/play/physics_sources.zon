@@ -9,5 +9,7 @@
     "layout.zig",
     "world.zig",
     "world.zon",
+    "rules.zig",
+    "rules.zon",
     "physics_page.zig",
 }

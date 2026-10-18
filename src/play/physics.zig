@@ -32,6 +32,7 @@ const builtin = @import("builtin");
 const tiles = @import("tiles.zig");
 const layout = @import("layout.zig");
 const world_file = @import("world.zig").world;
+const rules = @import("rules.zig");
 
 pub const dog_count = layout.dog_count;
 pub const cow_count = layout.cow_count;
@@ -76,21 +77,23 @@ pub const cow_half: i32 = px(cow_px / 2);
 pub const chicken_half: i32 = px(chicken_px / 2);
 /// A wish shorter than this is no step.
 pub const dead_zone: i32 = px(1);
-/// A dog keeps this from a moving dog of another breed; a cow from any
+/// **THE RULES' DISTANCES**, by the names the docs and tests use: the
+/// rules' (rules.zig, which roc/rules.roc says), which `wishOf` applies.
+/// A dog keeps `wary` from a moving dog of another breed; a cow from any
 /// moving dog.
-pub const wary: i32 = px(158);
+pub const wary: i32 = px(rules.rules.dog.dog.keep);
 /// A dog's band around its anchor: too close inside, too far outside.
-pub const band_inner: i32 = px(42);
-pub const band_outer: i32 = px(70);
+pub const band_inner: i32 = px(rules.rules.dog.kin.herd.inner);
+pub const band_outer: i32 = px(rules.rules.dog.kin.herd.outer);
 /// A dog keeps this from a moving cow.
-pub const cow_room: i32 = px(63);
+pub const cow_room: i32 = px(rules.rules.dog.cow.keep);
 /// **A COW'S PULL** (Steve, 2026-10-15: "cows a little less attracted to
 /// each other... about 30% closer before they move toward each other"): a
 /// cow closes on its nearest moving cow only within this; past it, that
 /// cow is nearest and nothing pulls. 70% of a tile, the first layout's
 /// spacing between neighbouring cows (one each white tile, diagonal), so
 /// cows as laid out no longer draw together on their own.
-pub const cow_pull: i32 = px(245);
+pub const cow_pull: i32 = px(rules.rules.cow.cow.close);
 /// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, the
 /// walk's dogs step at most as far as the leashed dog did, its cows half.
 pub const step_most: i32 = px(1);
@@ -1306,8 +1309,9 @@ const Nearest = struct {
     }
 };
 
-/// **WHAT A CRITTER WANTS** (decisions 21-24), from the critters in motion
-/// only, where they now stand:
+/// **WHAT A CRITTER WANTS** (decisions 21-24): the rules' answers
+/// (rules.zig, which roc/rules.roc says) to the critters in motion only,
+/// where they now stand, taken as its kind's rules take them:
 /// - a cow: from the nearest moving critter alone (ties to the lower rank):
 ///   a cow, it closes in to touching; a dog, it keeps `wary` from it;
 /// - a dog: room `cow_room` from every moving cow, `wary` from every
@@ -1315,75 +1319,117 @@ const Nearest = struct {
 ///   anchor, the nearest moving dog of its breed (ties to the lower rank).
 /// A dog's anchor comes back with the wish: the herd's depth runs through it.
 pub fn wishOf(sc: *const Scene, i: usize) Wish {
-    if (sc.seen[i].who.kind == .cow) return .{ .total = cowWish(sc, i), .anchor = null };
-    const me = sc.seen[i].who;
-    const p = sc.pos(i);
-    var total: Point = .{ .x = 0, .y = 0 };
-    var anchor: ?usize = null;
-    var anchor_d: i64 = 0;
-    for (sc.moving[0..sc.moving_len]) |j16| {
-        const j: usize = j16;
-        if (j == i) continue;
-        const o = sc.seen[j].who;
-        const q = sc.pos(j);
-        switch (o.kind) {
-            // Never: no chicken is in motion in the walk.
-            .chicken => {},
-            .cow => addRoom(&total, q, p, cow_room),
-            .dog => if (o.n % breeds != me.n % breeds) {
-                addRoom(&total, q, p, wary);
-            } else {
-                const d = measure(delta(q, p));
-                if (anchor == null or d < anchor_d or (d == anchor_d and j < anchor.?)) {
-                    anchor = j;
-                    anchor_d = d;
-                }
-            },
-        }
-    }
-    if (anchor) |j| {
-        const q = sc.pos(j);
-        if (anchor_d > band_outer) {
-            add(&total, wishAlong(delta(p, q), @as(i32, @intCast(anchor_d)) - band_outer));
-        } else if (anchor_d < band_inner) {
-            add(&total, away(q, p, band_inner - @as(i32, @intCast(anchor_d))));
-        }
-    }
-    return .{ .total = total, .anchor = anchor };
+    return switch (sc.seen[i].who.kind) {
+        .cow => wishBy(rules.rules.cow, false, sc, i),
+        // Never a chicken: no chicken is in the walk.
+        .dog, .chicken => wishBy(rules.rules.dog, true, sc, i),
+    };
 }
 
 /// A critter's wish, and the seen index of its anchor (a dog's; never a
 /// cow's).
 pub const Wish = struct { total: Point, anchor: ?usize };
 
-/// A cow's wish (decision 24): the nearest moving critter decides it. A
-/// cow within `cow_pull`, it closes the gap to touching (farther, nothing);
-/// a dog, room `wary` from it.
-fn cowWish(sc: *const Scene, i: usize) Point {
+/// The wish of critter `i` by its kind's rules, `sees`, known at compile
+/// time, so each answer below is decided there too. `kin`: whether a dog
+/// of its own breed is its kin (a dog's; a cow has no breed).
+fn wishBy(comptime sees: rules.Sees, comptime kin: bool, sc: *const Scene, i: usize) Wish {
+    const me = sc.seen[i].who;
     const p = sc.pos(i);
-    var nearest: ?usize = null;
-    var nearest_d: i64 = 0;
-    for (sc.moving[0..sc.moving_len]) |j16| {
-        const j: usize = j16;
-        if (j == i) continue;
-        const d = measure(delta(sc.pos(j), p));
-        if (nearest == null or d < nearest_d or (d == nearest_d and j < nearest.?)) {
-            nearest = j;
-            nearest_d = d;
+    var g: Gather = .{};
+    switch (sees.gathers) {
+        .each => for (sc.moving[0..sc.moving_len]) |j16| {
+            const j: usize = j16;
+            if (j == i) continue;
+            answer(sees, kin, me, sc, j, p, &g);
+        },
+        .nearest => {
+            var nearest: ?usize = null;
+            var nearest_d: i64 = 0;
+            for (sc.moving[0..sc.moving_len]) |j16| {
+                const j: usize = j16;
+                if (j == i) continue;
+                const d = measure(delta(sc.pos(j), p));
+                if (nearest == null or d < nearest_d or (d == nearest_d and j < nearest.?)) {
+                    nearest = j;
+                    nearest_d = d;
+                }
+            }
+            if (nearest) |j| answer(sees, kin, me, sc, j, p, &g);
+        },
+    }
+    if (g.anchor) |j| {
+        const q = sc.pos(j);
+        // The band: the rules' one, when they name one, known here at
+        // compile time; else the anchor's own.
+        const inner = if (comptime oneBand(sees)) |b| px(b.inner) else g.inner;
+        const outer = if (comptime oneBand(sees)) |b| px(b.outer) else g.outer;
+        if (g.anchor_d > outer) {
+            add(&g.total, wishAlong(delta(p, q), @as(i32, @intCast(g.anchor_d)) - outer));
+        } else if (g.anchor_d < inner) {
+            add(&g.total, away(q, p, inner - @as(i32, @intCast(g.anchor_d))));
         }
     }
-    var total: Point = .{ .x = 0, .y = 0 };
-    const j = nearest orelse return total;
-    const q = sc.pos(j);
-    switch (sc.seen[j].who.kind) {
-        .dog => addRoom(&total, q, p, wary),
-        .cow => if (nearest_d > 2 * cow_half and nearest_d <= cow_pull) {
-            total = wishAlong(delta(p, q), @as(i32, @intCast(nearest_d)) - 2 * cow_half);
+    return .{ .total = g.total, .anchor = g.anchor };
+}
+
+/// What a wish gathers: the summed answers, and the anchor (the nearest
+/// critter a `herd` answer named, ties to the lower rank) with its band.
+const Gather = struct {
+    total: Point = .{ .x = 0, .y = 0 },
+    anchor: ?usize = null,
+    anchor_d: i64 = 0,
+    inner: i32 = 0,
+    outer: i32 = 0,
+};
+
+/// The one band a kind's `herd` answers name, when they name one (or none).
+fn oneBand(comptime sees: rules.Sees) ?@FieldType(rules.Rule, "herd") {
+    var band: ?@FieldType(rules.Rule, "herd") = null;
+    for ([_]rules.Rule{ sees.kin, sees.dog, sees.cow, sees.chicken }) |rule| switch (rule) {
+        .herd => |b| if (band) |a| {
+            if (a.inner != b.inner or a.outer != b.outer) return null;
+        } else {
+            band = b;
         },
-        // Never: a cow's nearest moving critter is never a chicken.
-        .chicken => {},
+        else => {},
+    };
+    return band;
+}
+
+/// Critter `me` at `p` answers moving critter `j` by who `j` is to it.
+inline fn answer(comptime sees: rules.Sees, comptime kin: bool, me: Critter, sc: *const Scene, j: usize, p: Point, g: *Gather) void {
+    const o = sc.seen[j].who;
+    switch (o.kind) {
+        .chicken => apply(sees, sees.chicken, me, o, sc, j, p, g),
+        .cow => apply(sees, sees.cow, me, o, sc, j, p, g),
+        .dog => if (kin and o.n % breeds == me.n % breeds) apply(sees, sees.kin, me, o, sc, j, p, g) else apply(sees, sees.dog, me, o, sc, j, p, g),
     }
-    return total;
+}
+
+/// One answer, `rule`, known at compile time.
+inline fn apply(comptime sees: rules.Sees, comptime rule: rules.Rule, me: Critter, o: Critter, sc: *const Scene, j: usize, p: Point, g: *Gather) void {
+    switch (rule) {
+        .ignore => {},
+        .keep => |reach| addRoom(&g.total, sc.pos(j), p, px(reach)),
+        .herd => |band| {
+            const d = measure(delta(sc.pos(j), p));
+            if (g.anchor == null or d < g.anchor_d or (d == g.anchor_d and j < g.anchor.?)) {
+                g.anchor = j;
+                g.anchor_d = d;
+                if (comptime oneBand(sees) == null) {
+                    g.inner = px(band.inner);
+                    g.outer = px(band.outer);
+                }
+            }
+        },
+        .close => |reach| {
+            const q = sc.pos(j);
+            const d = measure(delta(q, p));
+            const touch = me.half() + o.half();
+            if (d > touch and d <= px(reach)) add(&g.total, wishAlong(delta(p, q), @as(i32, @intCast(d)) - touch));
+        },
+    }
 }
 
 /// Room from a critter at `q` for the one at `p`: away, by the shortfall
@@ -1746,4 +1792,5 @@ pub fn onPoops(sc: *const Scene) usize {
 test {
     _ = @import("physics_test.zig");
     _ = @import("physics_trails_test.zig");
+    _ = @import("physics_golden_test.zig");
 }

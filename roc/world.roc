@@ -1,5 +1,5 @@
 ## THE WORLD, in Roc: its size, the populated park in it, and where every
-## critter stands when the park starts afresh. `zig build roc-world` runs
+## critter stands when the park starts afresh. `zig build roc` runs
 ## it twice and checks in what it prints:
 ##
 ## - `roc roc/world.roc -- zon`: src/play/world.zon, which src/play/world.zig
@@ -130,7 +130,7 @@ points = |kind| {
 
 zon : Str
 zon =
-	\\// THE WORLD, printed by roc/world.roc (`zig build roc-world`): do not
+	\\// THE WORLD, printed by roc/world.roc (`zig build roc`): do not
 	\\// edit; edit that and print it again. Read by src/play/world.zig.
 	\\.{
 	\\    .tile_px = ${tile_px.to_str()},
@@ -150,7 +150,7 @@ zon =
 js : Str
 js =
 	\\// THE WORLD's numbers for the page, printed by roc/world.roc (`zig build
-	\\// roc-world`): do not edit; edit that and print it again. The physics
+	\\// roc`): do not edit; edit that and print it again. The physics
 	\\// reads the same world (src/play/world.zon); test_page_modules.mjs holds
 	\\// these to the wasm's.
 	\\export const tile_px = ${tile_px.to_str()};

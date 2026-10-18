@@ -103,10 +103,11 @@ Zig runs a path dependency's build at every configure, so even a plain
 `zig build` needs all three.
 
 The tools: zig 0.16 (`build.zig.zon`), and node for the node tests.
-Roc (a nightly of the new compiler) only for `zig build roc-world`, which
+Roc (a nightly of the new compiler) only for `zig build roc`, which
 prints the world again from `roc/world.roc` (its size, the park in it and
-where every critter starts) into `src/play/world.zon` and `solo/world.js`;
-every other build reads the checked-in files. The
+where every critter starts) into `src/play/world.zon` and `solo/world.js`,
+and the rules from `roc/rules.roc` (what critters do about each other) into
+`src/play/rules.zon`; every other build reads the checked-in files. The
 QEMU gate and the image also need qemu with KVM, sgdisk, mtools and
 fsck.fat, and python3 (zig-metal-unikernel's `droplet/app_image.py`).
 

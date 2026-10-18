@@ -261,22 +261,27 @@ pub fn build(b: *std.Build) void {
     });
     server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
-    // **THE WORLD, FROM ROC** (src/play/world.zig): roc/world.roc run with
-    // `roc` (on the PATH, or -Droc=<path>), twice: what it prints for `zon`
-    // to src/play/world.zon, which the physics imports, and for `js` to
-    // solo/world.js, which the page's script reads. Not in any tier: only a
-    // change to roc/world.roc needs it; layout.zig's tests and
-    // test_page_modules.mjs hold the checked-in files to the original world
-    // and to each other either way.
-    const roc = b.option([]const u8, "roc", "the Roc compiler for `roc-world` (default: `roc` on the PATH)") orelse "roc";
+    // **THE WORLD AND ITS RULES, FROM ROC** (src/play/world.zig,
+    // src/play/rules.zig): roc/world.roc and roc/rules.roc run with `roc`
+    // (on the PATH, or -Droc=<path>), what they print written to the files
+    // the physics imports (world.zon, rules.zon) and the page reads
+    // (solo/world.js). Not in any tier: only a change to a .roc file needs
+    // it; the tests hold the checked-in files to the original world, rules
+    // and physics (layout.zig, rules.zig, physics_golden_test.zig) and to
+    // each other (test_page_modules.mjs) either way.
+    const roc = b.option([]const u8, "roc", "the Roc compiler for `zig build roc` (default: `roc` on the PATH)") orelse "roc";
     const roc_write = b.addUpdateSourceFiles();
-    for ([_][2][]const u8{ .{ "zon", "src/play/world.zon" }, .{ "js", "solo/world.js" } }) |out| {
-        const roc_run = b.addSystemCommand(&.{ roc, "roc/world.roc", "--", out[0] });
+    for ([_][3][]const u8{
+        .{ "roc/world.roc", "zon", "src/play/world.zon" },
+        .{ "roc/world.roc", "js", "solo/world.js" },
+        .{ "roc/rules.roc", "zon", "src/play/rules.zon" },
+    }) |out| {
+        const roc_run = b.addSystemCommand(&.{ roc, out[0], "--", out[1] });
         roc_run.setCwd(b.path("."));
-        roc_run.addFileInput(b.path("roc/world.roc"));
-        roc_write.addCopyFileToSource(roc_run.captureStdOut(.{}), out[1]);
+        roc_run.addFileInput(b.path(out[0]));
+        roc_write.addCopyFileToSource(roc_run.captureStdOut(.{}), out[2]);
     }
-    b.step("roc-world", "Print the world again from roc/world.roc into src/play/world.zon and solo/world.js (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
+    b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
     b.step("physics-server-bench", "Time a 16-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
 }
 

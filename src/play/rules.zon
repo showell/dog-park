@@ -1,0 +1,6 @@
+// THE RULES, printed by roc/rules.roc (`zig build roc`): do not edit;
+// edit that and print it again. Read by src/play/rules.zig.
+.{
+    .dog = .{ .gathers = .each, .kin = .{ .herd = .{ .inner = 42, .outer = 70 } }, .dog = .{ .keep = 158 }, .cow = .{ .keep = 63 }, .chicken = .ignore },
+    .cow = .{ .gathers = .nearest, .kin = .{ .keep = 158 }, .dog = .{ .keep = 158 }, .cow = .{ .close = 245 }, .chicken = .ignore },
+}
