@@ -191,3 +191,43 @@ expect Wish.wish(cow_me, [nb(1, Bool.False, 2, 100 * 256, 0), nb(0, Bool.False, 
 
 ## Coinciding centres: away is east.
 expect Wish.wish(dog_me, [nb(0, Bool.False, 3, 0, 0)]) == { anchor: -1, x: 158 * 256, y: 0 }
+
+## Inside the band's inner edge (42 px), it opens the shortfall: kin 30 px
+## east, so 12 px west; in the band (42 to 70), content.
+expect Wish.wish(dog_me, [nb(0, Bool.True, 5, 30 * 256, 0)]) == { anchor: 5, x: -12 * 256, y: 0 }
+expect Wish.wish(dog_me, [nb(0, Bool.True, 5, 55 * 256, 0)]) == { anchor: 5, x: 0, y: 0 }
+
+## A dog keeps 63 px from a cow, and the rooms add: a cow 50 px north and
+## a dog of another breed 150 px east, so 13 px south and 8 px west.
+expect Wish.wish(dog_me, [nb(1, Bool.False, 2, 0, -50 * 256), nb(0, Bool.False, 3, 150 * 256, 0)]) == { anchor: -1, x: -8 * 256, y: 13 * 256 }
+
+## The room and the anchor together: kin 100 px east (closes 30) and a dog
+## of another breed 150 px east (8 west): 22 px east.
+expect Wish.wish(dog_me, [nb(0, Bool.True, 5, 100 * 256, 0), nb(0, Bool.False, 3, 150 * 256, 0)]) == { anchor: 5, x: 22 * 256, y: 0 }
+
+## A chicken is nothing to a dog.
+expect Wish.wish(dog_me, [nb(2, Bool.False, 40, 10 * 256, 0)]) == { anchor: -1, x: 0, y: 0 }
+
+## A cow touching (42 px) or past its pull (245 px) is drawn no closer; a
+## dog nearest, it flees by the shortfall inside `wary`.
+expect Wish.wish(cow_me, [nb(1, Bool.False, 2, 42 * 256, 0)]) == { anchor: -1, x: 0, y: 0 }
+expect Wish.wish(cow_me, [nb(1, Bool.False, 2, 246 * 256, 0)]) == { anchor: -1, x: 0, y: 0 }
+expect Wish.wish(cow_me, [nb(0, Bool.False, 7, 0, 100 * 256)]) == { anchor: -1, x: 0, y: -58 * 256 }
+
+## A cow's nearest, at an equal distance, is the lower index: the cow (2,
+## east) before the dog (7, north), so it closes in east rather than flees
+## south.
+expect Wish.wish(cow_me, [nb(0, Bool.False, 7, 0, -100 * 256), nb(1, Bool.False, 2, 100 * 256, 0)]) == { anchor: -1, x: 58 * 256, y: 0 }
+
+## A wish along a diagonal is each axis scaled and truncated toward zero:
+## a dog of another breed 100 px east and 37 px south, 58 px short, so
+## -58 px and -(37 * 58 / 100) px, truncated: -21.46 px is -5493 256ths.
+expect Wish.wish(dog_me, [nb(0, Bool.False, 3, 100 * 256, 37 * 256)]) == { anchor: -1, x: -58 * 256, y: -5493 }
+
+## The vectors as given: the away vector is used for room, the toward one
+## for closing in, so at half a world (where both point the same way) each
+## rule reads its own.
+expect Wish.wish(dog_me, [{ ax: 100 * 256, ay: 0, half: 14 * 256, tx: 100 * 256, ty: 0, j: 3, kin: Bool.False, kind: 0 }]) == { anchor: -1, x: 58 * 256, y: 0 }
+
+## The pull reaches its edge: a cow exactly 245 px east draws it.
+expect Wish.wish(cow_me, [nb(1, Bool.False, 2, 245 * 256, 0)]) == { anchor: -1, x: 203 * 256, y: 0 }
