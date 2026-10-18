@@ -90,6 +90,12 @@ export fn ints() [*]i32 {
 export fn intsCap() u32 {
     return ints_buf.len;
 }
+export fn tilePx() u32 {
+    return tiles.tile_px;
+}
+export fn worldTiles() u32 {
+    return tiles.world_tiles;
+}
 export fn dogCount() u32 {
     return physics.dog_count;
 }

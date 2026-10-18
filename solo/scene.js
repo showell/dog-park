@@ -34,19 +34,17 @@ export function parkFromViewport(viewport, viewportX, viewportY) {
 
 // ── tiles and the world ─────────────────────────────────────────────────────
 
-// The world: `world_tiles` by `world_tiles` tiles (the server's tiles.zig),
-// a torus (docs/PHYSICS.md decision 14): its right edge meets its left, its
-// bottom its top. The populated park is the 4 x 4 tiles in its middle, a
-// ring of empty tiles round it (Steve, 2026-10-15). A page subscribes to
-// at most `most_tiles` (the server refuses more): the whole world fits.
-export const tile_px = 350;
+// The world: `world_tiles` by `world_tiles` tiles of `tile_px`, a torus
+// (docs/PHYSICS.md decision 14): its right edge meets its left, its bottom
+// its top. The populated park is the `park_tiles` by `park_tiles` tiles in
+// its middle, a cow in each white tile, a ring of empty tiles round it
+// (Steve, 2026-10-15). These are world.js's, which roc/world.roc prints, as
+// it prints the physics' world. A page subscribes to at most `most_tiles`
+// (the server refuses more): the whole world fits.
+import { tile_px, world_tiles, park_tiles, cow_count } from "./world.js";
+export { tile_px, world_tiles, park_tiles, cow_count };
 export const most_tiles = 64;
-export const world_tiles = 6;
 if (world_tiles * world_tiles > most_tiles) throw new Error("the page holds the whole world: it must fit in a view");
-// The populated park, 4 x 4 tiles in the world's middle, a cow in each
-// white tile (the server's layout.zig).
-export const park_tiles = 4;
-export const cow_count = (park_tiles * park_tiles) / 2;
 export const world_px = world_tiles * tile_px;
 
 // **EVERY PARK POINT HAS ONE NAME IN [0, world_px)**, and many copies a

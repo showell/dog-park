@@ -91,6 +91,17 @@ test("the world is 6 x 6 tiles, the server's; the 4 x 4 park in its middle, an e
   assert.deepEqual(scene.tilesMeeting(W - 10, W - 10, 50, 50), [{ col: last, row: last }, { col: 0, row: last }, { col: last, row: 0 }, { col: 0, row: 0 }]);
 });
 
+test("the page's world is the physics': world.js and the wasm, both printed from roc/world.roc, say the same tiles, park and counts", async () => {
+  const { readFileSync } = await import("node:fs");
+  const file = process.env.DOGPARK_WASM ?? new URL("../zig-out/web/physics.wasm", import.meta.url);
+  const { instance } = await WebAssembly.instantiate(readFileSync(file));
+  const x = instance.exports;
+  assert.equal(scene.tile_px, x.tilePx());
+  assert.equal(scene.world_tiles, x.worldTiles());
+  assert.equal(scene.cow_count, x.cowCount());
+  assert.equal(scene.park_tiles * scene.park_tiles * 4, x.dogCount());
+});
+
 test("the overview frame: the whole world once, a square window as large as fits, its top-left anywhere round the torus", () => {
   const W = scene.world_px;
   // 1040 x 700: a 660 px square, centred across: the world at 660 / W.

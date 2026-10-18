@@ -261,18 +261,22 @@ pub fn build(b: *std.Build) void {
     });
     server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
-    // **THE FIRST LAYOUT, FROM ROC** (src/play/layout.zig): roc/layout.roc
-    // run with `roc` (on the PATH, or -Droc=<path>), its lines written to
-    // src/play/layout.txt, which the physics embeds. Not in any tier: only
-    // a change to roc/layout.roc needs it, and layout.zig's tests hold the
-    // checked-in table to the Zig layout either way.
-    const roc = b.option([]const u8, "roc", "the Roc compiler for `roc-layout` (default: `roc` on the PATH)") orelse "roc";
-    const roc_run = b.addSystemCommand(&.{ roc, "roc/layout.roc" });
-    roc_run.setCwd(b.path("."));
-    roc_run.addFileInput(b.path("roc/layout.roc"));
+    // **THE WORLD, FROM ROC** (src/play/world.zig): roc/world.roc run with
+    // `roc` (on the PATH, or -Droc=<path>), twice: what it prints for `zon`
+    // to src/play/world.zon, which the physics imports, and for `js` to
+    // solo/world.js, which the page's script reads. Not in any tier: only a
+    // change to roc/world.roc needs it; layout.zig's tests and
+    // test_page_modules.mjs hold the checked-in files to the original world
+    // and to each other either way.
+    const roc = b.option([]const u8, "roc", "the Roc compiler for `roc-world` (default: `roc` on the PATH)") orelse "roc";
     const roc_write = b.addUpdateSourceFiles();
-    roc_write.addCopyFileToSource(roc_run.captureStdOut(.{}), "src/play/layout.txt");
-    b.step("roc-layout", "Print the first layout again from roc/layout.roc into src/play/layout.txt (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
+    for ([_][2][]const u8{ .{ "zon", "src/play/world.zon" }, .{ "js", "solo/world.js" } }) |out| {
+        const roc_run = b.addSystemCommand(&.{ roc, "roc/world.roc", "--", out[0] });
+        roc_run.setCwd(b.path("."));
+        roc_run.addFileInput(b.path("roc/world.roc"));
+        roc_write.addCopyFileToSource(roc_run.captureStdOut(.{}), out[1]);
+    }
+    b.step("roc-world", "Print the world again from roc/world.roc into src/play/world.zon and solo/world.js (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
     b.step("physics-server-bench", "Time a 16-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
 }
 

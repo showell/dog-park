@@ -9,93 +9,113 @@
 //! home (`chickenHome`), where it walks back to (docs/PHYSICS.md, "Poop and
 //! chickens").
 //!
-//! **ROC PLACES THEM.** roc/layout.roc says the layout. `zig build
-//! roc-layout` runs it and writes what it prints to layout.txt, one line
-//! per critter (`<kind> <x> <y>`; dogs, then cows, then chickens), which is
-//! checked in. This file embeds layout.txt and reads it at compile time, so
-//! no build runs Roc, and the physics is the same Zig on every target (the
-//! server, the page's wasm, the kernel). The Zig layout below (`zigBoard`,
-//! `zigChickenHome`) is the oracle a test holds the table to, for now.
+//! **ROC PLACES THEM.** The places are the world's (world.zig, which
+//! roc/world.roc says), and so are the counts: as many dogs, cows and
+//! chickens as its lists hold. The tests below say what any first layout
+//! keeps to, and hold this one to the original (`original`).
 
 const std = @import("std");
 const tiles = @import("tiles.zig");
 const physics = @import("physics.zig");
+const world = @import("world.zig").world;
 const px = physics.px;
 
-/// How far in from its corner of the tile a dog stands, on each axis.
-pub const corner_in = 52;
+pub const dog_count: comptime_int = world.dogs.len;
+pub const cow_count: comptime_int = world.cows.len;
+pub const chicken_count: comptime_int = world.chickens.len;
 
-pub const dog_count = tiles.park_tiles * tiles.park_tiles * 4;
-pub const cow_count = tiles.park_tiles * tiles.park_tiles - tiles.park_tiles * tiles.park_tiles / 2;
-pub const chicken_count = 2 * (tiles.park_tiles * tiles.park_tiles / 2);
-/// How far each of a blue tile's two chickens stands from its middle.
-pub const chicken_off = 15;
+/// The world's spots as the physics' points, made once at compile time.
+fn points(comptime spots: []const @import("world.zig").Spot) [spots.len]physics.Point {
+    var out: [spots.len]physics.Point = undefined;
+    for (spots, &out) |s, *p| p.* = .{ .x = s.x, .y = s.y };
+    return out;
+}
+const dogs = points(world.dogs);
+const cows = points(world.cows);
+const chickens = points(world.chickens);
 
 /// **A CHICKEN'S HOME**: where chicken `n` stands in the first layout, and
 /// where it walks back to when it has no poop to forage (docs/PHYSICS.md,
-/// "Poop and chickens"). The park's blue tiles, row by row, two chickens
-/// to each: in a row of an even-sided park, half the tiles are blue, the
-/// odd columns in an even row and the even ones in an odd row.
+/// "Poop and chickens").
 pub fn chickenHome(n: u16) physics.Point {
-    return table.chickens[n];
+    return chickens[n];
 }
 
-/// The Zig layout's chicken homes: the oracle the table is held to.
-fn zigChickenHome(n: u16) physics.Point {
-    comptime std.debug.assert(tiles.park_tiles % 2 == 0);
-    const per_row = tiles.park_tiles / 2;
-    const k: i32 = n / 2;
-    const row = @divFloor(k, per_row);
-    const col = 2 * @mod(k, per_row) + 1 - @mod(row, 2);
-    const at = tileCorner(col, row);
-    const off: i32 = if (n % 2 == 0) -chicken_off else chicken_off;
-    return .{ .x = at.x + px(tiles.tile_px / 2 + off), .y = at.y + px(tiles.tile_px / 2) };
+/// The first layout, every critter present, no one leashed.
+pub fn board() physics.Board {
+    var b = physics.Board.empty();
+    for (dogs, 0..) |p, n| b.place(.dog(@intCast(n)), p);
+    for (cows, 0..) |p, n| b.place(.cow(@intCast(n)), p);
+    for (chickens, 0..) |p, n| b.place(.chicken(@intCast(n)), p);
+    return b;
 }
 
-/// **THE TABLE**: layout.txt, read at compile time. Every line names a
-/// kind and a point; the kinds come in order, each as many as its count.
-const Table = struct {
-    dogs: [dog_count]physics.Point,
-    cows: [cow_count]physics.Point,
-    chickens: [chicken_count]physics.Point,
+const testing = std.testing;
+
+/// **THE ORIGINAL**: the first layout as Zig computed it before Roc said it,
+/// its numbers frozen here, so the tests can hold the world to it. Remove it
+/// when the world is meant to change.
+const original = struct {
+    const tile_px = 350;
+    const park_tiles = 4;
+    const park_first = 1;
+    const corner_in = 52;
+    const chicken_off = 15;
+
+    fn corner(col: i32, row: i32) physics.Point {
+        return .{ .x = px((park_first + col) * tile_px), .y = px((park_first + row) * tile_px) };
+    }
+
+    fn home(n: u16) physics.Point {
+        const per_row = park_tiles / 2;
+        const k: i32 = n / 2;
+        const row = @divFloor(k, per_row);
+        const col = 2 * @mod(k, per_row) + 1 - @mod(row, 2);
+        const at = corner(col, row);
+        const off: i32 = if (n % 2 == 0) -chicken_off else chicken_off;
+        return .{ .x = at.x + px(tile_px / 2 + off), .y = at.y + px(tile_px / 2) };
+    }
+
+    fn board() physics.Board {
+        const in = px(corner_in);
+        const far = px(tile_px - corner_in);
+        const corners = [4]physics.Point{ .{ .x = in, .y = in }, .{ .x = far, .y = in }, .{ .x = in, .y = far }, .{ .x = far, .y = far } };
+        var b = physics.Board.empty();
+        var d: usize = 0;
+        var c: usize = 0;
+        var h: usize = 0;
+        var row: i32 = 0;
+        while (row < park_tiles) : (row += 1) {
+            var col: i32 = 0;
+            while (col < park_tiles) : (col += 1) {
+                const at = corner(col, row);
+                for (corners) |k| {
+                    b.place(.dog(@intCast(d)), .{ .x = at.x + k.x, .y = at.y + k.y });
+                    d += 1;
+                }
+                if (@mod(col + row, 2) == 1) {
+                    for (0..2) |_| {
+                        b.place(.chicken(@intCast(h)), home(@intCast(h)));
+                        h += 1;
+                    }
+                    continue;
+                }
+                b.place(.cow(@intCast(c)), .{ .x = at.x + px(tile_px / 2), .y = at.y + px(tile_px / 2) });
+                c += 1;
+            }
+        }
+        std.debug.assert(d == dog_count and c == cow_count and h == chicken_count);
+        return b;
+    }
 };
 
-const table: Table = parseTable(@embedFile("layout.txt"));
-
-fn parseTable(comptime text: []const u8) Table {
-    @setEvalBranchQuota(100_000);
-    var t: Table = undefined;
-    var counts = [3]usize{ 0, 0, 0 };
-    var last: usize = 0;
-    var lines = std.mem.tokenizeScalar(u8, text, '\n');
-    while (lines.next()) |line| {
-        var words = std.mem.tokenizeScalar(u8, line, ' ');
-        const kind = words.next().?;
-        const k: usize = if (std.mem.eql(u8, kind, "dog")) 0 else if (std.mem.eql(u8, kind, "cow")) 1 else if (std.mem.eql(u8, kind, "chicken")) 2 else @compileError("layout.txt: a kind that is not dog, cow or chicken: " ++ line);
-        if (k < last) @compileError("layout.txt: the kinds out of order (dogs, cows, chickens): " ++ line);
-        last = k;
-        const p: physics.Point = .{
-            .x = std.fmt.parseInt(i32, words.next().?, 10) catch @compileError("layout.txt: x is not a number: " ++ line),
-            .y = std.fmt.parseInt(i32, words.next().?, 10) catch @compileError("layout.txt: y is not a number: " ++ line),
-        };
-        if (words.next() != null) @compileError("layout.txt: more than a kind and a point: " ++ line);
-        const n = counts[k];
-        switch (k) {
-            0 => if (n < dog_count) {
-                t.dogs[n] = p;
-            },
-            1 => if (n < cow_count) {
-                t.cows[n] = p;
-            },
-            else => if (n < chicken_count) {
-                t.chickens[n] = p;
-            },
-        }
-        counts[k] += 1;
-    }
-    if (counts[0] != dog_count or counts[1] != cow_count or counts[2] != chicken_count)
-        @compileError(std.fmt.comptimePrint("layout.txt: {d} dogs, {d} cows, {d} chickens; the park holds {d}, {d}, {d}", .{ counts[0], counts[1], counts[2], dog_count, cow_count, chicken_count }));
-    return t;
+test "the world is the original, exactly: its size, its park, and every critter and chicken's home where Zig put them before Roc said them" {
+    try testing.expectEqual(original.tile_px, tiles.tile_px);
+    try testing.expectEqual(6, tiles.world_tiles);
+    try testing.expectEqual(original.park_tiles, tiles.park_tiles);
+    try testing.expectEqual(original.park_first * original.tile_px, tiles.park_offset_px);
+    try testing.expect(std.meta.eql(original.board(), board()));
+    for (0..chicken_count) |n| try testing.expectEqual(original.home(@intCast(n)), chickenHome(@intCast(n)));
 }
 
 /// A park tile's top-left corner, in 256ths.
@@ -103,57 +123,8 @@ fn tileCorner(col: i32, row: i32) physics.Point {
     return .{ .x = px(tiles.park_offset_px + col * tiles.tile_px), .y = px(tiles.park_offset_px + row * tiles.tile_px) };
 }
 
-/// The first layout, every critter present, no one leashed: the table.
-pub fn board() physics.Board {
-    var b = physics.Board.empty();
-    for (table.dogs, 0..) |p, n| b.place(.dog(@intCast(n)), p);
-    for (table.cows, 0..) |p, n| b.place(.cow(@intCast(n)), p);
-    for (table.chickens, 0..) |p, n| b.place(.chicken(@intCast(n)), p);
-    return b;
-}
-
-/// The Zig layout: the oracle the table is held to.
-fn zigBoard() physics.Board {
-    const in = px(corner_in);
-    const far = px(tiles.tile_px - corner_in);
-    const corners = [4]physics.Point{ .{ .x = in, .y = in }, .{ .x = far, .y = in }, .{ .x = in, .y = far }, .{ .x = far, .y = far } };
-    var b = physics.Board.empty();
-    var d: usize = 0;
-    var c: usize = 0;
-    var h: usize = 0;
-    var row: i32 = 0;
-    while (row < tiles.park_tiles) : (row += 1) {
-        var col: i32 = 0;
-        while (col < tiles.park_tiles) : (col += 1) {
-            const at = tileCorner(col, row);
-            for (corners) |k| {
-                b.place(.dog(@intCast(d)), .{ .x = at.x + k.x, .y = at.y + k.y });
-                d += 1;
-            }
-            const mid: physics.Point = .{ .x = at.x + px(tiles.tile_px / 2), .y = at.y + px(tiles.tile_px / 2) };
-            if (@mod(col + row, 2) == 1) {
-                for (0..2) |_| {
-                    b.place(.chicken(@intCast(h)), zigChickenHome(@intCast(h)));
-                    h += 1;
-                }
-                continue;
-            }
-            b.place(.cow(@intCast(c)), mid);
-            c += 1;
-        }
-    }
-    std.debug.assert(d == dog_count and c == cow_count and h == chicken_count);
-    return b;
-}
-
-const testing = std.testing;
-
-test "the first layout is the Zig one, exactly: Roc's table (layout.txt) puts every critter, and every chicken's home, where the Zig layout did" {
-    try testing.expect(std.meta.eql(zigBoard(), board()));
-    for (0..chicken_count) |n| try testing.expectEqual(zigChickenHome(@intCast(n)), chickenHome(@intCast(n)));
-}
-
 test "the first layout: four dogs to each tile of the park, breed b in the tile's corner b (NW, NE, SW, SE), numbered tile by tile" {
+    try testing.expectEqual(tiles.park_tiles * tiles.park_tiles * physics.breeds, dog_count);
     const b = board();
     const half = physics.tile / 2;
     const first = tiles.park_offset_px / tiles.tile_px;
@@ -187,7 +158,8 @@ test "the first layout: a cow in the middle of each white tile of the park, row 
     try testing.expectEqual(cow_count, n);
 }
 
-test "a chicken's home is where the first layout puts it: two to each blue tile, chicken_off either side of its middle, the tiles row by row" {
+test "a chicken's home is where the first layout puts it: two to each blue tile, either side of its middle, the tiles row by row" {
+    const b = board();
     var h: u16 = 0;
     var row: i32 = 0;
     while (row < tiles.park_tiles) : (row += 1) {
@@ -195,9 +167,15 @@ test "a chicken's home is where the first layout puts it: two to each blue tile,
         while (col < tiles.park_tiles) : (col += 1) {
             if (@mod(col + row, 2) == 0) continue;
             const at = tileCorner(col, row);
-            const mid = at.y + px(tiles.tile_px / 2);
-            try testing.expectEqual(physics.Point{ .x = at.x + px(tiles.tile_px / 2 - chicken_off), .y = mid }, chickenHome(h));
-            try testing.expectEqual(physics.Point{ .x = at.x + px(tiles.tile_px / 2 + chicken_off), .y = mid }, chickenHome(h + 1));
+            const mid: physics.Point = .{ .x = at.x + physics.tile / 2, .y = at.y + physics.tile / 2 };
+            const west = chickenHome(h);
+            const east = chickenHome(h + 1);
+            try testing.expectEqual(mid.y, west.y);
+            try testing.expectEqual(mid.y, east.y);
+            try testing.expect(west.x < mid.x);
+            try testing.expectEqual(mid.x - west.x, east.x - mid.x);
+            try testing.expectEqual(west, b.chickens[h]);
+            try testing.expectEqual(east, b.chickens[h + 1]);
             h += 2;
         }
     }
