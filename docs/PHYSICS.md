@@ -6,8 +6,9 @@ said in Roc: `roc/world.roc` says its size, the park in it and the first
 layout, and `zig build roc` prints them into `src/play/world.zon`
 (which `world.zig` imports, checked in) and `solo/world.js` (the page's
 numbers); and what critters do about each other said in Roc too:
-`roc/rules.roc`, printed into `src/play/rules.zon`, which `rules.zig`
-imports and `physics.zig`'s `wishOf` applies. The physics' routes are `/physics-<hash>.wasm`,
+`roc/Rules.roc`, which the critters' wish (`roc/Wish.roc`, linked into the
+physics) applies, and which `roc/rules.roc` prints into `src/play/rules.zon`
+for the Zig's other uses. The physics' routes are `/physics-<hash>.wasm`,
 `POST /load` and `POST /report` (the README has the rest), and each game
 keeps its board under `<data>/game-<slot>/physics`. The page runs the same Zig as
 `physics.wasm` (`physics_page.zig`'s exports, in the physics hash, named
@@ -92,7 +93,10 @@ and cows: chickens have left the walk (decision 31) and take none of its
 
 **A critter reacts only to critters in motion:** the leashed dog and the
 critters the walk visited before it this pixel-tick, where they now
-stand. How it reacts is the rules' (`roc/rules.roc`): for each kind, an
+stand. Its wish is computed in Roc (`roc/Wish.roc`, which the physics
+links: the Zig hands it the moving critters near it, who each is to it and
+the vectors between them the short way round, and takes back a step and an
+anchor). How it reacts is the rules' (`roc/Rules.roc`): for each kind, an
 answer to each kind it sees (keep a distance, herd against the nearest,
 close in, or nothing), and whether it sums every answer or takes its
 nearest moving critter's alone.
@@ -206,7 +210,7 @@ every poop in the region's tiles; the page drops its others there.
 
 Tuned by playing. The critters' distances from each other (wary, the
 herd band, a dog's room from a cow, `cow_pull`), their paces, the
-chickens' foraging and the poop's are `roc/rules.roc`'s; the rest are
+chickens' foraging and the poop's are `roc/Rules.roc`'s; the rest are
 constants in `physics.zig`.
 
 | knob | value |

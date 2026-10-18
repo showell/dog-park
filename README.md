@@ -106,8 +106,13 @@ The tools: zig 0.16 (`build.zig.zon`), and node for the node tests.
 Roc (a nightly of the new compiler) only for `zig build roc`, which
 prints the world again from `roc/world.roc` (its size, the park in it and
 where every critter starts) into `src/play/world.zon` and `solo/world.js`,
-and the rules from `roc/rules.roc` (what critters do about each other) into
-`src/play/rules.zon`; every other build reads the checked-in files.
+and the rules from `roc/Rules.roc` (what critters do about each other) into
+`src/play/rules.zon`; and builds the physics' own Roc, the critters' wish
+(`roc/Wish.roc`, through `roc/physics.roc`), into `roc/lib/` for each
+target the physics runs on (x86-64 Linux, wasm32, the kernel's freestanding
+x86-64), which every build links (`src/play/roc_physics.zig` is the seam).
+Every other build reads the checked-in files; `zig build roc-test` runs
+Roc's own tests of the world, the rules and the wish.
 Any world and rules that fit their types will play: Zig refuses at compile
 time only what the physics can't take (a critter outside the world, a
 park past its edge, poop slots not a power of two), and the tests of the

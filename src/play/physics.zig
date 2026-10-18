@@ -33,6 +33,7 @@ const tiles = @import("tiles.zig");
 const layout = @import("layout.zig");
 const world_file = @import("world.zig").world;
 const rules = @import("rules.zig");
+const roc = @import("roc_physics.zig");
 
 pub const dog_count = layout.dog_count;
 pub const cow_count = layout.cow_count;
@@ -78,7 +79,7 @@ pub const chicken_half: i32 = px(chicken_px / 2);
 /// A wish shorter than this is no step.
 pub const dead_zone: i32 = px(1);
 /// **THE RULES' DISTANCES**, by the names the docs and tests use: the
-/// rules' (rules.zig, which roc/rules.roc says), which `wishOf` applies.
+/// rules' (rules.zig, which roc/Rules.roc says), which the wish applies.
 /// A dog keeps `wary` from a moving dog of another breed; a cow from any
 /// moving dog.
 pub const wary: i32 = px(rules.rules.dog.dog.keep);
@@ -707,6 +708,10 @@ pub const Scene = struct {
     /// tick's poop lines walk these and the laid slots, not all 2048.
     poop_start: std.StaticBitSet(poop_count) = undefined,
     poop_was: [poop_count]Point = undefined,
+    /// The moving critters a wish hands Roc (`wishOf`, which sets it up):
+    /// one buffer for the tick, not one a wish (a safe build fills a fresh
+    /// one with 0xaa, which cost more than the wish).
+    wish_near: roc.Neighbours(walk_most + 1) = .{},
     /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210): seen index `j`
     /// is set in the cell of the world its point stands in (`cell` a side,
     /// `cellOf`), kept by `put` on every move; `seen_cell` is where each is set. A
@@ -1318,16 +1323,65 @@ const Nearest = struct {
     }
 };
 
-/// **WHAT A CRITTER WANTS** (decisions 21-24): the rules' answers
-/// (rules.zig, which roc/rules.roc says) to the critters in motion only,
-/// where they now stand, taken as its kind's rules take them:
+/// **WHAT A CRITTER WANTS** (decisions 21-24), computed in Roc
+/// (roc/Wish.roc, through roc_physics.zig): this hands it the critters in
+/// motion only, where they now stand (who each is to the wisher, and the
+/// vectors between them the short way round), and takes back the wish.
+/// By the rules (roc/Rules.roc), as its kind's rules take them:
 /// - a cow: from the nearest moving critter alone (ties to the lower rank):
 ///   a cow, it closes in to touching; a dog, it keeps `wary` from it;
 /// - a dog: room `cow_room` from every moving cow, `wary` from every
 ///   moving dog of another breed, and its place in the herd against its
 ///   anchor, the nearest moving dog of its breed (ties to the lower rank).
 /// A dog's anchor comes back with the wish: the herd's depth runs through it.
-pub fn wishOf(sc: *const Scene, i: usize) Wish {
+pub fn wishOf(sc: *Scene, i: usize) Wish {
+    const me = sc.seen[i].who;
+    const p = sc.pos(i);
+    const kin = me.kind != .cow;
+    const near = &sc.wish_near;
+    // Set here: a scene is made from `undefined` (`Scene.of`).
+    near.refcount = 0;
+    near.len = 0;
+    for (sc.moving[0..sc.moving_len]) |j16| {
+        const j: usize = j16;
+        if (j == i) continue;
+        const o = sc.seen[j].who;
+        const q = sc.pos(j);
+        const t = delta(p, q);
+        // From it to the wisher: `t` turned round, but on an axis exactly
+        // half a world, where the short way is -half_world both ways.
+        const a: Point = .{ .x = back(t.x), .y = back(t.y) };
+        if (builtin.is_test) std.debug.assert(std.meta.eql(a, delta(q, p)));
+        near.push(.{
+            .ax = a.x,
+            .ay = a.y,
+            .tx = t.x,
+            .ty = t.y,
+            .half = sc.seen[j].half,
+            .j = @intCast(j),
+            .kin = kin and o.kind == .dog and o.n % breeds == me.n % breeds,
+            .kind = @intFromEnum(o.kind),
+        });
+    }
+    const out = near.wish(.{ .half = sc.seen[i].half, .kind = @intFromEnum(me.kind) });
+    const wish: Wish = .{ .total = .{ .x = out.x, .y = out.y }, .anchor = if (out.anchor < 0) null else @intCast(out.anchor) };
+    // **THE SHIM**: while the tests run, the Zig wish says the same, wish by
+    // wish (it goes when the Roc tests in roc/Wish.roc stand alone).
+    if (builtin.is_test) {
+        const z = zigWishOf(sc, i);
+        if (!std.meta.eql(z, wish)) std.debug.panic("roc/Wish.roc and the Zig wish differ for seen critter {d}: Roc {any}, Zig {any}", .{ i, wish, z });
+    }
+    return wish;
+}
+
+/// A short-way difference turned round: `shortWay(-d)` for `d` in
+/// [-half_world, half_world).
+fn back(d: i32) i32 {
+    return if (d == -half_world) d else -d;
+}
+
+/// The wish in Zig, by rules.zig: the shim the Roc wish is held to.
+fn zigWishOf(sc: *const Scene, i: usize) Wish {
     return switch (sc.seen[i].who.kind) {
         .cow => wishBy(rules.rules.cow, false, sc, i),
         // Never a chicken: no chicken is in the walk.

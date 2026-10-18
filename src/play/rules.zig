@@ -1,11 +1,12 @@
 //! **THE RULES**: what a critter in the walk does about each moving critter
 //! it sees (docs/PHYSICS.md, decisions 21-24), how fast it goes, the
-//! chickens' foraging and the herd's poop (decisions 29, 31). roc/rules.roc says them;
-//! `zig build roc` prints them into rules.zon, checked in, which this file
-//! imports at compile time, so no build runs Roc. These types are the seam:
-//! a rules.zon that does not fit them does not compile. physics.zig's
-//! `wishOf` applies the rules; the geometry (distance, direction, the
-//! rounding) is its own. Distances here are in whole pixels.
+//! chickens' foraging and the herd's poop (decisions 29, 31). roc/Rules.roc
+//! says them, and the wish (roc/Wish.roc) applies them in Roc; `zig build
+//! roc` prints them into rules.zon too, checked in, which this file imports
+//! at compile time for the Zig's own uses: the chickens' turn, the poop, the
+//! paces, and the Zig wish the tests hold the Roc one to. These types are
+//! the seam: a rules.zon that does not fit them does not compile.
+//! Distances here are in whole pixels.
 
 /// One critter's answer to another it sees moving.
 pub const Rule = union(enum) {

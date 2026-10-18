@@ -67,6 +67,7 @@ pub fn build(b: *std.Build) void {
         },
     });
     play_main.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
+    linkRoc(b, play_main, null);
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);
@@ -86,6 +87,8 @@ pub fn build(b: *std.Build) void {
         .imports = &.{ .{ .name = "physics_options", .module = physics_mod }, .{ .name = "dogpark_build", .module = build_mod } },
     });
     metal_app.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
+    // The kernel's: x86-64, freestanding (the module takes the kernel's target).
+    linkRoc(b, metal_app, .x64elf);
     // **THE KERNEL, BESIDE THIS REPO**: ../zig-metal-unikernel, a path
     // dependency. Zig runs a path dependency's build at every configure,
     // lazy or not (measured: `zig build --help` runs its git and python
@@ -159,6 +162,7 @@ pub fn build(b: *std.Build) void {
                 .strip = true,
                 .imports = &.{.{ .name = "physics_options", .module = u.physics_mod }},
             }) });
+            linkRoc(u.b, probe.root_module, null);
             probe.entry = .disabled;
             probe.rdynamic = true;
             step.dependOn(&probe.step);
@@ -177,7 +181,7 @@ pub fn build(b: *std.Build) void {
         fn module(u: @This(), root: []const u8, t: std.Build.ResolvedTarget, opt: std.builtin.OptimizeMode, size: Fuzz) *std.Build.Module {
             const test_options = u.b.addOptions();
             test_options.addOption(Fuzz, "fuzz", size);
-            return u.b.createModule(.{
+            const m = u.b.createModule(.{
                 .root_source_file = u.b.path(root),
                 .target = t,
                 .optimize = opt,
@@ -187,6 +191,8 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "dogpark_build", .module = u.build_mod },
                 },
             });
+            linkRoc(u.b, m, null);
+            return m;
         }
     }{ .b = b, .target = target, .optimize = optimize, .webbox = webbox, .shale = shale, .host_io = host_io, .physics_mod = physics_mod, .build_mod = build_mod, .page_wasm = page_wasm };
 
@@ -237,6 +243,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseSafe,
         .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
     }) });
+    linkRoc(b, physics_bench.root_module, null);
     const physics_bench_run = b.addRunArtifact(physics_bench);
     // `zig build physics-bench -- herd` (or `busiest`, `strewn`, `rerun`): one of the
     // bench's ticks alone, a fixed number of runs, for a profiler (metal-vmm
@@ -260,6 +267,7 @@ pub fn build(b: *std.Build) void {
         },
     });
     server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
+    linkRoc(b, server_bench_mod, null);
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
     // **THE WORLD AND ITS RULES, FROM ROC** (src/play/world.zig,
     // src/play/rules.zig): roc/world.roc and roc/rules.roc run with `roc`
@@ -281,7 +289,26 @@ pub fn build(b: *std.Build) void {
         roc_run.addFileInput(b.path(out[0]));
         roc_write.addCopyFileToSource(roc_run.captureStdOut(.{}), out[2]);
     }
-    b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
+    // The physics' Roc (roc/physics.roc, the wish), built for each of the
+    // physics' targets into roc/lib/, which every build links (`linkRoc`).
+    const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Rules.roc", "roc/platform/main.roc" };
+    for (std.enums.values(RocTarget)) |t| {
+        const roc_build = b.addSystemCommand(&.{ roc, "build", "roc/physics.roc", b.fmt("--target={t}", .{t}) });
+        roc_build.setCwd(b.path("."));
+        for (roc_inputs) |f| roc_build.addFileInput(b.path(f));
+        const archive = roc_build.addPrefixedOutputFileArg("--output=", b.fmt("physics-{t}.a", .{t}));
+        roc_write.addCopyFileToSource(archive, b.fmt("roc/lib/physics-{t}.a", .{t}));
+    }
+    b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js, and build the physics' Roc into roc/lib/ (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
+    // Roc's own tests of the world, the rules and the wish (`expect`s).
+    const roc_test_step = b.step("roc-test", "Roc's own tests: roc/world.roc, roc/Rules.roc and roc/Wish.roc's expects (needs roc; -Droc=<path>)");
+    for ([_][]const u8{ "roc/world.roc", "roc/Rules.roc", "roc/Wish.roc" }) |f| {
+        const run = b.addSystemCommand(&.{ roc, "test", f });
+        run.setCwd(b.path("."));
+        run.addFileInput(b.path(f));
+        run.has_side_effects = true;
+        roc_test_step.dependOn(&run.step);
+    }
     b.step("physics-server-bench", "Time a 16-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
 }
 
@@ -312,9 +339,27 @@ fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.built
         .strip = true,
         .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
     }) });
+    linkRoc(b, exe.root_module, null);
     exe.entry = .disabled;
     exe.rdynamic = true;
     return exe;
+}
+
+/// The Roc the physics links: roc/lib/physics-<target>.a, built by `zig build
+/// roc` from roc/physics.roc (src/play/roc_physics.zig is its seam).
+const RocTarget = enum { x64musl, wasm32, x64elf };
+
+/// Links the physics' Roc for `m`'s target, or `as`'s when the module takes
+/// its target from elsewhere (the kernel's).
+fn linkRoc(b: *std.Build, m: *std.Build.Module, as: ?RocTarget) void {
+    const t: RocTarget = as orelse blk: {
+        const r = m.resolved_target.?.result;
+        if (r.cpu.arch.isWasm()) break :blk .wasm32;
+        if (r.cpu.arch == .x86_64 and r.os.tag == .freestanding) break :blk .x64elf;
+        if (r.cpu.arch == .x86_64) break :blk .x64musl;
+        std.process.fatal("the physics' Roc: no archive for {t} (roc/lib has x86-64 and wasm32)", .{r.cpu.arch});
+    };
+    m.addObjectFile(b.path(b.fmt("roc/lib/physics-{t}.a", .{t})));
 }
 
 /// Whether a build bakes its commits in (`-Dstamp`), as the kernel's says.
