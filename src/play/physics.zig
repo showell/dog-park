@@ -712,6 +712,11 @@ pub const Scene = struct {
     /// one buffer for the tick, not one a wish (a safe build fills a fresh
     /// one with 0xaa, which cost more than the wish).
     wish_near: roc.Neighbours(walk_most + 1) = .{},
+    /// **THE LISTS THE WALK LENDS ROC** (roc/Walk.roc, `walk`): the listed
+    /// poops by tile, again whenever they change (`poops_changed`); and the
+    /// seen critters, for each walk.
+    roc_walk: roc.Walk(critter_count, walk_most + 1, poop_count, span_tiles * span_tiles, span_cells) = .{},
+    poops_changed: bool = true,
     /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210): seen index `j`
     /// is set in the cell of the world its point stands in (`cell` a side,
     /// `cellOf`), kept by `put` on every move; `seen_cell` is where each is set. A
@@ -770,7 +775,41 @@ pub const Scene = struct {
             if (b.poop_known[i] == .present and span.holdsPoint(b.poops[i])) s.listPoop(@intCast(i));
         }
         s.poop_start = s.poop_listed;
+        s.poops_changed = true;
         return true;
+    }
+
+    /// The listed poops for the walk, by tile, row by row from the world's
+    /// (0, 0), and in slot order on each.
+    fn lendPoops(s: *Scene) void {
+        const w = &s.roc_walk;
+        const tiles_n = span_tiles * span_tiles;
+        var count: [tiles_n]u16 = @splat(0);
+        var it = s.poop_listed.iterator(.{});
+        while (it.next()) |n| count[poopTile(s.board.poops[n])] += 1;
+        var from: u16 = 0;
+        for (count, 0..) |c, t| {
+            w.from.items[t] = from;
+            from += c;
+        }
+        w.from.items[tiles_n] = from;
+        w.from.len = tiles_n + 1;
+        var fill = w.from.items[0..tiles_n].*;
+        it = s.poop_listed.iterator(.{});
+        while (it.next()) |n| {
+            const at = s.board.poops[n];
+            const t = poopTile(at);
+            w.poops.items[fill[t]] = .{ .x = at.x, .y = at.y, .slot = @intCast(n) };
+            fill[t] += 1;
+        }
+        w.poops.len = from;
+        s.poops_changed = false;
+    }
+
+    fn poopTile(p: Point) usize {
+        const col: usize = @intCast(@divFloor(@mod(p.x, world), tile));
+        const row: usize = @intCast(@divFloor(@mod(p.y, world), tile));
+        return row * span_tiles + col;
     }
 
     /// Lists slot `n`, whose point stands in the span, on its tile's list.
@@ -787,6 +826,7 @@ pub const Scene = struct {
     }
 
     fn link(s: *Scene, n: u16) void {
+        s.poops_changed = true;
         const head = s.headOf(s.board.poops[n]);
         s.poop_next[n] = head.*;
         head.* = n;
@@ -802,6 +842,7 @@ pub const Scene = struct {
     /// Takes listed slot `n` off its tile's list (before the slot is laid
     /// anew elsewhere, or eaten).
     fn unlink(s: *Scene, n: u16) void {
+        s.poops_changed = true;
         var at = s.headOf(s.board.poops[n]);
         while (at.* != n) at = &s.poop_next[at.*];
         at.* = s.poop_next[n];
@@ -1178,8 +1219,64 @@ fn onAxis(axis: Axis, v: i32) Point {
 /// way: `stepAround`), and lines up its own `walk_fan` nearest not yet
 /// visited (a critter already waiting takes the nearer key). At most
 /// `walk_most` critters; one the walk doesn't reach stays put. On the way
-/// it finds the herd's deepest dog (`Scene.depth`), who poops.
+/// it finds the herd's deepest dog, who poops.
+///
+/// **WALKED IN ROC** (roc/Walk.roc, through roc_physics.zig): this lends
+/// it the seen critters (where each stands and its cell, what it is) and
+/// the cells' sets of them, the poops by tile, and room for its working
+/// lists; Roc moves the critters in place and hands the lists back, and
+/// this puts each critter it moved where it left it, and takes the visit
+/// order and the pooper. Neither side allocates.
 fn walk(sc: *Scene, most: i32) void {
+    // **THE SHIM**: while the tests run, the Zig walk (`zigWalk`) walks a
+    // copy of the scene and its board, and the Roc walk must leave the
+    // critters where it did, visit whom it did, and find the same pooper
+    // (it goes when the Roc tests in roc/Walk.roc stand alone).
+    var aside: if (builtin.is_test) struct { board: Board, scene: Scene } else void = undefined;
+    if (builtin.is_test) {
+        aside.board = sc.board.*;
+        aside.scene = sc.*;
+        aside.scene.board = &aside.board;
+        zigWalk(&aside.scene, most);
+    }
+    const w = &sc.roc_walk;
+    if (sc.poops_changed) sc.lendPoops();
+    w.crits.len = 0;
+    w.cellsClear();
+    for (sc.list(), sc.at[0..sc.len], 0..) |o, p, j| {
+        w.cellPut(sc.seen_cell[j], j);
+        w.crits.push(.{
+            .x = p.x,
+            .y = p.y,
+            .cell = sc.seen_cell[j],
+            .half = o.half,
+            .kind = @intFromEnum(o.who.kind),
+            .kin = kinOf(o.who) orelse roc.no_kin,
+            .key = if (j == 0) roc.visited else roc.not_lined_up,
+        });
+    }
+    const r = w.run(most);
+    // The leashed dog took its step before the walk, which never moves it.
+    for (w.crits.slice()[1..], 1..) |c, j| {
+        if (c.x != sc.at[j].x or c.y != sc.at[j].y) sc.put(j, .{ .x = c.x, .y = c.y });
+    }
+    const moving = w.moving.slice();
+    sc.walk_len = moving.len - 1;
+    for (moving[1..], 0..) |j, k| sc.walk[k] = @intCast(critterIndex(sc.seen[j].who));
+    sc.pooper = r.pooper;
+    sc.pooper_anchor = if (r.anchor < 0) null else @intCast(r.anchor);
+    if (builtin.is_test) {
+        const z = &aside.scene;
+        const same = sc.walk_len == z.walk_len and std.mem.eql(u16, sc.walk[0..sc.walk_len], z.walk[0..z.walk_len]) and
+            sc.pooper == z.pooper and std.meta.eql(sc.pooper_anchor, z.pooper_anchor) and
+            std.mem.eql(u8, std.mem.sliceAsBytes(sc.at[0..sc.len]), std.mem.sliceAsBytes(z.at[0..z.len])) and
+            std.meta.eql(sc.board.dogs, aside.board.dogs) and std.meta.eql(sc.board.cows, aside.board.cows) and std.meta.eql(sc.board.chickens, aside.board.chickens);
+        if (!same) std.debug.panic("roc/Walk.roc and the Zig walk differ: Roc walked {any} (pooper {d}, anchor {any}), Zig {any} (pooper {d}, anchor {any})", .{ sc.walk[0..sc.walk_len], sc.pooper, sc.pooper_anchor, z.walk[0..z.walk_len], z.pooper, z.pooper_anchor });
+    }
+}
+
+/// The walk in Zig: the shim the Roc walk is held to.
+fn zigWalk(sc: *Scene, most: i32) void {
     sc.walk_len = 0;
     sc.moving[0] = 0;
     sc.moving_len = 1;

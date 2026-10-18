@@ -26,7 +26,24 @@ Wish := [].{
 	Out : { anchor : I32, x : I32, y : I32 }
 
 	wish : Me, List(Near) -> Out
-	wish = |me, near| {
+	wish = |me, near| wish_by(
+		me,
+		near.len(),
+		|k| match near.get(k) {
+			Ok(n) => n
+			Err(_) => nobody
+		},
+	)
+
+	## No critter: what `wish` reads past a list's end (it never does).
+	nobody : Near
+	nobody = { ax: 0, ay: 0, half: 0, tx: 0, ty: 0, j: 0, kin: Bool.False, kind: 0 }
+
+	## The wish from `count` critters, the `k`th `near_at(k)`: for a caller
+	## that holds them otherwise than as a list (roc/Walk.roc, which makes
+	## each from the walk's own lists as it is read).
+	wish_by : Me, U64, (U64 -> Near) -> Out
+	wish_by = |me, count, near_at| {
 		sees = if (me.kind == 1) Rules.cow else Rules.dog
 
 		## The summed answers; the anchor (the nearest critter a `Herd`
@@ -38,12 +55,13 @@ Wish := [].{
 		var $anchor_d = 0
 		var $inner = 0
 		var $outer = 0
-		nobody : Near
-		nobody = { ax: 0, ay: 0, half: 0, tx: 0, ty: 0, j: 0, kin: Bool.False, kind: 0 }
 		var $a = nobody
 		var $best = nobody
 		var $best_d = -1
-		for n in near {
+		var $k = 0
+		while $k < count {
+			n = near_at($k)
+			$k = $k + 1
 			match sees.gathers {
 				Each => {
 					rule = rule_for(sees, n)

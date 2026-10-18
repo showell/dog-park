@@ -8,7 +8,8 @@ layout, and `zig build roc` prints them into `src/play/world.zon`
 numbers); and what critters do about each other said in Roc too:
 `roc/Rules.roc`, which the critters' wish (`roc/Wish.roc`, linked into the
 physics) applies, and which `roc/rules.roc` prints into `src/play/rules.zon`
-for the Zig's other uses. The physics' routes are `/physics-<hash>.wasm`,
+for the Zig's other uses; and the walk, each pixel-tick's moves after the
+leashed dog's, in Roc as well (`roc/Walk.roc`). The physics' routes are `/physics-<hash>.wasm`,
 `POST /load` and `POST /report` (the README has the rest), and each game
 keeps its board under `<data>/game-<slot>/physics`. The page runs the same Zig as
 `physics.wasm` (`physics_page.zig`'s exports, in the physics hash, named
@@ -76,6 +77,21 @@ playing, not by unit tests.
    the human acts).
 
 ## The walk (decisions 20-22, 30, 31)
+
+**The walk is Roc's** (`roc/Walk.roc`, linked into the physics through
+`src/play/roc_physics.zig`): once a pixel-tick, after the leashed dog's
+step, the Zig lends it the seen critters (where each stands, the cell it
+stands in, what it is), every cell's set of them, the poops by tile and
+room for its working lists, all as lists over the Zig's own buffers; Roc
+moves the critters in place, keeping the cells as it goes, and hands the
+lists back with the visit order and the pooper. Neither side allocates.
+The leashed dog's own step (the sweep, the bump, going around), the poop
+laid after the walk and the chickens' turn stay Zig's. Its tests are
+Roc's (`zig build roc-test`); while the Zig tests run, the Zig walk it
+replaced walks a copy of every pixel-tick too, and must agree to the bit.
+Its cost (2026-10-18, the busiest spot's full drag, 20 ticks): about 1.5x
+the Zig walk's natively (190 ms against 120), and on the page's wasm a
+tick of 0.3 ms against 0.2, a packed herd's full drag 16 ms against 12.
 
 After each pixel-tick of the leashed dog, up to **48** critters move, one
 at a time, out from the leashed dog, **shortest link first.** Only dogs

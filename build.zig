@@ -287,11 +287,12 @@ pub fn build(b: *std.Build) void {
         const roc_run = b.addSystemCommand(&.{ roc, out[0], "--", out[1] });
         roc_run.setCwd(b.path("."));
         roc_run.addFileInput(b.path(out[0]));
+        roc_run.addFileInput(b.path(if (std.mem.eql(u8, out[0], "roc/world.roc")) "roc/World.roc" else "roc/Rules.roc"));
         roc_write.addCopyFileToSource(roc_run.captureStdOut(.{}), out[2]);
     }
-    // The physics' Roc (roc/physics.roc, the wish), built for each of the
+    // The physics' Roc (roc/physics.roc, the wish and the walk), built for each of the
     // physics' targets into roc/lib/, which every build links (`linkRoc`).
-    const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Rules.roc", "roc/platform/main.roc" };
+    const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/World.roc", "roc/Rules.roc", "roc/platform/main.roc" };
     for (std.enums.values(RocTarget)) |t| {
         const roc_build = b.addSystemCommand(&.{ roc, "build", "roc/physics.roc", b.fmt("--target={t}", .{t}) });
         roc_build.setCwd(b.path("."));
@@ -300,9 +301,10 @@ pub fn build(b: *std.Build) void {
         roc_write.addCopyFileToSource(archive, b.fmt("roc/lib/physics-{t}.a", .{t}));
     }
     b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js, and build the physics' Roc into roc/lib/ (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
-    // Roc's own tests of the world, the rules and the wish (`expect`s).
-    const roc_test_step = b.step("roc-test", "Roc's own tests: roc/world.roc, roc/Rules.roc and roc/Wish.roc's expects (needs roc; -Droc=<path>)");
-    for ([_][]const u8{ "roc/world.roc", "roc/Rules.roc", "roc/Wish.roc" }) |f| {
+    // Roc's own tests of the world, the rules, the wish and the walk
+    // (`expect`s).
+    const roc_test_step = b.step("roc-test", "Roc's own tests: roc/world.roc, roc/Rules.roc, roc/Wish.roc and roc/Walk.roc's expects (needs roc; -Droc=<path>)");
+    for ([_][]const u8{ "roc/world.roc", "roc/Rules.roc", "roc/Wish.roc", "roc/Walk.roc" }) |f| {
         const run = b.addSystemCommand(&.{ roc, "test", f });
         run.setCwd(b.path("."));
         run.addFileInput(b.path(f));

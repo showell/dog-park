@@ -107,12 +107,17 @@ Roc (a nightly of the new compiler) only for `zig build roc`, which
 prints the world again from `roc/world.roc` (its size, the park in it and
 where every critter starts) into `src/play/world.zon` and `solo/world.js`,
 and the rules from `roc/Rules.roc` (what critters do about each other) into
-`src/play/rules.zon`; and builds the physics' own Roc, the critters' wish
-(`roc/Wish.roc`, through `roc/physics.roc`), into `roc/lib/` for each
-target the physics runs on (x86-64 Linux, wasm32, the kernel's freestanding
-x86-64), which every build links (`src/play/roc_physics.zig` is the seam).
+`src/play/rules.zon`; and builds the physics' own Roc, the walk
+(`roc/Walk.roc`: who moves each pixel-tick, the nudge, the shove, the
+sidestep, the herd's pooper) and the critters' wish in it (`roc/Wish.roc`),
+through `roc/physics.roc`, into `roc/lib/` for each target the physics
+runs on (x86-64 Linux, wasm32, the kernel's freestanding x86-64), which
+every build links (`src/play/roc_physics.zig` is the seam: the lists the
+Zig lends Roc, which Roc changes in place; neither side allocates).
 Every other build reads the checked-in files; `zig build roc-test` runs
-Roc's own tests of the world, the rules and the wish.
+Roc's own tests of the world, the rules, the wish and the walk. While the
+Zig tests run, the old Zig walk walks a copy of every pixel-tick beside
+Roc's, and any difference is a panic.
 Any world and rules that fit their types will play: Zig refuses at compile
 time only what the physics can't take (a critter outside the world, a
 park past its edge, poop slots not a power of two), and the tests of the
