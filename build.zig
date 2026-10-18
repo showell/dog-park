@@ -8,6 +8,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const fuzz = b.option(Fuzz, "fuzz", "the seeded fuzz loops' size: fast (a tenth, the default) or full") orelse .fast;
+    // **-Dstamp=off**: this checkout's commit, and the kernel's two, read
+    // `unstamped`, so two builds of the same code are the same bytes
+    // (zig-metal-unikernel's build.zig, `Stamp`). On by default.
+    const stamp = b.option(Stamp, "stamp", "on (the default): the commits baked in, for /version; off: `unstamped`, so two builds of the same code are byte-identical") orelse .on;
 
     // webbox is two modules: `webbox`, portable, what the application's code
     // imports; and `webbox_linux`, the Linux host, for a Linux `main` only.
@@ -24,7 +28,7 @@ pub fn build(b: *std.Build) void {
     const physics_mod = physicsOptions(b);
     // **WHICH COMMIT THIS IS** (`dogpark_build`), for /version: the
     // checkout's, `+dirty` when it has uncommitted changes.
-    const build_mod = buildOptions(b);
+    const build_mod = buildOptions(b, stamp);
 
     const wasm32 = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
     const wasi = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
@@ -85,7 +89,7 @@ pub fn build(b: *std.Build) void {
     // checks, ~0.1 s warm, ~4 s cold), so every build here needs that
     // checkout, as it needs ../zig-webbox.
     const metal_step = b.step("metal", "Build Dog Park as a zig-metal-unikernel kernel, zig-out/bin/dogpark.elf (ReleaseSafe; ../zig-metal-unikernel)");
-    if (b.lazyDependency("zig_metal_unikernel", .{})) |kernel| {
+    if (b.lazyDependency("zig_metal_unikernel", .{ .stamp = stamp })) |kernel| {
         if (b.lazyImport(@This(), "zig_metal_unikernel")) |kernel_build| {
             const dogpark_elf = kernel_build.addAppKernel(b, kernel, .{
                 .name = "dogpark.elf",
@@ -286,10 +290,16 @@ fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.built
     return exe;
 }
 
-/// The build's own facts, `dogpark_build`: the commit.
-fn buildOptions(b: *std.Build) *std.Build.Module {
+/// Whether a build bakes its commits in (`-Dstamp`), as the kernel's says.
+const Stamp = enum { on, off };
+
+/// The build's own facts, `dogpark_build`: the commit, or `unstamped`.
+fn buildOptions(b: *std.Build, stamp: Stamp) *std.Build.Module {
     const options = b.addOptions();
-    options.addOption([]const u8, "commit", commitOf(b, b.pathFromRoot(".")));
+    options.addOption([]const u8, "commit", switch (stamp) {
+        .on => commitOf(b, b.pathFromRoot(".")),
+        .off => "unstamped",
+    });
     return options.createModule();
 }
 
