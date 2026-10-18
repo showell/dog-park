@@ -16,8 +16,12 @@ const print = false;
 
 const dogs = [8]u16{ 0, 1, 2, 3, 21, 22, 41, 63 };
 const ticks = 48;
+/// The long run: dog 0 for `long_ticks`, its trail long enough that the
+/// herd poops where poop already lies (the ring search) and the chickens
+/// forage from afar.
+const long_ticks = 400;
 
-const want = [dogs.len]u64{ 0x9a6f4cc5e0f7d950, 0x0922e18850956701, 0x79296e971270c533, 0x7498728c4fc05b73, 0xd8b5463f11b4706d, 0xabc940c5e9df6132, 0xc70b495e4247cbad, 0x25df35e820144db2 };
+const want = [dogs.len + 1]u64{ 0x9a6f4cc5e0f7d950, 0x0922e18850956701, 0x79296e971270c533, 0x7498728c4fc05b73, 0xd8b5463f11b4706d, 0xabc940c5e9df6132, 0xc70b495e4247cbad, 0x25df35e820144db2, 0x9c9252a180ce81c2 };
 
 fn hashOf(b: *const Board) u64 {
     var h = std.hash.Wyhash.init(0);
@@ -36,7 +40,7 @@ fn hashOf(b: *const Board) u64 {
 
 /// Dog `dog` leashed in the first layout and dragged `ticks` ticks: a
 /// heading that turns now and then, a step of 20 to 100 px on each axis.
-fn played(dog: u16) u64 {
+fn played(dog: u16, n_ticks: physics.Tick) u64 {
     var b = Board.laidOut();
     b.hold = .{ .leashed = .{ .dog = dog, .drag = .on } };
     var rng = std.Random.DefaultPrng.init(0x5eed_0000 + @as(u64, dog));
@@ -45,7 +49,7 @@ fn played(dog: u16) u64 {
     var hy: i32 = 0;
     var lines: physics.Lines = .{};
     var t: physics.Tick = 1;
-    while (t <= ticks) : (t += 1) {
+    while (t <= n_ticks) : (t += 1) {
         if (r.uintLessThan(u8, 4) == 0) {
             hx = r.intRangeAtMost(i32, -1, 1);
             hy = r.intRangeAtMost(i32, -1, 1);
@@ -58,10 +62,11 @@ fn played(dog: u16) u64 {
 }
 
 test "the golden runs: eight drags through the first layout come out as the physics did before its rules were Roc's" {
-    var got: [dogs.len]u64 = undefined;
-    for (dogs, &got) |dog, *h| h.* = played(dog);
+    var got: [dogs.len + 1]u64 = undefined;
+    for (dogs, got[0..dogs.len]) |dog, *h| h.* = played(dog, ticks);
+    got[dogs.len] = played(0, long_ticks);
     if (print) {
-        std.debug.print("const want = [dogs.len]u64{{", .{});
+        std.debug.print("const want = [dogs.len + 1]u64{{", .{});
         for (got) |h| std.debug.print(" 0x{x:0>16},", .{h});
         std.debug.print(" }};\n", .{});
         return;

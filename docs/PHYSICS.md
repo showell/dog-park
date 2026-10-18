@@ -204,9 +204,10 @@ every poop in the region's tiles; the page drops its others there.
 
 ## The numbers
 
-Tuned by playing; each is a constant in `physics.zig`, but the critters'
-distances from each other (wary, the herd band, a dog's room from a cow,
-`cow_pull`), which are `roc/rules.roc`'s.
+Tuned by playing. The critters' distances from each other (wary, the
+herd band, a dog's room from a cow, `cow_pull`), their paces, the
+chickens' foraging and the poop's are `roc/rules.roc`'s; the rest are
+constants in `physics.zig`.
 
 | knob | value |
 |---|---|

@@ -122,23 +122,28 @@ pub const nudge_most = 8;
 /// dogs and cows. It stays till a chicken eats it: the park's poops take
 /// the `poop_count` slots in turn (`Board.laid`), so only the 2049th poop
 /// since the load would take the first one's slot.
-pub const poop_every: u32 = @intCast(px(700));
+pub const poop_every: u32 = @intCast(px(rules.rules.poop.every));
 pub const poop_px: comptime_int = world_file.sizes.poop_px;
 pub const poop_half: i32 = px(poop_px / 2);
-pub const poop_count = 2048;
+pub const poop_count: comptime_int = rules.rules.poop.slots;
+comptime {
+    // `laid` counts in 32 bits and takes the slots in turn: its wrap keeps
+    // their order only if the slots divide 2^32.
+    if (!std.math.isPowerOfTwo(poop_count)) @compileError("rules.zon: the poop slots must be a power of two");
+}
 /// How far behind its dog a poop lands, centre to centre; taken, the
 /// spots tried next are on rings `poop_grid` apart around it, out to
 /// `poop_reach`.
-pub const poop_back: i32 = px(30);
-pub const poop_reach: i32 = px(200);
-pub const poop_grid: i32 = px(4);
+pub const poop_back: i32 = px(rules.rules.poop.back);
+pub const poop_reach: i32 = px(rules.rules.poop.reach);
+pub const poop_grid: i32 = px(rules.rules.poop.grid);
 /// **THE CHICKENS' TURN** (decision 31): a chicken sees ripe poop this far
 /// off; it steps at most half the leashed dog's net move in the tick, and
 /// at most `chicken_step`; with nothing to forage it walks home when it is
 /// more than `home_band` from it.
-pub const chicken_sight: i32 = px(500);
-pub const chicken_step: i32 = px(8);
-pub const home_band: i32 = px(32);
+pub const chicken_sight: i32 = px(rules.rules.chickens.sight);
+pub const chicken_step: i32 = px(rules.rules.chickens.step);
+pub const home_band: i32 = px(rules.rules.chickens.home_band);
 
 pub const Tick = u64;
 
@@ -1190,7 +1195,11 @@ fn walk(sc: *Scene, most: i32) void {
         sc.walk[sc.walk_len] = @intCast(critterIndex(who));
         sc.walk_len += 1;
         const wish = wishOf(sc, i);
-        stepAround(sc, i, stepAtMost(wish.total, if (who.kind == .cow) @divTrunc(most, 2) else most));
+        stepAround(sc, i, stepAtMost(wish.total, switch (who.kind) {
+            .cow => share(rules.rules.cow.pace, most),
+            // Never a chicken: no chicken is in the walk.
+            .dog, .chicken => share(rules.rules.dog.pace, most),
+        }));
         if (who.kind == .dog and who.n % breeds == herd) if (wish.anchor) |a| {
             sc.depth[i] = sc.depth[a] + 1;
             if (sc.depth[i] >= sc.depth[sc.pooper]) {
@@ -1382,6 +1391,13 @@ const Gather = struct {
     inner: i32 = 0,
     outer: i32 = 0,
 };
+
+/// `pace` of `v`, rounded toward zero; known at compile time, so a share of
+/// one is `v` itself and a half is `@divTrunc(v, 2)`.
+inline fn share(comptime pace: rules.Share, v: anytype) @TypeOf(v) {
+    if (comptime pace.num == pace.den) return v;
+    return @divTrunc(v * pace.num, pace.den);
+}
 
 /// The one band a kind's `herd` answers name, when they name one (or none).
 fn oneBand(comptime sees: rules.Sees) ?@FieldType(rules.Rule, "herd") {
@@ -1700,7 +1716,7 @@ fn placePoop(sc: *Scene, slot: u16, q: Point) void {
 fn chickensTurn(sc: *Scene) void {
     const net = measure(delta(sc.seen[0].start, sc.pos(0)));
     if (net == 0) return;
-    const most: i32 = @intCast(@min(@divTrunc(net, 2), chicken_step));
+    const most: i32 = @intCast(@min(share(rules.rules.chickens.pace, net), chicken_step));
     for (sc.list(), 0..) |o, i| {
         if (o.who.kind != .chicken) continue;
         const p = sc.pos(i);

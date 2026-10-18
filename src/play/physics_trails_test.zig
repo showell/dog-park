@@ -231,6 +231,17 @@ test "a chicken eats every ripe poop its square overlaps, and the eaten slot is 
     try overlapsNone(&b);
 }
 
+test "a chicken sees ripe poop out to chicken_sight, and no farther: at it, it goes; a 256th past, it stays home" {
+    for ([_]i32{ 0, 1 }) |past| {
+        var b = leashedAt(nearHome(0, 400));
+        b.place(.chicken(0), home);
+        poopAt(&b, 0, .{ .x = home.x + physics.chicken_sight + past, .y = home.y });
+        b.laid = 7;
+        _ = ticked(&b, 1, &.{}, &.{d(10, 0)});
+        if (past == 0) try testing.expect(b.chickens[0].x > home.x) else try testing.expectEqual(home, b.chickens[0]);
+    }
+}
+
 test "no chicken moves in a tick the leashed dog ends where it began" {
     // Proves rule 9's "only if the leashed dog moved": its net move, not
     // its path. Out 10 px and back in one tick: the chicken, 100 px from
