@@ -110,9 +110,9 @@ pub const most_ticks = 32;
 /// Breeds: dog n has look n mod `breeds` (the world's).
 pub const breeds: comptime_int = world_file.breeds;
 /// **THE WALK**: the most critters a pixel-tick moves, the leashed dog
-/// aside, and how many each visited critter lines up.
+/// aside: roc/Walk.roc's `walk_most`, which the room the physics lends the
+/// walk is sized by (a walk that needed more would be a panic, `roc_alloc`).
 pub const walk_most = 48;
-pub const walk_fan = 3;
 /// **THE NUDGE**: the most critters one step moves together, the stepper
 /// and the kin it nudges (decision 25).
 pub const nudge_most = 8;
@@ -683,10 +683,6 @@ pub const Scene = struct {
     /// The last walk's critters, by `critterIndex`, in visit order.
     walk: [walk_most]u16 = undefined,
     walk_len: usize = 0,
-    /// The critters in motion this step, by seen index: the leashed dog,
-    /// then each the walk has visited.
-    moving: [walk_most + 1]u16 = undefined,
-    moving_len: usize = 0,
     /// The region's tiles: everything the physics sees.
     span: TileSpan = undefined,
     /// The poops the physics sees: present in the region's tiles at the
@@ -724,11 +720,6 @@ pub const Scene = struct {
     /// The poops the leashed dog's walk has crossed `poop_every` for since
     /// the last were laid (`layDue`, after the pixel-tick's walk).
     poop_due: u32 = 0,
-    /// **THE HERD'S DEPTH** in the last walk, by seen index, for the dogs
-    /// of the leashed dog's breed it visited: the leashed dog 0, a dog
-    /// anchored on dog j one more than j. Set as the walk visits; read
-    /// only for the dogs it visited.
-    depth: [critter_count]u16 = undefined,
     /// The last walk's deepest dog of the leashed dog's breed (ties to the
     /// later visited), and its anchor: who poops, and which way is behind.
     pooper: usize = 0,
@@ -747,7 +738,6 @@ pub const Scene = struct {
         s.board = b;
         s.len = 0;
         s.walk_len = 0;
-        s.moving_len = 0;
         s.poop_due = 0;
         s.pooper = 0;
         s.pooper_anchor = null;
@@ -1208,11 +1198,11 @@ fn onAxis(axis: Axis, v: i32) Point {
 /// **THE WALK** (decisions 20-22, 31): out from the leashed dog (seen
 /// index 0), shortest link first, dogs and cows only (a chicken takes its
 /// turn after the drag, `chickensTurn`). The leashed dog lines up its
-/// `walk_fan` nearest, each waiting keyed by its distance from the critter
+/// 3 nearest (roc/Walk.roc's `walk_fan`), each waiting keyed by its distance from the critter
 /// that lined it up; the walk visits the least key (ties to the lower
 /// rank), which steps (a dog at most `most` and a cow half, by its wish
 /// from the critters in motion, going around a poop or a chicken in its
-/// way: `stepAround`), and lines up its own `walk_fan` nearest not yet
+/// way), and lines up its own 3 nearest not yet
 /// visited (a critter already waiting takes the nearer key). At most
 /// `walk_most` critters; one the walk doesn't reach stays put. On the way
 /// it finds the herd's deepest dog, who poops.
@@ -1224,17 +1214,6 @@ fn onAxis(axis: Axis, v: i32) Point {
 /// this puts each critter it moved where it left it, and takes the visit
 /// order and the pooper. Neither side allocates.
 fn walk(sc: *Scene, most: i32) void {
-    // **THE SHIM**: while the tests run, the Zig walk (`zigWalk`) walks a
-    // copy of the scene and its board, and the Roc walk must leave the
-    // critters where it did, visit whom it did, and find the same pooper
-    // (it goes when the Roc tests in roc/Walk.roc stand alone).
-    var aside: if (builtin.is_test) struct { board: Board, scene: Scene } else void = undefined;
-    if (builtin.is_test) {
-        aside.board = sc.board.*;
-        aside.scene = sc.*;
-        aside.scene.board = &aside.board;
-        zigWalk(&aside.scene, most);
-    }
     const w = &sc.roc_walk;
     if (sc.poops_changed) sc.lendPoops();
     w.crits.len = 0;
@@ -1261,298 +1240,13 @@ fn walk(sc: *Scene, most: i32) void {
     for (moving[1..], 0..) |j, k| sc.walk[k] = @intCast(critterIndex(sc.seen[j].who));
     sc.pooper = r.pooper;
     sc.pooper_anchor = if (r.anchor < 0) null else @intCast(r.anchor);
-    if (builtin.is_test) {
-        const z = &aside.scene;
-        const same = sc.walk_len == z.walk_len and std.mem.eql(u16, sc.walk[0..sc.walk_len], z.walk[0..z.walk_len]) and
-            sc.pooper == z.pooper and std.meta.eql(sc.pooper_anchor, z.pooper_anchor) and
-            std.mem.eql(u8, std.mem.sliceAsBytes(sc.at[0..sc.len]), std.mem.sliceAsBytes(z.at[0..z.len])) and
-            std.meta.eql(sc.board.dogs, aside.board.dogs) and std.meta.eql(sc.board.cows, aside.board.cows) and std.meta.eql(sc.board.chickens, aside.board.chickens);
-        if (!same) std.debug.panic("roc/Walk.roc and the Zig walk differ: Roc walked {any} (pooper {d}, anchor {any}), Zig {any} (pooper {d}, anchor {any})", .{ sc.walk[0..sc.walk_len], sc.pooper, sc.pooper_anchor, z.walk[0..z.walk_len], z.pooper, z.pooper_anchor });
-    }
 }
-
-/// The walk in Zig: the shim the Roc walk is held to.
-fn zigWalk(sc: *Scene, most: i32) void {
-    sc.walk_len = 0;
-    sc.moving[0] = 0;
-    sc.moving_len = 1;
-    sc.depth[0] = 0;
-    sc.pooper = 0;
-    sc.pooper_anchor = null;
-    const herd = sc.seen[0].who.n % breeds;
-    var waiting: Waiting = .{};
-    var visited: std.StaticBitSet(critter_count) = .initEmpty();
-    visited.set(0);
-    lineUp(sc, 0, &waiting, &visited);
-    while (sc.walk_len < walk_most) {
-        const i: usize = waiting.pop() orelse break;
-        visited.set(i);
-        sc.moving[sc.moving_len] = @intCast(i);
-        sc.moving_len += 1;
-        const who = sc.seen[i].who;
-        sc.walk[sc.walk_len] = @intCast(critterIndex(who));
-        sc.walk_len += 1;
-        const wish = zigWishOf(sc, i);
-        stepAround(sc, i, stepAtMost(wish.total, switch (who.kind) {
-            .cow => share(rules.rules.cow.pace, most),
-            // Never a chicken: no chicken is in the walk.
-            .dog, .chicken => share(rules.rules.dog.pace, most),
-        }));
-        if (who.kind == .dog and who.n % breeds == herd) if (wish.anchor) |a| {
-            sc.depth[i] = sc.depth[a] + 1;
-            if (sc.depth[i] >= sc.depth[sc.pooper]) {
-                sc.pooper = i;
-                sc.pooper_anchor = a;
-            }
-        };
-        lineUp(sc, i, &waiting, &visited);
-    }
-}
-
-/// The walk's waiting critters, each keyed by its distance from the one
-/// that lined it up, held in order: the least key (then the lower rank)
-/// last, so it pops.
-const Waiting = struct {
-    key: [walk_most * walk_fan + walk_fan]i64 = undefined,
-    who: [walk_most * walk_fan + walk_fan]u16 = undefined,
-    len: usize = 0,
-
-    /// `who` waits with `key`, or, already waiting with a larger key, with
-    /// this one instead.
-    fn offer(w: *Waiting, key: i64, who: u16) void {
-        for (w.who[0..w.len], 0..) |o, k| if (o == who) {
-            if (w.key[k] <= key) return;
-            std.mem.copyForwards(i64, w.key[k .. w.len - 1], w.key[k + 1 .. w.len]);
-            std.mem.copyForwards(u16, w.who[k .. w.len - 1], w.who[k + 1 .. w.len]);
-            w.len -= 1;
-            break;
-        };
-        var k = w.len;
-        while (k > 0 and (w.key[k - 1] < key or (w.key[k - 1] == key and w.who[k - 1] < who))) : (k -= 1) {
-            w.key[k] = w.key[k - 1];
-            w.who[k] = w.who[k - 1];
-        }
-        w.key[k] = key;
-        w.who[k] = who;
-        w.len += 1;
-    }
-
-    fn pop(w: *Waiting) ?u16 {
-        if (w.len == 0) return null;
-        w.len -= 1;
-        return w.who[w.len];
-    }
-};
-
-/// Seen critter `from`'s `walk_fan` nearest dogs and cows not yet
-/// `visited` (ties to the lower seen index, which is rank order), from
-/// where it stands now, offered to `waiting` keyed by their distance from
-/// it, nearest first.
-///
-/// **RING BY RING** (metal-vmm QUEUE 210): the cells around its own, out
-/// a ring at a time, and those past the span first. A critter in a cell
-/// `r` rings out is more than `(r - 1) * cell` away, so once `walk_fan` are
-/// found and the last of them is at most `(r - 1) * cell` away, no ring
-/// from `r` on can hold a nearer one, nor an equal (the search stops
-/// there). Found in any
-/// order, so a candidate is compared by (distance, index) both.
-fn lineUp(sc: *const Scene, from: usize, waiting: *Waiting, visited: *const std.StaticBitSet(critter_count)) void {
-    const p = sc.pos(from);
-    var near: Nearest = .{};
-    const n: i32 = span_cells;
-    const pc = @divFloor(@mod(p.x, world), cell);
-    const pr = @divFloor(@mod(p.y, world), cell);
-    // Round the torus, ring `r` holds the cells `r` away on the larger axis;
-    // past `n / 2` the rings come round again. At `2r = n`, offset `+r` is
-    // `-r`'s cell, so only `-r` is taken.
-    var r: i32 = 0;
-    while (r <= @divFloor(n, 2)) : (r += 1) {
-        if (r > 0 and near.n == walk_fan and near.key[walk_fan - 1] <= @as(i64, r - 1) * cell) break;
-        const top = if (2 * r == n) r - 1 else r;
-        var dy: i32 = -r;
-        while (dy <= top) : (dy += 1) {
-            if (dy == -r or dy == r) {
-                // The ring's top and bottom rows, whole.
-                var dx: i32 = -r;
-                while (dx <= top) : (dx += 1) near.offerCell(sc, p, @mod(pr + dy, n), @mod(pc + dx, n), visited);
-            } else {
-                // Between them, its two ends.
-                near.offerCell(sc, p, @mod(pr + dy, n), @mod(pc - r, n), visited);
-                if (r > 0 and top == r) near.offerCell(sc, p, @mod(pr + dy, n), @mod(pc + r, n), visited);
-            }
-        }
-    }
-    for (near.key[0..near.n], near.who[0..near.n]) |d, j| waiting.offer(d, j);
-}
-
-/// The `walk_fan` nearest so far, by (distance, seen index).
-const Nearest = struct {
-    key: [walk_fan]i64 = undefined,
-    who: [walk_fan]u16 = undefined,
-    n: usize = 0,
-
-    fn offer(near: *Nearest, sc: *const Scene, p: Point, j: usize, visited: *const std.StaticBitSet(critter_count)) void {
-        if (j == 0 or visited.isSet(j) or sc.seen[j].who.kind == .chicken) return;
-        const d = measure(delta(sc.pos(j), p));
-        const who: u16 = @intCast(j);
-        if (near.n == walk_fan and !before(d, who, near.key[walk_fan - 1], near.who[walk_fan - 1])) return;
-        var k = if (near.n < walk_fan) near.n else walk_fan - 1;
-        while (k > 0 and before(d, who, near.key[k - 1], near.who[k - 1])) : (k -= 1) {
-            near.key[k] = near.key[k - 1];
-            near.who[k] = near.who[k - 1];
-        }
-        near.key[k] = d;
-        near.who[k] = who;
-        if (near.n < walk_fan) near.n += 1;
-    }
-
-    fn offerCell(near: *Nearest, sc: *const Scene, p: Point, row: i32, col: i32, visited: *const std.StaticBitSet(critter_count)) void {
-        var it = sc.seen_cells[@intCast(row)][@intCast(col)].iterator(.{});
-        while (it.next()) |j| near.offer(sc, p, j, visited);
-    }
-
-    fn before(d: i64, j: u16, kd: i64, kj: u16) bool {
-        return d < kd or (d == kd and j < kj);
-    }
-};
-
-/// **WHAT A CRITTER WANTS** (decisions 21-24), in Zig: the wish the Zig walk
-/// (`zigWalk`, the shim) takes, the same as roc/Wish.roc's, which the Roc
-/// walk takes. By the rules (roc/Rules.roc, through rules.zig), as its
-/// kind's rules take them:
-/// - a cow: from the nearest moving critter alone (ties to the lower rank):
-///   a cow, it closes in to touching; a dog, it keeps `wary` from it;
-/// - a dog: room `cow_room` from every moving cow, `wary` from every
-///   moving dog of another breed, and its place in the herd against its
-///   anchor, the nearest moving dog of its breed (ties to the lower rank).
-/// A dog's anchor comes back with the wish: the herd's depth runs through it.
-fn zigWishOf(sc: *const Scene, i: usize) Wish {
-    return switch (sc.seen[i].who.kind) {
-        .cow => wishBy(rules.rules.cow, false, sc, i),
-        // Never a chicken: no chicken is in the walk.
-        .dog, .chicken => wishBy(rules.rules.dog, true, sc, i),
-    };
-}
-
-/// A critter's wish, and the seen index of its anchor (a dog's; never a
-/// cow's).
-pub const Wish = struct { total: Point, anchor: ?usize };
-
-/// The wish of critter `i` by its kind's rules, `sees`, known at compile
-/// time, so each answer below is decided there too. `kin`: whether a dog
-/// of its own breed is its kin (a dog's; a cow has no breed).
-fn wishBy(comptime sees: rules.Sees, comptime kin: bool, sc: *const Scene, i: usize) Wish {
-    const me = sc.seen[i].who;
-    const p = sc.pos(i);
-    var g: Gather = .{};
-    switch (sees.gathers) {
-        .each => for (sc.moving[0..sc.moving_len]) |j16| {
-            const j: usize = j16;
-            if (j == i) continue;
-            answer(sees, kin, me, sc, j, p, &g);
-        },
-        .nearest => {
-            var nearest: ?usize = null;
-            var nearest_d: i64 = 0;
-            for (sc.moving[0..sc.moving_len]) |j16| {
-                const j: usize = j16;
-                if (j == i) continue;
-                const d = measure(delta(sc.pos(j), p));
-                if (nearest == null or d < nearest_d or (d == nearest_d and j < nearest.?)) {
-                    nearest = j;
-                    nearest_d = d;
-                }
-            }
-            if (nearest) |j| answer(sees, kin, me, sc, j, p, &g);
-        },
-    }
-    if (g.anchor) |j| {
-        const q = sc.pos(j);
-        // The band: the rules' one, when they name one, known here at
-        // compile time; else the anchor's own.
-        const inner = if (comptime oneBand(sees)) |b| px(b.inner) else g.inner;
-        const outer = if (comptime oneBand(sees)) |b| px(b.outer) else g.outer;
-        if (g.anchor_d > outer) {
-            add(&g.total, wishAlong(delta(p, q), @as(i32, @intCast(g.anchor_d)) - outer));
-        } else if (g.anchor_d < inner) {
-            add(&g.total, away(q, p, inner - @as(i32, @intCast(g.anchor_d))));
-        }
-    }
-    return .{ .total = g.total, .anchor = g.anchor };
-}
-
-/// What a wish gathers: the summed answers, and the anchor (the nearest
-/// critter a `herd` answer named, ties to the lower rank) with its band.
-const Gather = struct {
-    total: Point = .{ .x = 0, .y = 0 },
-    anchor: ?usize = null,
-    anchor_d: i64 = 0,
-    inner: i32 = 0,
-    outer: i32 = 0,
-};
 
 /// `pace` of `v`, rounded toward zero; known at compile time, so a share of
 /// one is `v` itself and a half is `@divTrunc(v, 2)`.
 inline fn share(comptime pace: rules.Share, v: anytype) @TypeOf(v) {
     if (comptime pace.num == pace.den) return v;
     return @divTrunc(v * pace.num, pace.den);
-}
-
-/// The one band a kind's `herd` answers name, when they name one (or none).
-fn oneBand(comptime sees: rules.Sees) ?@FieldType(rules.Rule, "herd") {
-    var band: ?@FieldType(rules.Rule, "herd") = null;
-    for ([_]rules.Rule{ sees.kin, sees.dog, sees.cow, sees.chicken }) |rule| switch (rule) {
-        .herd => |b| if (band) |a| {
-            if (a.inner != b.inner or a.outer != b.outer) return null;
-        } else {
-            band = b;
-        },
-        else => {},
-    };
-    return band;
-}
-
-/// Critter `me` at `p` answers moving critter `j` by who `j` is to it.
-inline fn answer(comptime sees: rules.Sees, comptime kin: bool, me: Critter, sc: *const Scene, j: usize, p: Point, g: *Gather) void {
-    const o = sc.seen[j].who;
-    switch (o.kind) {
-        .chicken => apply(sees, sees.chicken, me, o, sc, j, p, g),
-        .cow => apply(sees, sees.cow, me, o, sc, j, p, g),
-        .dog => if (kin and o.n % breeds == me.n % breeds) apply(sees, sees.kin, me, o, sc, j, p, g) else apply(sees, sees.dog, me, o, sc, j, p, g),
-    }
-}
-
-/// One answer, `rule`, known at compile time.
-inline fn apply(comptime sees: rules.Sees, comptime rule: rules.Rule, me: Critter, o: Critter, sc: *const Scene, j: usize, p: Point, g: *Gather) void {
-    switch (rule) {
-        .ignore => {},
-        .keep => |reach| addRoom(&g.total, sc.pos(j), p, px(reach)),
-        .herd => |band| {
-            const d = measure(delta(sc.pos(j), p));
-            if (g.anchor == null or d < g.anchor_d or (d == g.anchor_d and j < g.anchor.?)) {
-                g.anchor = j;
-                g.anchor_d = d;
-                if (comptime oneBand(sees) == null) {
-                    g.inner = px(band.inner);
-                    g.outer = px(band.outer);
-                }
-            }
-        },
-        .close => |reach| {
-            const q = sc.pos(j);
-            const d = measure(delta(q, p));
-            const touch = me.half() + o.half();
-            if (d > touch and d <= px(reach)) add(&g.total, wishAlong(delta(p, q), @as(i32, @intCast(d)) - touch));
-        },
-    }
-}
-
-/// Room from a critter at `q` for the one at `p`: away, by the shortfall
-/// inside `reach`.
-fn addRoom(total: *Point, q: Point, p: Point, reach: i32) void {
-    const d = measure(delta(q, p));
-    if (d > reach) return;
-    add(total, away(q, p, reach - @as(i32, @intCast(d))));
 }
 
 /// The step a total of wishes comes to, at most `most` on its larger axis:

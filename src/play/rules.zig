@@ -3,8 +3,8 @@
 //! chickens' foraging and the herd's poop (decisions 29, 31). roc/Rules.roc
 //! says them, and the wish (roc/Wish.roc) applies them in Roc; `zig build
 //! roc` prints them into rules.zon too, checked in, which this file imports
-//! at compile time for the Zig's own uses: the chickens' turn, the poop, the
-//! paces, and the Zig wish the tests hold the Roc one to. These types are
+//! at compile time for the Zig's own uses: the chickens' turn, the poop, and
+//! the tests' distances. These types are
 //! the seam: a rules.zon that does not fit them does not compile.
 //! Distances here are in whole pixels.
 

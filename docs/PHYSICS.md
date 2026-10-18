@@ -87,8 +87,10 @@ moves the critters in place, keeping the cells as it goes, and hands the
 lists back with the visit order and the pooper. Neither side allocates.
 The leashed dog's own step (the sweep, the bump, going around), the poop
 laid after the walk and the chickens' turn stay Zig's. Its tests are
-Roc's (`zig build roc-test`); while the Zig tests run, the Zig walk it
-replaced walks a copy of every pixel-tick too, and must agree to the bit.
+Roc's (`zig build roc-test`), and the golden runs hold the physics with it
+in to its recordings. (Till 2026-10-18 the Zig walk it replaced walked a
+copy of every pixel-tick in the tests too, and agreed to the bit; it went
+when the Roc tests stood alone: [ROC-SPEED.md](ROC-SPEED.md).)
 Its cost (2026-10-18, the busiest spot's full drag, 20 ticks): about 1.4x
 the all-Zig walk's natively (144 ms against 105), and on the page's wasm
 a 32-tick replay of 7.3 ms against 6.7, a packed herd's full drag 13.5 ms

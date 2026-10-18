@@ -115,9 +115,9 @@ runs on (x86-64 Linux, wasm32, the kernel's freestanding x86-64), which
 every build links (`src/play/roc_physics.zig` is the seam: the lists the
 Zig lends Roc, which Roc changes in place; neither side allocates).
 Every other build reads the checked-in files; `zig build roc-test` runs
-Roc's own tests of the world, the rules, the wish and the walk. While the
-Zig tests run, the old Zig walk walks a copy of every pixel-tick beside
-Roc's, and any difference is a panic.
+Roc's own tests of the world, the rules, the wish and the walk. The Zig
+tests hold the whole physics, the Roc walk in it, to its recordings (the
+golden runs).
 Any world and rules that fit their types will play: Zig refuses at compile
 time only what the physics can't take (a critter outside the world, a
 park past its edge, poop slots not a power of two), and the tests of the

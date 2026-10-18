@@ -2,8 +2,9 @@
 
 **Status: measured 2026-10-18** (the Roc nightly of that date, Zig 0.16,
 an Intel Xeon at 2.1 GHz). The walk (`roc/Walk.roc`, with the wish in it,
-`roc/Wish.roc`) against the Zig walk it replaced, kept as the tests' shim
-(`zigWalk` and `zigWishOf` in `src/play/physics.zig`). The measure is the
+`roc/Wish.roc`) against the Zig walk it replaced, then kept as the tests'
+shim (`zigWalk` and `zigWishOf`, gone from `src/play/physics.zig` since:
+commit `203318b` has them). The measure is the
 busiest spot's full drag, 20 ticks (`zig build physics-bench -- busiest`):
 4000 walks, 192,000 critters visited, 4.7 million wishes' worth of moving
 critters looked at. Instructions are callgrind's (an `-Dcpu=x86_64_v2`
@@ -16,7 +17,7 @@ build); time is the best of nine runs, native.
 | the Roc walk as first committed (`e7ac200`) | 2.06 G | 222 ms |
 | the Roc walk now | 1.40 G | 144 ms |
 
-Every row walks the same critters to the same places: the shim checks it
+Every row walks the same critters to the same places: the shim checked it
 pixel-tick by pixel-tick in the tests, and the 14,800 lines of
 `physics-bench -- lines` are the same bytes in all of them.
 
@@ -29,7 +30,7 @@ per-instruction counts against the disassembly), not by guessing.
    provided both `roc_wish` and `roc_walk`; `roc fmt` sorts the app's
    exports, and with `walk` first the shared wish was compiled into both
    less well: 2.06 G against 1.76 G. The walk is now the only export (the
-   shim's walk takes the Zig wish), and the order cannot matter.
+   shim's walk took the Zig wish), and the order cannot matter.
 2. **Atomic refcounts (about a third of the time).** Roc counts references
    atomically (`lock incq`, `lock decq`, some 20 cycles each) for anything
    the host can see, which is every list the physics lends, and there is
