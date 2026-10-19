@@ -112,6 +112,11 @@ pub const nudge_most = rules.rules.limits.nudge_most;
 /// the `poop_count` slots in turn (`Board.laid`), so only the 2049th poop
 /// since the load would take the first one's slot.
 pub const poop_every: u32 = @intCast(px(rules.rules.poop.every));
+// At most one poop comes due a pixel-tick: the leashed dog's moves in one
+// (the sweep, then at most one step round a bump) are each at most a step.
+comptime {
+    std.debug.assert(poop_every > 2 * step_most);
+}
 pub const poop_px: comptime_int = world_file.sizes.poop_px;
 pub const poop_half: i32 = px(poop_px / 2);
 pub const poop_count: comptime_int = rules.rules.poop.slots;
@@ -1247,78 +1252,59 @@ pub const Veto = struct {
     pub const Why = enum { none, critter, chicken, poop };
 };
 
-/// **THE VETO, THE NUDGE AND THE SHOVE** (decisions 25, 30): seen critter
-/// `i` takes `step` whole, or not at all.
-/// - **The nudge:** where its square there would overlap kin (a cow a cow,
-///   a dog a dog of its breed; the leashed dog has none), they take the
-///   same step with it, and whoever they would overlap is nudged in turn,
-///   up to `nudge_most` in all.
-/// - **The shove:** a chicken a dog or cow of the group would overlap is
-///   knocked by the step plus as much again sideways, away from that
-///   critter's centre line (`shoveAside`), up to `nudge_most` chickens.
-///   Each must land clear of everyone and every poop: of every
-///   critter that stays put, every one the step moves where it lands, and
-///   every other chicken shoved. A chicken shoves nobody.
-/// - **The veto,** for every one of them, if any would overlap a critter
-///   not kin and not a chicken it shoves, or stand on a poop (for a chicken's
-///   own step only the newest, which isn't ripe).
-/// All is checked before anyone moves. The group moves by one vector, so
-/// its members keep clear of each other; no two critters overlap, by
+/// **THE VETO AND THE SHOVE** (decisions 25, 30), for the two that step
+/// here, the leashed dog and a chicken (the walk's dogs and cows step in
+/// roc/Walk.roc, where the nudge is): seen critter `i` takes `step` whole,
+/// or not at all. Neither has kin, so neither nudges.
+/// - **The shove:** a chicken the leashed dog would overlap is knocked by
+///   the step plus as much again sideways, away from the dog's centre line
+///   (`shoveAside`), up to `nudge_most` chickens. Each must land clear of
+///   everyone and every poop: of every critter that stays put, the dog where
+///   it lands, and every other chicken shoved. A chicken shoves nobody.
+/// - **The veto,** if it would overlap any other critter or a chicken it
+///   can't shove, or stand on a poop (for a chicken's own step only the
+///   newest, which isn't ripe).
+/// All is checked before anyone moves; no two critters overlap, by
 /// induction.
 fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
     if (step.x == 0 and step.y == 0) return .{};
-    var group: [nudge_most]usize = undefined;
-    group[0] = i;
-    var n: usize = 1;
+    const mover = sc.seen[i].who;
+    std.debug.assert(i == 0 or mover.kind == .chicken);
     var shoved: [nudge_most]usize = undefined;
-    var by: [nudge_most]usize = undefined;
     var ns: usize = 0;
     var in_move: std.StaticBitSet(critter_count) = .initEmpty();
     in_move.set(i);
-    const mover = sc.seen[i].who;
-    const breed = if (i == 0) null else kinOf(mover);
-    var k: usize = 0;
-    while (k < n) : (k += 1) {
-        const g = group[k];
-        const from = sc.pos(g);
-        const to = plus(from, step);
-        const h = sc.seen[g].half;
-        if (poopUnder(sc, to, h, if (mover.kind == .chicken) .eats_ripe else .eats_none)) |q| return .{ .why = .poop, .at = from, .blocker = q };
-        var near = sc.critters(to, h + cow_half);
-        var it = near.iterator(.{});
-        while (it.next()) |j| {
-            const o = sc.seen[j];
-            if (in_move.isSet(j) or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
-            if (o.who.kind == .chicken) {
-                if (mover.kind == .chicken or ns == nudge_most) return .{ .why = .chicken, .at = from, .blocker = sc.pos(j) };
-                shoved[ns] = j;
-                by[ns] = g;
-                ns += 1;
-                in_move.set(j);
-                continue;
-            }
-            if (j == 0 or breed == null or kinOf(o.who) != breed or n == nudge_most) return .{ .why = .critter, .at = from, .blocker = sc.pos(j) };
-            group[n] = j;
-            n += 1;
-            in_move.set(j);
-        }
+    const from = sc.pos(i);
+    const to = plus(from, step);
+    const h = sc.seen[i].half;
+    if (poopUnder(sc, to, h, if (mover.kind == .chicken) .eats_ripe else .eats_none)) |q| return .{ .why = .poop, .at = from, .blocker = q };
+    var near = sc.critters(to, h + cow_half);
+    var it = near.iterator(.{});
+    while (it.next()) |j| {
+        const o = sc.seen[j];
+        if (in_move.isSet(j) or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
+        if (o.who.kind != .chicken) return .{ .why = .critter, .at = from, .blocker = sc.pos(j) };
+        if (mover.kind == .chicken or ns == nudge_most) return .{ .why = .chicken, .at = from, .blocker = sc.pos(j) };
+        shoved[ns] = j;
+        ns += 1;
+        in_move.set(j);
     }
     var lands: [nudge_most]Point = undefined;
-    for (shoved[0..ns], by[0..ns], 0..) |c, g, m| {
-        const p = sc.pos(c);
-        const land = wrapped(plus(plus(p, step), shoveAside(step, delta(sc.pos(g), p))));
+    for (shoved[0..ns], 0..) |c, m| {
+        const q = sc.pos(c);
+        const land = wrapped(plus(plus(q, step), shoveAside(step, delta(from, q))));
         lands[m] = land;
-        const cannot: Veto = .{ .why = .chicken, .at = sc.pos(g), .blocker = p };
+        const cannot: Veto = .{ .why = .chicken, .at = from, .blocker = q };
         if (poopUnder(sc, land, chicken_half, .eats_none) != null) return cannot;
-        var near = sc.critters(land, chicken_half + cow_half);
-        var it = near.iterator(.{});
-        while (it.next()) |j| {
+        var by_land = sc.critters(land, chicken_half + cow_half);
+        var at_land = by_land.iterator(.{});
+        while (at_land.next()) |j| {
             if (!in_move.isSet(j) and squaresOverlap(land, chicken_half, sc.pos(j), sc.seen[j].half)) return cannot;
         }
-        for (group[0..n]) |o| if (squaresOverlap(land, chicken_half, plus(sc.pos(o), step), sc.seen[o].half)) return cannot;
+        if (squaresOverlap(land, chicken_half, to, h)) return cannot;
         for (lands[0..m]) |o| if (squaresOverlap(land, chicken_half, o, chicken_half)) return cannot;
     }
-    for (group[0..n]) |g| sc.put(g, plus(sc.pos(g), step));
+    sc.put(i, to);
     for (shoved[0..ns], lands[0..ns]) |c, land| sc.put(c, land);
     return .{};
 }
@@ -1403,6 +1389,8 @@ fn kinOf(c: Critter) ?u8 {
 /// dog (`walk`), `poop_back` behind itself, away from its anchor (the
 /// leashed dog, with none: back along its step).
 fn layDue(sc: *Scene) void {
+    // A pixel-tick's step is under 2 px against a poop each 700 px.
+    std.debug.assert(sc.poop_due <= 1);
     while (sc.poop_due > 0) : (sc.poop_due -= 1) {
         const p = sc.pos(sc.pooper);
         const ahead = if (sc.pooper_anchor) |a| sc.pos(a) else plus(p, sc.step);
