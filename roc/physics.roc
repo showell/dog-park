@@ -7,9 +7,9 @@ import Walk
 ## `pixel_tick`: the leashed dog's step, then the walk and the poop due);
 ## 1, the forage turn after the drag (`forage_turn`, `inc` the leashed dog's
 ## net move over the tick). Either first files the critters into the
-## cells, if the physics lent them clear (`Walk.filed`). Its arguments unpacked into Walk.roc's records
-## and its result laid flat for the host; what a mode does not use it hands
-## back as lent.
+## cells, if the physics lent them clear (`Walk.filed`). Its arguments
+## unpacked into Walk.roc's records and its result laid flat for the host;
+## what a mode does not use it hands back as lent.
 walk = |
 	mode,
 	axis,
