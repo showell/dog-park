@@ -6,8 +6,8 @@ all eight cows into one bunch.**
 
 ## The game
 
-The park is a checkerboard of grass tiles: 64 dogs of four breeds, 8 cows
-and 16 chickens. The world wraps around, top to bottom and side to side
+The park is a checkerboard of grass tiles: 64 dogs of four breeds, 8 cows,
+16 chickens and 4 goats. The world wraps around, top to bottom and side to side
 (a torus), so walking off one edge brings you back on the other.
 
 - **Press a dog to leash it, and drag.** Dogs of its breed follow it, in
@@ -18,6 +18,9 @@ and 16 chickens. The world wraps around, top to bottom and side to side
   and drifts toward a moving cow nearby, nudging its neighbours along. You
   never touch a cow: you herd it with a dog, and the cows keep themselves
   together.
+- **Goats are bold.** A goat walks straight up to a dog moving nearby,
+  and dogs give a goat room, so a goat can push your herd about. Goats
+  stick with goats, and pay the cows no mind.
 - **The herds leave a trail of poop,** and the chickens wander out to eat
   it: quickly enough that the park doesn't fill up, slowly enough that you
   can see where the herds went.
@@ -26,7 +29,7 @@ and 16 chickens. The world wraps around, top to bottom and side to side
 - **Press empty grass and drag** to move your view. **Map** (or `m`)
   shows the whole world, with your view as a rectangle you can drag or
   tap.
-- **Try to drag a cow or a chicken,** or walk your dog straight into
+- **Try to drag a cow, a chicken or a goat,** or walk your dog straight into
   someone, and the park will tell you what it thinks of that.
 - The score at the top counts your biggest herd of cows. **Start over**
   puts every critter back where the game began.
@@ -47,18 +50,20 @@ The Roc is in `roc/`, roughly in the order to read it:
 
 - **`World.roc`**: the world's numbers. Tile and world sizes, the park in
   the middle, each kind of critter (`kinds`: its name, its square's size,
-  the colour the page draws it in when it has no picture), the breeds.
+  its emoji, the colour the page draws it in when it has no emoji), the
+  breeds.
   Change a size here and the whole game follows.
 - **`world.roc`**: the park laid out, by a rule per tile (`tile_spots`:
   a dog of each breed in the corners, then a cow or two chickens by the
-  tile's colour), with `expect`s that hold any layout to the physics'
+  tile's colour, and a goat above the chickens on four blue tiles), with `expect`s that hold any layout to the physics'
   needs (nobody starts overlapping, everyone inside the park). It prints
   the layout for the Zig and the page.
 - **`Rules.roc`**: what a critter does about each critter it sees moving.
   A rule is `Ignore`, `Keep(distance)`, `Herd({ inner, outer })` or
-  `Close(distance)`; a critter's `Sees` record says its rule for kin,
-  dogs, cows and chickens, and its pace. The chickens' foraging and the
-  herd's poop are here too. This is the file to play with first.
+  `Close(distance)`; `rule` says one for every pair of kinds, a `match`
+  the compiler holds to every pair, and `mover` says how each kind takes
+  what it sees, and its pace. The chickens' foraging and the herd's poop
+  are here too. This is the file to play with first.
 - **`Wish.roc`**: a critter's wish, the step it wants, from the moving
   critters around it, by the rules. Its `expect`s read as the rules'
   worked examples.
@@ -127,7 +132,7 @@ it agrees. So a player's park survives a reload, and the server is the
 record.
 
 The critters are drawn as text emoji, so each device draws them in its own
-platform's emoji font: the dogs, cows and chickens look different on an
+platform's emoji font: the critters look different on an
 iPhone, an Android phone and a desktop. The park and the physics are the
 same everywhere; only the pictures differ. (Safari's 3D billboards kept
 their emoji as saved bitmaps instead; Dog Park doesn't, for now.)

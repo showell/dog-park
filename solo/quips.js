@@ -1,4 +1,4 @@
-// **TOUGH LOVE** (Steve, 2026-10-15): cows and chickens can't be dragged
+// **TOUGH LOVE** (Steve, 2026-10-15): cows, chickens and goats can't be dragged
 // (only dogs move them), and a press on one says so, with a joke, so the
 // player learns it once. A press on empty ground still drags the
 // tablecloth (pans the view); a press on a dog leashes it, as ever. And a

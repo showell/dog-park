@@ -98,13 +98,13 @@ against 11.8. Why it costs what it does, and the rules that keep Roc
 fast, are [ROC-SPEED.md](ROC-SPEED.md).
 
 After each pixel-tick of the leashed dog, up to **48** critters move, one
-at a time, out from the leashed dog, **shortest link first.** Only dogs
-and cows: chickens have left the walk (decision 31) and take none of its
-48.
-- the leashed dog lines up its **3** nearest critters, dogs or cows,
+at a time, out from the leashed dog, **shortest link first.** Only the
+kinds that walk (`roc/Rules.roc`'s `walks`: dogs, cows and goats):
+chickens have left the walk (decision 31) and take none of its 48.
+- the leashed dog lines up its **3** nearest critters of the kinds that walk,
   each waiting keyed by its distance from the critter that lined it up;
 - the walk visits the waiting critter with the least key (ties to the
-  lower rank: cows by number, then dogs by number); it works out its
+  lower rank: cows, then dogs, then goats, each by number); it works out its
   wish, steps, and lines up its own 3 nearest not yet visited, from where
   it now stands. A critter already waiting takes the nearer of its keys;
 - so a pack close together is walked to its end before a critter farther
@@ -131,14 +131,19 @@ nearest moving critter's alone.
   gap to touching (a cow farther off pulls nothing); a dog, it
   keeps `wary` from it (decision 24). Cows are, in effect, a slower breed
   that follows its nearest kin instead of the leashed dog.
+- **A goat** heeds only its nearest moving critter too, and is bold: a
+  dog within 120 px, it closes the gap to touching (a dog keeps
+  `cow_room`, 63 px, from a moving goat, as from a cow, so a goat that
+  reaches the herd pushes dogs about); a goat, it herds against it, 35 to
+  120 px off. It heeds no cow, and no cow or chicken heeds it.
 
 Each wish is a step straight away from (or toward) the other, as long as
 the shortfall (or the excess); they add up. The step is the total, cut to
-the pixel-tick's move for a dog and half of it for a cow; a total under
+the pixel-tick's move for a dog and half of it for a cow or a goat; a total under
 the **dead zone** (1 px) is no step. **The veto:** a critter takes its
 step whole, or not at all if its square there would overlap anyone who
 isn't kin. **The nudge**
-(decision 25): kin in the way (a cow for a cow, a dog of its breed for a
+(decision 25): kin in the way (a cow for a cow, a goat for a goat, a dog of its breed for a
 dog, never the leashed dog) take the same step with it, and nudge their
 own kin in turn, up to `nudge_most` (8) in all; if any of them is
 blocked, none moves. Nobody is ever pressed into, and still critters
@@ -222,7 +227,7 @@ it does with none (`zig build physics-bench`).
 **On the wire:** a tick's checked lines add ` poop N x,y` (slot N holds a
 new poop) and ` eaten N` (a poop the region's tiles held is gone), by
 slot, after the critter lines. `tile`, `board` and snapshot entries add
-`chicken N x,y` and `poop N x,y`, and a dog that has walked carries
+`chicken N x,y`, `goat N x,y` (each kind by its name) and `poop N x,y`, and a dog that has walked carries
 `walked H` (hex with a point) after its position. A `board` line names
 every poop in the region's tiles; the page drops its others there.
 
@@ -243,16 +248,19 @@ constants in `physics.zig`.
 | herd band | 42 to 70 px |
 | a dog's room from a cow | 63 px |
 | a cow closes on its nearest moving cow | to touching, only within `cow_pull` 245 px |
+| a goat closes on its nearest moving dog | to touching, only within 120 px |
+| a goat's band from its nearest moving goat | 35 to 120 px |
+| a dog's room from a goat | 63 px |
 | the nudge | `nudge_most` 8 critters, kin only |
 | dead zone | 1 px |
 | the region | the whole world, always |
 | the leash off | 320 ticks (20 s) after the drag ends |
-| the squares | dogs 28 px, cows 42 px, chickens 20 px, poop 12 px |
+| the squares | dogs 28 px, cows 42 px, chickens 20 px, goats 30 px, poop 12 px |
 | poop | every 700 px the leashed dog walks, by the herd's deepest dog, 30 px behind it; else on rings 4 px apart out to 200 px; 2048 slots, in turn; all ripe but the newest |
 | the leashed dog stopped by poop or a chicken | slides 1 px sideways; shoves a chicken first |
 | a shove | the step, plus as much again sideways |
 | a chicken | once a tick; sees ripe poop 500 px off; steps at most half the leashed dog's net move, and 8 px; goes home past 32 px off |
-| the first layout | `roc/world.roc`, through `world.zon` and `layout.zig`: 64 dogs, four to a tile, one breed per corner; 8 cows, one in each white tile; 16 chickens, two side by side in the middle of each blue tile |
+| the first layout | `roc/world.roc`, through `world.zon` and `layout.zig`: 64 dogs, four to a tile, one breed per corner; 8 cows, one in each white tile; 16 chickens, two side by side in the middle of each blue tile; 4 goats, 45 px above the chickens on the blue tiles of the park's even rows and odd columns |
 | the goal | the 8 cows in one herd: linked when within two cow-widths (84 px), round the torus (`scene.js`'s `largestHerd`) |
 
 **Arithmetic.** Positions are integer 256ths; every product is `i64`, and
@@ -431,7 +439,7 @@ let-go timer (320 ticks) runs from 1042.
 | `leash T D` | the human leashed dog D at tick T: the park wakes around it |
 | `grab T` | the pointer went down on the leashed dog at tick T: a drag is on, and any let-go timer stops (a `leash` implies it) |
 | `letgo T` | the drag ended at tick T because the human let go: the let-go ticks (`let_go_ticks`, 320) start |
-| `bump T dog N`, `bump T cow N`, `bump T chicken N`, `bump T poop N` | the drag ended at tick T because the leashed dog pressed into that critter or poop: the let-go ticks start, the leash stays |
+| `bump T dog N`, `bump T cow N`, `bump T chicken N`, `bump T goat N` (each kind by its name), `bump T poop N` | the drag ended at tick T because the leashed dog pressed into that critter or poop: the let-go ticks start, the leash stays |
 | `release T D` | the leash came off dog D at tick T (the let-go ticks ran out, or another dog was grabbed): the park sleeps |
 | `held T c,r …` | from the start of tick T, the page holds these tiles' critters (they arrived with an ack): an input, so the server counts exactly the tiles the page did. A tile list (here and in `view`, `state`) is a set: listed in any order, compared as a set |
 | `view T WxH c,r …` | from the start of tick T, the viewport's size and the tiles the page subscribes: which tiles the server sends, and which stay held. Never an input to the physics. Written whenever the subscription changes: a leash, a release, a pan, a resize, the region reaching new tiles |

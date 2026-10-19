@@ -358,9 +358,9 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
 
 // The overview: a window onto the world (overviewFrame, its top-left `at`),
 // each tile in it a square (white and blue where subscribed, pink where
-// not), each cow a brown dot, each chicken a red speck and each dog a
-// smaller dark dot (pale where its
-// tile is not subscribed: only remembered), the dog leashed last ringed;
+// not), each cow a brown dot, each chicken a red speck, each critter of
+// another kind (a goat) a dot of its kind's colour, and each dog a smaller
+// dark dot (pale where its tile is not subscribed: only remembered), the dog leashed last ringed;
 // the margins over what spills past the window; the view a rectangle; and
 // the two scrollbars.
 export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at, chickens = [], others = []) {

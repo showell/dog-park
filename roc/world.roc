@@ -8,8 +8,7 @@
 ## - `roc roc/world.roc -- js`: solo/world.js, the numbers the page's script
 ##   draws with.
 ##
-## No build runs Roc; this file and roc/World.roc are the one place the
-## world is said.
+## This file and roc/World.roc are the one place the world is said.
 
 ## The world's numbers are roc/World.roc's.
 import World
