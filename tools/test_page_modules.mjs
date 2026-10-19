@@ -101,6 +101,19 @@ test("the page's world is the physics': world.js and the wasm, both printed from
   assert.equal(scene.chicken_px, x.chickenPx());
   assert.equal(scene.poop_px, x.poopPx());
   assert.equal(scene.breeds, x.breeds());
+  // The kinds, in their numbers' order, each its size.
+  assert.deepEqual(scene.kinds.map((k) => k.name), ["dog", "cow", "chicken"]);
+  assert.deepEqual(scene.kinds.map((k) => k.px), [x.dogPx(), x.cowPx(), x.chickenPx()]);
+});
+
+test("a critter with art is its glyph; a kind with none, a square of its colour, its px across, centred where it stands", () => {
+  const at = { viewportX: 100, viewportY: 50 };
+  const goat = { name: "goat", px: 30, colour: "#123456" };
+  assert.deepEqual(scene.critterShape("goat:0", at, goat, undefined, "scenery"),
+    { id: "goat:0", shape: "rect", x: 85, y: 35, w: 30, h: 30, fill: "#123456", role: "scenery" });
+  assert.deepEqual(scene.critterShape("cow:1", at, scene.kinds[1], scene.cow_emoji, "scenery"),
+    { id: "cow:1", shape: "glyph", x: 100, y: 50, w: scene.cow_px, h: scene.cow_px, text: "🐄", fill: "#000", role: "scenery" });
+  for (const k of scene.kinds) assert.match(k.colour, /^#[0-9a-f]{6}$/);
 });
 
 test("the overview frame: the whole world once, a square window as large as fits, its top-left anywhere round the torus", () => {
