@@ -773,6 +773,9 @@ pub const Scene = struct {
         s.poops_changed = false;
     }
 
+    /// The tile a point stands in, `row * span_tiles + col`, from the
+    /// world's (0, 0): the one naming of a poop's tile, for its list
+    /// (`headOf`), the lists `near` walks, and what Roc is lent.
     fn poopTile(p: Point) usize {
         const col: usize = @intCast(@divFloor(@mod(p.x, world), tile));
         const row: usize = @intCast(@divFloor(@mod(p.y, world), tile));
@@ -787,9 +790,8 @@ pub const Scene = struct {
     }
 
     fn headOf(s: *Scene, p: Point) *u16 {
-        const col = @divFloor(@mod(p.x - s.span.col_lo * tile, world), tile);
-        const row = @divFloor(@mod(p.y - s.span.row_lo * tile, world), tile);
-        return &s.poop_head[@intCast(row)][@intCast(col)];
+        const t = poopTile(p);
+        return &s.poop_head[t / span_tiles][t % span_tiles];
     }
 
     fn link(s: *Scene, n: u16) void {
