@@ -72,12 +72,12 @@ pub fn Lent(comptime T: type, comptime most: usize) type {
     };
 }
 
-/// Seen critter `j` (roc/Walk.roc's `Crit`): where it stands, and the cell
-/// it stands in (grid.zig's `cellOf`); its square's half side; its kind (physics.zig's `Kind`); its kin, who it
+/// Seen critter `j` (roc/Walk.roc's `Crit`): where it stands (Roc works
+/// out its cell); its square's half side; its kind (physics.zig's `Kind`); its kin, who it
 /// nudges (a dog its breed, a cow the breeds' count, a chicken `no_kin`);
 /// and its key while it waits to be visited: `not_lined_up`, or `visited`
 /// (the leashed dog is lent as visited: the walk starts from it).
-pub const Crit = extern struct { key: i64, half: i32, x: i32, y: i32, cell: u16, kin: u8, kind: u8 };
+pub const Crit = extern struct { key: i64, half: i32, x: i32, y: i32, kin: u8, kind: u8 };
 pub const no_kin: u8 = 255;
 
 /// What stopped the leashed dog (roc/Walk.roc's `Bump`): nothing, the seen

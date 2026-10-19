@@ -36,7 +36,7 @@ Poop : { slot : U16, x : I32, y : I32 }
 
 Home : { x : I32, y : I32 }
 
-Crit : { cell : U16, half : I32, key : I64, kin : U8, kind : U8, x : I32, y : I32 }
+Crit : { half : I32, key : I64, kin : U8, kind : U8, x : I32, y : I32 }
 
 Walked : {
 	anchor : I32,

@@ -24,13 +24,13 @@ Walk := [].{
 	## A point, or a vector.
 	Pt : { x : I32, y : I32 }
 
-	## Seen critter `j`: where it stands, and the cell it stands in; its
+	## Seen critter `j`: where it stands (its cell is `cell_at` of it); its
 	## square's half side; its kind (0 a dog, 1 a cow, 2 a chicken); its
 	## kin, who it nudges and is nudged by (a dog its breed, a cow the
 	## breeds' count: every cow is kin to every cow; a chicken 255, none);
 	## and its key while it waits to be visited (`not_lined_up`; `visited`,
 	## or the leashed dog, which the walk starts from).
-	Crit : { cell : U16, half : I32, key : I64, kin : U8, kind : U8, x : I32, y : I32 }
+	Crit : { half : I32, key : I64, kin : U8, kind : U8, x : I32, y : I32 }
 
 	## A key's two marks, as roc_physics.zig's `not_lined_up` and `visited`
 	## number them.
@@ -1030,19 +1030,53 @@ Walk := [].{
 		$park
 	}
 
+	## The cell a point stands in, round the torus, `row * side + col` (the
+	## physics lends some critters off the world's square: src/play/grid.zig's
+	## `cellOf` wraps alike).
+	cell_at : I32, I32 -> U64
+	cell_at = |x, y| ((y.mod_by(world) // cell) * side + x.mod_by(world) // cell).to_u64_wrap()
+
+	## **THE PARK FILED**: each critter's bit in the cell it stands in.
+	## The physics lends the cells all clear when it starts a tick's park
+	## (src/play/physics.zig's `Scene.init`), and lends them back as this
+	## left them for the rest of the tick; filed, the leashed dog's own bit
+	## is set, so that bit tells which. Every call files before it walks.
+	filed : Park -> Park
+	filed = |park0| {
+		{ cells: c0, crits: k0 } = park0
+		words = c0.len() // (side * side).to_u64_wrap()
+		dog0 = get_c(k0, 0)
+		if get_u64(c0, cell_at(dog0.x, dog0.y) * words).bitwise_and(1) == 1 {
+			{ cells: c0, crits: k0 }
+		} else {
+			n = k0.len()
+			var $cells = c0
+			var $j = 0
+			while $j < n {
+				c = get_c(k0, $j)
+				at = cell_at(c.x, c.y) * words + $j // 64
+				word = get_u64($cells, at).bitwise_or((1).shl_wrap(($j % 64).to_u8_wrap()))
+				$cells = put($cells, at, word)
+				$j = $j + 1
+			}
+			{ cells: $cells, crits: k0 }
+		}
+	}
+
 	## Seen critter `j` to `p` (in the world), and into its cell there.
 	move_to : Seen, Park, U64, Pt -> Park
 	move_to = |s, park, j, p| {
 		{ cells, crits: crits0 } = park
 		c = get_c(crits0, j)
-		now_in = ((p.y // cell) * side + p.x // cell).to_u16_wrap()
-		crits = put(crits0, j, { ..c, x: p.x, y: p.y, cell: now_in })
-		if now_in == c.cell {
+		was_in = cell_at(c.x, c.y)
+		now_in = cell_at(p.x, p.y)
+		crits = put(crits0, j, { ..c, x: p.x, y: p.y })
+		if now_in == was_in {
 			{ cells, crits }
 		} else {
 			bit = (1).shl_wrap((j % 64).to_u8_wrap())
-			was = c.cell.to_u64() * s.words + j // 64
-			now = now_in.to_u64() * s.words + j // 64
+			was = was_in * s.words + j // 64
+			now = now_in * s.words + j // 64
 			left = get_u64(cells, was).bitwise_and(bit.bitwise_not())
 			cells1 = put(cells, was, left)
 			came = get_u64(cells1, now).bitwise_or(bit)
@@ -1326,14 +1360,15 @@ Walk := [].{
 	forage_move = |s, park, j, p| {
 		{ cells, crits: crits0 } = park
 		c = get_c(crits0, j)
-		now_in = ((p.y // cell) * side + p.x // cell).to_u16_wrap()
-		crits = put(crits0, j, { ..c, x: p.x, y: p.y, cell: now_in })
-		if now_in == c.cell {
+		was_in = cell_at(c.x, c.y)
+		now_in = cell_at(p.x, p.y)
+		crits = put(crits0, j, { ..c, x: p.x, y: p.y })
+		if now_in == was_in {
 			{ cells, crits }
 		} else {
 			bit = (1).shl_wrap((j % 64).to_u8_wrap())
-			was = c.cell.to_u64() * s.words + j // 64
-			now = now_in.to_u64() * s.words + j // 64
+			was = was_in * s.words + j // 64
+			now = now_in * s.words + j // 64
 			left = get_u64(cells, was).bitwise_and(bit.bitwise_not())
 			cells1 = put(cells, was, left)
 			came = get_u64(cells1, now).bitwise_or(bit)
@@ -1553,33 +1588,20 @@ Walk := [].{
 ## the leashed dog first; dogs of breed 0, so kin to it.
 crit = |kind, kin, x, y| {
 	half = if (kind == 1) 21 * 256 else if (kind == 2) 10 * 256 else 14 * 256
-	{ cell: 0, half, key: Walk.not_lined_up, kin, kind, x: x * 256, y: y * 256 }
+	{ half, key: Walk.not_lined_up, kin, kind, x: x * 256, y: y * 256 }
 }
 
 dog = |x, y| crit(0, 0, x, y)
 
-one : U64
-one = 1
-
 ## The park of `cs`: each in its cell, the leashed dog visited.
 park_of = |cs| {
-	var $cells = List.repeat(0, (Walk.side * Walk.side).to_u64_wrap())
 	var $crits = []
 	var $j = 0
 	for c in cs {
-		cl = (c.y // Walk.cell) * Walk.side + c.x // Walk.cell
-		$crits = $crits.append({
-			..c,
-			cell: cl.to_u16_wrap(),
-			key: if ($j == 0) Walk.visited else Walk.not_lined_up,
-		})
-		$cells = $cells.update(
-			cl.to_u64_wrap(),
-			|w| w.bitwise_or(one.shl_wrap($j.to_u8_wrap())),
-		) ?? $cells
+		$crits = $crits.append({ ..c, key: if ($j == 0) Walk.visited else Walk.not_lined_up })
 		$j = $j + 1
 	}
-	{ cells: $cells, crits: $crits }
+	Walk.filed({ cells: List.repeat(0, (Walk.side * Walk.side).to_u64_wrap()), crits: $crits })
 }
 
 ## The walk of `cs` with no poop, or with one poop at `(px, py)` px in
@@ -1601,7 +1623,7 @@ walk_poop = |cs, px, py, t| {
 
 place = |r, j| match r.work.park.crits.get(j) {
 	Ok(c) => Walk.pt(c)
-	Err(_) => Walk.pt({ cell: 0, half: 0, key: 0, kin: 0, kind: 0, x: -1, y: -1 })
+	Err(_) => Walk.pt({ half: 0, key: 0, kin: 0, kind: 0, x: -1, y: -1 })
 }
 
 ## One pixel-tick of `cs`, no poop: the leashed dog's step `inc` along

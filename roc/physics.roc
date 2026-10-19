@@ -6,7 +6,8 @@ import Walk
 ## The physics' one call into Roc, by `mode`: 0, one pixel-tick (Walk.roc's
 ## `pixel_tick`: the leashed dog's step, then the walk and the poop due);
 ## 1, the forage turn after the drag (`forage_turn`, `inc` the leashed dog's
-## net move over the tick). Its arguments unpacked into Walk.roc's records
+## net move over the tick). Either first files the critters into the
+## cells, if the physics lent them clear (`Walk.filed`). Its arguments unpacked into Walk.roc's records
 ## and its result laid flat for the host; what a mode does not use it hands
 ## back as lent.
 walk = |
@@ -25,10 +26,11 @@ walk = |
 	eaten,
 	moving,
 | {
+	{ cells: filed_cells, crits: filed_crits } = Walk.filed({ cells, crits })
 	if mode == 0 {
 		r = Walk.pixel_tick(
 			{ from, poops, side },
-			{ depth, moving, park: { cells, crits } },
+			{ depth, moving, park: { cells: filed_cells, crits: filed_crits } },
 			axis,
 			inc,
 			before,
@@ -52,7 +54,7 @@ walk = |
 			walked: r.walked,
 		}
 	} else {
-		t = Walk.forage_turn({ from, poops, side }, { cells, crits }, homes, eaten, inc, laid)
+		t = Walk.forage_turn({ from, poops, side }, { cells: filed_cells, crits: filed_crits }, homes, eaten, inc, laid)
 		{
 			anchor: -1,
 			bump_at: 0,

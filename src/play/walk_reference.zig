@@ -536,11 +536,12 @@ fn moveTo(t: *Tick, j: usize, p: Pt) void {
     const c = &t.crits[j];
     c.x = p.x;
     c.y = p.y;
-    c.cell = cellOf(p);
 }
 
+/// The cell a point stands in, round the torus (some critters are lent off
+/// the world's square, and stay there until they move).
 pub fn cellOf(p: Pt) u16 {
-    return @intCast(@divTrunc(p.y, cell_side) * cells_a_side + @divTrunc(p.x, cell_side));
+    return @intCast(@divFloor(@mod(p.y, world_side), cell_side) * cells_a_side + @divFloor(@mod(p.x, world_side), cell_side));
 }
 
 // ── the torus ──────────────────────────────────────────────────────────
@@ -627,7 +628,7 @@ pub fn Judge(comptime seen_most: usize, comptime moving_most: usize) type {
             if (crits.len != self.n) self.differ("critter count", 0, @intCast(self.n), @intCast(crits.len));
             // Places first, every critter's, then the rest: a place is
             // nearer the cause than the keys it changes.
-            inline for (.{ "x", "y", "cell", "key", "half", "kin", "kind" }) |f| {
+            inline for (.{ "x", "y", "key", "half", "kin", "kind" }) |f| {
                 for (self.crits[0..self.n], crits, 0..) |a, b, j| {
                     if (@field(a, f) != @field(b, f)) self.differ("crit." ++ f, j, @intCast(@field(a, f)), @intCast(@field(b, f)));
                 }
@@ -639,12 +640,13 @@ pub fn Judge(comptime seen_most: usize, comptime moving_most: usize) type {
             for (self.moving[0..r.moving_len], moving, 0..) |a, b, k| {
                 if (a != b) self.differ("moving", k, a, b);
             }
-            // The Roc's cells hold each critter in the cell it says, and no more.
+            // The Roc's cells hold each critter in the cell its point stands in, and no more.
             var bits: usize = 0;
             for (cells) |word| bits += @popCount(word);
             if (bits != self.n) self.differ("cells' critters", 0, @intCast(self.n), @intCast(bits));
             for (crits, 0..) |c, j| {
-                if (cells[@as(usize, c.cell) * words + j / 64] & (@as(u64, 1) << @intCast(j % 64)) == 0) self.differ("cells: not in its cell", j, c.cell, -1);
+                const at_cell = cellOf(.{ .x = c.x, .y = c.y });
+                if (cells[@as(usize, at_cell) * words + j / 64] & (@as(u64, 1) << @intCast(j % 64)) == 0) self.differ("cells: not in its cell", j, at_cell, -1);
             }
         }
     };

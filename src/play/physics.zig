@@ -711,9 +711,11 @@ pub const Scene = struct {
     poops_changed: bool = true,
     /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210; grid.zig): seen
     /// index `j` is in the cell of the world its point stands in (`cell` a
-    /// side), kept by `put` on every move. Its cells are the very list the
-    /// walk lends Roc (roc/Walk.roc's `cells`), which Roc keeps as it moves
-    /// critters and hands back: no rebuild for a walk.
+    /// side). Roc keeps them (roc/Walk.roc's `cells`): `init` clears the
+    /// storage, Roc's first call of the tick files the critters (`filed`),
+    /// and every call moves their bits as it moves them, in this very list,
+    /// lent in place. This side only checks them, in the tests
+    /// (`bucketsHold`).
     cells: Grid = .{},
 
     pub fn of(b: *Board) ?Scene {
@@ -734,7 +736,6 @@ pub const Scene = struct {
             if (k != leashed_kind or i != l) s.consider(.of(k, @intCast(i)), span, l);
         };
         s.cells.clear();
-        for (s.at[0..s.len], 0..) |p, j| s.cells.add(j, p.x, p.y);
         s.poop_listed = .initEmpty();
         s.poop_head = @splat(@splat(no_poop));
         s.poop_laid = .initEmpty();
@@ -854,14 +855,11 @@ pub const Scene = struct {
         return s.at[i];
     }
 
-    /// Seen critter `i` to `to`, wrapped into the world. After a walk
-    /// (`takeCrits`) Roc has already moved its bit in the lent cells, so
-    /// the grid's `move` sets what is set and clears what is clear, and
-    /// brings `cell_of` up to date.
+    /// Seen critter `i` to `to`, wrapped into the world (after a walk,
+    /// `takeCrits`: Roc has already moved its bit in the lent cells).
     pub fn put(s: *Scene, i: usize, to: Point) void {
         const p = wrapped(to);
         s.at[i] = p;
-        s.cells.move(i, p.x, p.y);
         s.board.put(s.seen[i].who, p);
     }
 
@@ -1055,7 +1053,7 @@ fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
 ///
 /// **WALKED IN ROC** (roc/Walk.roc, through roc_physics.zig), with the
 /// leashed dog's step before it: this lends it the seen critters (where
-/// each stands and its cell, what it is) and the cells' sets of them, the
+/// each stands, what it is) and the cells' sets of them, the
 /// poops by tile, and room for its working lists; Roc moves the critters
 /// in place and hands the lists back, and this puts each critter it moved
 /// where it left it, and, if the leashed dog moved, takes the walk's visit
@@ -1091,8 +1089,8 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
 }
 
 /// The seen critters and the poops for Roc (roc_physics.zig's `Walk`):
-/// the poops by tile, again if they changed; each critter, where it stands
-/// and its cell, what it is, its kin, and its key (the leashed dog, seen
+/// the poops by tile, again if they changed; each critter, where it stands,
+/// what it is, its kin, and its key (the leashed dog, seen
 /// index 0, visited: the walk starts from it); and the cells' sets of them.
 fn lendCrits(sc: *Scene) void {
     const w = &sc.roc_walk;
@@ -1102,7 +1100,6 @@ fn lendCrits(sc: *Scene) void {
         w.crits.push(.{
             .x = p.x,
             .y = p.y,
-            .cell = sc.cells.cell_of[j],
             .half = o.half,
             .kind = @intFromEnum(o.who.kind),
             .kin = kinOf(o.who) orelse roc.no_kin,
