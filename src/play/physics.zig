@@ -125,12 +125,9 @@ comptime {
     // their order only if the slots divide 2^32.
     if (!std.math.isPowerOfTwo(poop_count)) @compileError("rules.zon: the poop slots must be a power of two");
 }
-/// How far behind its dog a poop lands, centre to centre; taken, the
-/// spots tried next are on rings `poop_grid` apart around it, out to
-/// `poop_reach`.
-pub const poop_back: i32 = px(rules.rules.poop.back);
-pub const poop_reach: i32 = px(rules.rules.poop.reach);
-pub const poop_grid: i32 = px(rules.rules.poop.grid);
+// Where a poop lands (`poop_back` behind its dog, else on rings
+// `poop_grid` apart out to `poop_reach`) is roc/Walk.roc's `lay`, after the
+// pixel-tick's walk; Zig places it (`placePoop`).
 /// **THE CHICKENS' TURN** (decision 31): a chicken sees ripe poop this far
 /// off; it steps at most half the leashed dog's net move in the tick, and
 /// at most `chicken_step`; with nothing to forage it walks home when it is
@@ -211,28 +208,9 @@ pub inline fn measureOf(r: i64) i64 {
 }
 
 /// The length a `measure` stands for: itself. A vector's every axis is at
-/// most it (`quotientAlong`).
+/// most it.
 pub inline fn lengthOf(k: i64) i64 {
     return k;
-}
-
-/// **A WISH'S AXIS: `@divTrunc(c × length, l)`, FOR |c| ≤ l** (202), where
-/// `l` > 0 is the `lengthOf` length of the vector `c` is an axis of, so
-/// |c| ≤ `l` (an axis is at most the larger axis), and `length` >
-/// minInt(i32). Truncated toward zero, it is the magnitudes' quotient with
-/// the product's sign, at most |`length`| < 2³¹: so it is worked in
-/// unsigned magnitudes, and the narrowings ReleaseSafe would check cannot
-/// fail. The magnitudes are nearly always below 2³² (`wary` × `wary` is),
-/// where an unsigned 32-bit division is cheaper than a 64-bit one
-/// natively. Not on wasm, where V8's 64-bit division measured as fast as
-/// the branches around a 32-bit one: there it is `@divTrunc` itself.
-pub inline fn quotientAlong(c: i32, length: i32, l: i64) i32 {
-    if (comptime @import("builtin").cpu.arch.isWasm()) return @intCast(@divTrunc(@as(i64, c) * length, l));
-    const m: u64 = @as(u64, @abs(c)) * @abs(length);
-    const d: u64 = @bitCast(l);
-    const q: u64 = if (m >> 32 == 0 and d >> 32 == 0) @as(u32, @truncate(m)) / @as(u32, @truncate(d)) else m / d;
-    const r: i32 = @bitCast(@as(u32, @truncate(q)));
-    return if ((c < 0) != (length < 0)) -%r else r;
 }
 
 /// Numbered as roc/Wish.roc's `kind_of` reads them across the boundary.
@@ -688,15 +666,6 @@ pub const Scene = struct {
     /// seen critter took: who is nudged, shoved or blocks first follows it.
     seen_cells: [span_cells][span_cells]SeenSet = undefined,
     seen_cell: [critter_count]u16 = undefined,
-    /// The poops the leashed dog's walk has crossed `poop_every` for since
-    /// the last were laid (`layDue`, after the pixel-tick's walk).
-    poop_due: u32 = 0,
-    /// The last walk's deepest dog of the leashed dog's breed (ties to the
-    /// later visited), and its anchor: who poops, and which way is behind.
-    pooper: usize = 0,
-    pooper_anchor: ?usize = null,
-    /// The leashed dog's step this pixel-tick: behind it is the other way.
-    step: Point = .{ .x = 0, .y = 0 },
 
     pub fn of(b: *Board) ?Scene {
         var s: Scene = undefined;
@@ -709,10 +678,6 @@ pub const Scene = struct {
         s.board = b;
         s.len = 0;
         s.walk_len = 0;
-        s.poop_due = 0;
-        s.pooper = 0;
-        s.pooper_anchor = null;
-        s.step = .{ .x = 0, .y = 0 };
         const span = TileSpan.of(region(b.dogs[l]));
         s.span = span;
         s.add(.dog(l), l);
@@ -891,14 +856,14 @@ pub const Scene = struct {
     }
 
     /// The leashed dog (seen index 0) walked `len` more, each of its moves
-    /// by its larger axis: each `poop_every` it crosses is a poop due after
-    /// the walk (`layDue`).
-    pub fn walkOn(s: *Scene, len: u32) void {
+    /// by its larger axis: how many `poop_every` it crossed, the poops due
+    /// (roc/Walk.roc's `poops_due` counts them alike, and lays them).
+    pub fn walkOn(s: *Scene, len: u32) u32 {
         const n = s.seen[0].who.n;
         const before = s.board.walked[n];
         const after = before +| len;
         s.board.walked[n] = after;
-        s.poop_due += after / poop_every - before / poop_every;
+        return after / poop_every - before / poop_every;
     }
 };
 
@@ -1065,14 +1030,20 @@ fn playDrag(sc: *Scene, drag: []const Disp) ?Bumped {
 /// through `walk`): the leashed dog takes the step, stopping just short of
 /// pressing into anyone; stopped by a chicken it shoves it, by a poop or a
 /// chicken it can't shove it slides sideways, and it bumps when that fails
-/// too, or a dog or a cow at once. Then, if it moved, the walk, and here
-/// the poops that came due.
+/// too, or a dog or a cow at once. Then, if it moved, the walk, and where
+/// the poop that came due lands (`lay`), which is placed here.
 fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
     if (inc == 0) return null;
     const r = walk(sc, axis, inc);
-    sc.walkOn(r.walked);
-    sc.step = r.step;
-    if (sc.step.x != 0 or sc.step.y != 0) layDue(sc);
+    const due = sc.walkOn(r.walked);
+    // A pixel-tick's walk is under 2 px against a poop each 700 px; and a
+    // walk that came to no step is no move (the poop due waits for none).
+    std.debug.assert(due <= 1);
+    std.debug.assert(due == 0 or r.step.x != 0 or r.step.y != 0);
+    if (r.poop) |p| {
+        std.debug.assert(due == 1);
+        placePoop(sc, p.slot, p.at);
+    }
     if (builtin.is_test) std.debug.assert(sc.bucketsHold());
     return r.bumped;
 }
@@ -1095,10 +1066,11 @@ fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
 /// poops by tile, and room for its working lists; Roc moves the critters
 /// in place and hands the lists back, and this puts each critter it moved
 /// where it left it, and, if the leashed dog moved, takes the walk's visit
-/// order and the pooper. Neither side allocates.
+/// order and the poop it laid, if one came due. Neither side allocates.
 fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
     const w = &sc.roc_walk;
     if (sc.poops_changed) sc.lendPoops();
+    const before = sc.board.walked[sc.seen[0].who.n];
     w.crits.len = 0;
     w.cellsClear();
     for (sc.list(), sc.at[0..sc.len], 0..) |o, p, j| {
@@ -1116,7 +1088,7 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
     const r = w.run(switch (axis) {
         .x => 0,
         .y => 1,
-    }, inc);
+    }, inc, before, sc.board.laid);
     for (w.crits.slice(), 0..) |c, j| {
         if (c.x != sc.at[j].x or c.y != sc.at[j].y) sc.put(j, .{ .x = c.x, .y = c.y });
     }
@@ -1125,10 +1097,9 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
         const moving = w.moving.slice();
         sc.walk_len = moving.len - 1;
         for (moving[1..], 0..) |j, k| sc.walk[k] = @intCast(critterIndex(sc.seen[j].who));
-        sc.pooper = r.pooper;
-        sc.pooper_anchor = if (r.anchor < 0) null else @intCast(r.anchor);
     }
-    return .{ .step = step, .walked = @intCast(r.walked), .bumped = switch (r.bump_kind) {
+    const poop: ?Laid = if (r.poop_slot < 0) null else .{ .slot = @intCast(r.poop_slot), .at = .{ .x = r.poop_x, .y = r.poop_y } };
+    return .{ .step = step, .walked = @intCast(r.walked), .poop = poop, .bumped = switch (r.bump_kind) {
         roc.bump_none => null,
         roc.bump_critter => .{ .critter = sc.seen[@intCast(r.bump_at)].who },
         roc.bump_poop => .{ .poop = @intCast(r.bump_at) },
@@ -1138,7 +1109,9 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
 
 /// What a pixel-tick did to the leashed dog: its net step, how far it
 /// walked (each of its moves by its larger axis), and what it bumped.
-const Stepped = struct { step: Point, walked: u32, bumped: ?Bumped };
+const Stepped = struct { step: Point, walked: u32, poop: ?Laid, bumped: ?Bumped };
+/// A poop the walk laid: its slot, and where (roc/Walk.roc's `Laid`).
+const Laid = struct { slot: u16, at: Point };
 
 /// `pace` of `v`, rounded toward zero; known at compile time, so a share of
 /// one is `v` itself and a half is `@divTrunc(v, 2)`.
@@ -1258,67 +1231,6 @@ fn kinOf(c: Critter) ?u8 {
     };
 }
 
-/// **THE HERD POOPS** (decision 29), once for each `poop_every` the
-/// leashed dog's step crossed, after the pixel-tick's walk: its deepest
-/// dog (`walk`), `poop_back` behind itself, away from its anchor (the
-/// leashed dog, with none: back along its step).
-fn layDue(sc: *Scene) void {
-    // A pixel-tick's step is under 2 px against a poop each 700 px.
-    std.debug.assert(sc.poop_due <= 1);
-    while (sc.poop_due > 0) : (sc.poop_due -= 1) {
-        const p = sc.pos(sc.pooper);
-        const ahead = if (sc.pooper_anchor) |a| sc.pos(a) else plus(p, sc.step);
-        layPoop(sc, plus(p, away(ahead, p, poop_back)));
-    }
-}
-
-/// A poop into slot `laid` mod `poop_count`, at `spot` if it fits there
-/// (`poopFits`), else at the nearest spot that does on rings `poop_grid`
-/// apart around it, out to `poop_reach`, each walked clockwise from its
-/// north-west corner. With no such spot, no poop.
-fn layPoop(sc: *Scene, spot: Point) void {
-    const slot: u16 = @intCast(sc.board.laid % poop_count);
-    if (tryPoop(sc, slot, spot, 0, 0)) return;
-    var r: i32 = poop_grid;
-    while (r <= poop_reach) : (r += poop_grid) {
-        const side = @divExact(2 * r, poop_grid);
-        var k: i32 = 0;
-        while (k < 4 * side) : (k += 1) {
-            const off = @mod(k, side) * poop_grid;
-            const d: Point = switch (@divFloor(k, side)) {
-                0 => .{ .x = -r + off, .y = -r },
-                1 => .{ .x = r, .y = -r + off },
-                2 => .{ .x = r - off, .y = r },
-                else => .{ .x = -r, .y = r - off },
-            };
-            if (tryPoop(sc, slot, spot, d.x, d.y)) return;
-        }
-    }
-}
-
-fn tryPoop(sc: *Scene, slot: u16, p: Point, dx: i32, dy: i32) bool {
-    const q = wrapped(.{ .x = p.x + dx, .y = p.y + dy });
-    if (!poopFits(sc, q, slot)) return false;
-    placePoop(sc, slot, q);
-    return true;
-}
-
-/// Whether a poop at `q` overlaps no critter and no other poop the physics
-/// sees.
-fn poopFits(sc: *const Scene, q: Point, slot: u16) bool {
-    var near = sc.critters(q, poop_half + cow_half);
-    var it = near.iterator(.{});
-    while (it.next()) |j| {
-        if (squaresOverlap(q, poop_half, sc.pos(j), sc.seen[j].half)) return false;
-    }
-    var poops = sc.near(q, 2 * poop_half);
-    while (poops.next()) |n| {
-        if (n == slot) continue;
-        if (squaresOverlap(q, poop_half, sc.board.poops[n], poop_half)) return false;
-    }
-    return true;
-}
-
 fn placePoop(sc: *Scene, slot: u16, q: Point) void {
     const listed = sc.poop_listed.isSet(slot);
     if (sc.poop_start.isSet(slot) and !sc.poop_laid.isSet(slot)) sc.poop_was[slot] = sc.board.poops[slot];
@@ -1385,21 +1297,6 @@ fn nearestRipe(sc: *const Scene, p: Point) ?Point {
 fn add(total: *Point, w: Point) void {
     total.x += w.x;
     total.y += w.y;
-}
-
-/// A wish `length` long, straight away from `from`, for the critter at
-/// `p`; when the centres coincide, east.
-fn away(from: Point, p: Point, length: i32) Point {
-    const v = delta(from, p);
-    if (v.x == 0 and v.y == 0) return .{ .x = length, .y = 0 };
-    return wishAlong(v, length);
-}
-
-/// A wish `length` long along `v`: each axis of `v` times the length,
-/// divided by `v`'s length (its larger axis), truncated toward zero.
-pub fn wishAlong(v: Point, length: i32) Point {
-    const l = measure(v);
-    return .{ .x = quotientAlong(v.x, length, l), .y = quotientAlong(v.y, length, l) };
 }
 
 /// Every overlapping pair among the critters the physics sees, by the

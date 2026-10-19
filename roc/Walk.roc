@@ -195,13 +195,15 @@ Walk := [].{
 
 	## **ONE PIXEL-TICK** (decision 30): the leashed dog's step `inc` along
 	## `axis` (0 x, 1 y; `drag`), then, if it moved, the walk after it, of
-	## the size it moved. Hands back the work; what the dog bumped; its step;
-	## and how far it walked, each of its moves by its larger axis, for the
-	## physics' poop count.
-	Ticked : { bump : Bump, step : Pt, walk : Walked, walked : I32 }
+	## the size it moved, and where the poop that came due lands (`lay`):
+	## the dog had walked `before` (Zig's `Board.walked`), and `laid` poops
+	## are laid. Hands back the work; what the dog bumped; its step; how far
+	## it walked, each of its moves by its larger axis, for the physics'
+	## count; and the poop (`no_poop`, none).
+	Ticked : { bump : Bump, poop : Laid, step : Pt, walk : Walked, walked : I32 }
 
-	pixel_tick : Lent, Work, I32, I32 -> Ticked
-	pixel_tick = |lent, work0, axis, inc| {
+	pixel_tick : Lent, Work, I32, I32, U32, U32 -> Ticked
+	pixel_tick = |lent, work0, axis, inc, before, laid| {
 		s = {
 			from: lent.from,
 			poops: lent.poops,
@@ -215,10 +217,152 @@ Walk := [].{
 		step = delta(from, pt(get_c(k1, 0)))
 		work1 = { depth, moving, park: { cells: c1, crits: k1 } }
 		if step.x == 0 and step.y == 0 {
-			{ bump, step, walk: { anchor: -1, pooper: 0, work: work1 }, walked }
+			{ bump, poop: no_poop, step, walk: { anchor: -1, pooper: 0, work: work1 }, walked }
 		} else {
-			{ bump, step, walk: walk(lent, work1, measure(step)), walked }
+			w = walk(lent, work1, measure(step))
+			{ anchor, pooper, work: work2 } = w
+			{ depth: d2, moving: m2, park: park2 } = work2
+			{ cells: c2, crits: k2 } = park2
+			poop = if poops_due(before, walked) == 0 {
+				no_poop
+			} else {
+				lay(s, k2, { anchor, pooper, step, laid })
+			}
+			{ bump, poop, step, walk: { anchor, pooper, work: { depth: d2, moving: m2, park: { cells: c2, crits: k2 } } }, walked }
 		}
+	}
+
+	## **THE HERD POOPS** (decision 29), each `poop_every` the leashed dog
+	## walks (Rules.roc's `poop`, in 256ths), counted as Zig's
+	## `Scene.walkOn` counts it, in 32 bits that stop at their top. A
+	## pixel-tick's walk is under 2 px against a poop each 700, so at most
+	## one comes due in it.
+	poop_every : U64
+	poop_every = (Rules.poop.every * 256).to_u64_wrap()
+
+	poop_back : I32
+	poop_back = (Rules.poop.back * 256).to_i32_wrap()
+
+	poop_grid : I32
+	poop_grid = (Rules.poop.grid * 256).to_i32_wrap()
+
+	poop_reach : I32
+	poop_reach = (Rules.poop.reach * 256).to_i32_wrap()
+
+	poop_slots : U64
+	poop_slots = Rules.poop.slots.to_u64_wrap()
+
+	poops_due : U32, I32 -> U64
+	poops_due = |before, walked| {
+		b = before.to_u64()
+		a = b + walked.to_u64_wrap()
+		after = if (a > 4294967295) 4294967295 else a
+		due = after // poop_every - b // poop_every
+		if due > 1 {
+			crash "Walk: two poops due in one pixel-tick"
+		} else {
+			due
+		}
+	}
+
+	## Where a poop landed, and its slot: `laid` mod the slots. `no_poop`:
+	## none due, or no spot it fits.
+	Laid : { slot : I32, x : I32, y : I32 }
+
+	no_poop : Laid
+	no_poop = { slot: -1, x: 0, y: 0 }
+
+	## Who poops after the walk: the pooper and its anchor (-1, none), by
+	## seen index; the leashed dog's step; the poops laid so far.
+	Pooping : { anchor : I32, laid : U32, pooper : I32, step : Pt }
+
+	## **WHERE THE POOP LANDS**: the pooper's spot `poop_back` behind
+	## itself, away from its anchor (with none, back along the leashed dog's
+	## step), if it fits there (`poop_fits`); else the nearest spot that
+	## does on rings `poop_grid` apart around it, out to `poop_reach`, each
+	## walked clockwise from its north-west corner. With none, no poop.
+	lay : Seen, List(Crit), Pooping -> Laid
+	lay = |s, crits, how| {
+		p = pt(get_c(crits, how.pooper.to_u64_wrap()))
+		ahead = if (how.anchor >= 0) pt(get_c(crits, how.anchor.to_u64_wrap())) else plus(p, how.step)
+		spot = plus(p, away_from(ahead, p, poop_back))
+		slot = (how.laid.to_u64() % poop_slots).to_u16_wrap()
+		var $at = wrapped(spot)
+		var $found = poop_fits(s, crits, $at, slot)
+		var $r = poop_grid
+		while !$found and $r <= poop_reach {
+			side_n = 2 * $r // poop_grid
+			var $k = 0
+			while !$found and $k < 4 * side_n {
+				off = ($k % side_n) * poop_grid
+				corner = $k // side_n
+				r = $r
+				d = if corner == 0 {
+					{ x: off - r, y: 0 - r }
+				} else if corner == 1 {
+					{ x: r, y: off - r }
+				} else if corner == 2 {
+					{ x: r - off, y: r }
+				} else {
+					{ x: 0 - r, y: r - off }
+				}
+				$at = wrapped(plus(spot, d))
+				$found = poop_fits(s, crits, $at, slot)
+				$k = $k + 1
+			}
+			$r = $r + poop_grid
+		}
+		if ($found) { slot: slot.to_i32(), x: $at.x, y: $at.y } else no_poop
+	}
+
+	## A vector `length` long straight away from `from`, for the critter at
+	## `p`, each axis truncated toward zero; east when the centres coincide.
+	## (The wish's own `away` is its hot loop's: this is the poop's.)
+	away_from : Pt, Pt, I32 -> Pt
+	away_from = |from, p, length| {
+		v = delta(from, p)
+		if v.x == 0 and v.y == 0 {
+			{ x: length, y: 0 }
+		} else {
+			l = measure(v).to_i64()
+			{ x: (v.x.to_i64() * length.to_i64() // l).to_i32_wrap(), y: (v.y.to_i64() * length.to_i64() // l).to_i32_wrap() }
+		}
+	}
+
+	## Whether a poop at `q` overlaps no seen critter and no poop the physics
+	## sees but the one in `slot`, which it takes the place of. Every
+	## critter is looked at, and the poops of the tiles its square meets:
+	## a poop comes due each 700 px walked, so this is no hot loop.
+	poop_fits : Seen, List(Crit), Pt, U16 -> Bool
+	poop_fits = |s, crits, q, slot| {
+		var $ok = Bool.True
+		var $j = 0
+		while $ok and $j < crits.len() {
+			c = get_c(crits, $j)
+			$ok = !overlap(q, poop_half, pt(c), c.half)
+			$j = $j + 1
+		}
+		reach = 2 * poop_half
+		cols = span(q.x, reach, tile, tiles)
+		rows = span(q.y, reach, tile, tiles)
+		var $r = 0
+		while $ok and $r < rows.n {
+			row = (rows.lo + $r).mod_by(tiles)
+			var $c = 0
+			while $ok and $c < cols.n {
+				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				var $k = (get_u16(s.from, t)).to_u64()
+				stop = (get_u16(s.from, t + 1)).to_u64()
+				while $ok and $k < stop {
+					o = get_poop(s, $k)
+					$ok = o.slot == slot or !overlap(q, poop_half, { x: o.x, y: o.y }, poop_half)
+					$k = $k + 1
+				}
+				$c = $c + 1
+			}
+			$r = $r + 1
+		}
+		$ok
 	}
 
 	## What stopped the leashed dog: nothing (`bump_none`), seen critter
@@ -1060,7 +1204,7 @@ place = |r, j| match r.work.park.crits.get(j) {
 
 ## One pixel-tick of `cs`, no poop: the leashed dog's step `inc` along
 ## `axis` (0 x, 1 y), then the walk if it moved.
-tick_of = |cs, axis, inc| Walk.pixel_tick({ from: List.repeat(0, 37), poops: [], side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, axis, inc)
+tick_of = |cs, axis, inc| Walk.pixel_tick({ from: List.repeat(0, 37), poops: [], side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, axis, inc, 0, 0)
 
 tick_place = |r, j| place(r.walk, j)
 
@@ -1095,7 +1239,7 @@ expect {
 	from = List.repeat(0, t + 1).concat(List.repeat(2, 36 - t))
 	poops = [{ slot: 3, x: 1020 * 256, y: 995 * 256 }, { slot: 1, x: 1020 * 256, y: 1005 * 256 }]
 	cs = [dog(1000, 1000)]
-	r = Walk.pixel_tick({ from, poops, side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, 0, 256)
+	r = Walk.pixel_tick({ from, poops, side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, 0, 256, 0, 0)
 	tick_place(r, 0) == { x: 1000 * 256, y: 999 * 256 } and r.bump.kind == Walk.bump_none
 }
 
@@ -1217,3 +1361,39 @@ expect {
 	r = walk_of([dog(1000, 1000), dog(1100, 1000), dog(1130, 1000), dog(860, 1000), dog(1330, 1000)])
 	r.work.moving == [0, 1, 2, 3, 4]
 }
+
+## Where the poop lands (`lay`), for crits `cs` and poops `ps` (each in
+## slot its place in the list) all on tile `t`.
+lay_of = |cs, ps, t, how| {
+	from = List.repeat(0, t + 1).concat(List.repeat(ps.len().to_u16_wrap(), 36 - t))
+	poops = ps.map(|q| { slot: q.slot, x: q.x * 256, y: q.y * 256 })
+	Walk.lay({ from, poops, words: 1 }, cs, how)
+}
+
+lone = { anchor: -1, laid: 0, pooper: 0, step: { x: 0, y: 0 } }
+
+## The pooper with no anchor and no step: its centre is "ahead", so it
+## poops east, `back` (30 px) off; the slot is `laid` mod the slots.
+expect lay_of([dog(1000, 1000)], [], 14, lone) == { slot: 0, x: 1030 * 256, y: 1000 * 256 }
+expect lay_of([dog(1000, 1000)], [], 14, { ..lone, laid: 2049 }) == { slot: 1, x: 1030 * 256, y: 1000 * 256 }
+
+## No anchor: back along the leashed dog's step (here west, its step east).
+expect lay_of([dog(1000, 1000)], [], 14, { ..lone, step: { x: 256, y: 0 } }) == { slot: 0, x: 970 * 256, y: 1000 * 256 }
+
+## Away from its anchor, each axis truncated toward zero: (-100, -33) px
+## scaled to 30 px is (-30, -9.9), -2534.4 256ths, so -2534.
+expect lay_of([dog(1000, 1000), dog(1100, 1033)], [], 14, { ..lone, anchor: 1 }) == { slot: 0, x: 970 * 256, y: 1000 * 256 - 2534 }
+
+## **THE RING ORDER**: the spot (1030, 1000) taken by a poop, every ring
+## point nearer than a poop's side (12 px) overlaps it; ring 12 px's
+## north-west corner (1018, 988) overlaps the pooper (18 px off, under its
+## half and the poop's, 20), so the first free is the next clockwise.
+expect lay_of([dog(1000, 1000)], [{ slot: 5, x: 1030, y: 1000 }], 14, lone) == { slot: 0, x: 1022 * 256, y: 988 * 256 }
+
+## The poop in the slot being laid is the one this takes the place of: it
+## blocks nothing.
+expect lay_of([dog(1000, 1000)], [{ slot: 0, x: 1030, y: 1000 }], 14, lone) == { slot: 0, x: 1030 * 256, y: 1000 * 256 }
+
+## A critter blocks: a cow on the spot (half 21 px, the poop's 6) leaves
+## free only ring 28 px, from its north-west corner.
+expect lay_of([dog(1000, 1000), crit(1, 4, 1030, 1000)], [], 14, lone) == { slot: 0, x: 1002 * 256, y: 972 * 256 }

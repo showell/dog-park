@@ -304,33 +304,6 @@ test "the walk's neighbours wrap: a dog across the seam, nearer than one on this
 
 // ------------------------------------------- the arithmetic on every target
 
-test "the wish arithmetic at the i64 extremes gives the same bits on every target: a seeded fuzz, folded into one checksum (test 11)" {
-    // Fixed ranges, not the tuned numbers, so the checksum pins only the
-    // arithmetic: vectors across a 32,000 px world (squared lengths to
-    // 1.3e14), lengths to 1,000 px (products to 4e12).
-    const span: i32 = physics.px(32_000);
-    const longest: i32 = physics.px(1000);
-    var prng: std.Random.DefaultPrng = .init(11);
-    const rand = prng.random();
-    var crc = std.hash.Crc32.init();
-    for (0..fuzzed(200_000)) |k| {
-        const reach: i32 = if (k % 2 == 0) span else physics.px(500);
-        const v: Point = .{ .x = rand.intRangeAtMost(i32, -reach, reach), .y = rand.intRangeAtMost(i32, -reach, reach) };
-        if (v.x == 0 and v.y == 0) continue;
-        const w = physics.wishAlong(v, rand.intRangeAtMost(i32, 0, longest));
-        const total: Point = .{ .x = rand.intRangeAtMost(i32, -span, span), .y = rand.intRangeAtMost(i32, -span, span) };
-        const s = if (total.x == 0 and total.y == 0) total else physics.wishAlong(total, rand.intRangeAtMost(i32, 0, longest));
-        const r = physics.lengthOf(physics.measure(v));
-        crc.update(std.mem.asBytes(&[_]i64{ w.x, w.y, s.x, s.y, r }));
-    }
-    // Golden: the first 20,000 samples' checksum, and all 200,000's.
-    // The same on every target.
-    try testing.expectEqual(@as(u32, switch (fuzz) {
-        .fast => 2874612707,
-        .full => 1179115397,
-    }), crc.final());
-}
-
 test "shortWay is the @mod formula, at every edge and over a seeded fuzz of the whole i32 range (202)" {
     const w = physics.world;
     const h = physics.half_world;
@@ -348,33 +321,6 @@ test "shortWay is the @mod formula, at every edge and over a seeded fuzz of the 
         try testing.expectEqual(plain(v), physics.shortWay(v));
         const close = r.intRangeAtMost(i32, -w - h, w + h);
         try testing.expectEqual(plain(close), physics.shortWay(close));
-    }
-}
-
-test "quotientAlong is @divTrunc(c * length, l) for |c| <= l: either side of 2^32, the i32 range's ends, and over a seeded fuzz (202)" {
-    const plain = struct {
-        fn f(c: i32, length: i32, l: i64) i32 {
-            return @intCast(@divTrunc(@as(i64, c) * length, l));
-        }
-    }.f;
-    const max = std.math.maxInt(i32);
-    const ls = [_]i64{ 1, 2, 3, 255, 256, 65535, 65536, 65537, max - 1, max, @as(i64, max) + 1, 1 << 32, (1 << 32) + 1, 3 << 31 };
-    const lengths = [_]i32{ 0, 1, -1, 2, 255, 256, 65535, 65536, 65537, -65537, max, -max, max - 1, -(max - 1) };
-    for (ls) |l| for (lengths) |length| {
-        const top: i32 = @intCast(@min(l, max));
-        for ([_]i32{ 0, 1, 2, top - 1, top, @divTrunc(top, 2), @divTrunc(top, 3) + 1 }) |c| {
-            if (c > top) continue;
-            try testing.expectEqual(plain(c, length, l), physics.quotientAlong(c, length, l));
-            try testing.expectEqual(plain(-c, length, l), physics.quotientAlong(-c, length, l));
-        }
-    };
-    var prng: std.Random.DefaultPrng = .init(2027);
-    const r = prng.random();
-    for (0..fuzzed(100_000)) |_| {
-        const l = r.intRangeAtMost(i64, 1, if (r.boolean()) 1 << 17 else 1 << 33);
-        const c = r.intRangeAtMost(i32, -@as(i32, @intCast(@min(l, max))), @intCast(@min(l, max)));
-        const length = r.intRangeAtMost(i32, -max, max) >> r.int(u5);
-        try testing.expectEqual(plain(c, length, l), physics.quotientAlong(c, length, l));
     }
 }
 

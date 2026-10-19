@@ -257,8 +257,8 @@ constants in `physics.zig`.
 
 **Arithmetic.** Positions are integer 256ths; every product is `i64`, and
 only a quotient comes back to `i32`. A wish's axis is the vector's axis
-times the wish's length over the vector's length (`quotientAlong`),
-truncated toward zero. Page and server agree to the bit through the same
+times the wish's length over the vector's length, truncated toward zero
+(roc/Wish.roc's `along`; a poop's spot, roc/Walk.roc's `away_from`). Page and server agree to the bit through the same
 compiled code. On the wire a position is hex with a point: `d80.40` is
 3456 and 64/256 px.
 

@@ -91,9 +91,9 @@ pub const visited: i64 = -2;
 /// A poop the physics sees, and its slot (`Poop`).
 pub const Poop = extern struct { x: i32, y: i32, slot: u16 };
 
-const Walked = extern struct { cells: RocList, crits: RocList, depth: RocList, moving: RocList, anchor: i32, bump_at: i32, bump_kind: i32, pooper: i32, step_x: i32, step_y: i32, walked: i32 };
+const Walked = extern struct { cells: RocList, crits: RocList, depth: RocList, moving: RocList, anchor: i32, bump_at: i32, bump_kind: i32, poop_slot: i32, poop_x: i32, poop_y: i32, pooper: i32, step_x: i32, step_y: i32, walked: i32 };
 
-extern fn roc_walk(axis: i32, inc: i32, side: i32, from: RocList, poops: RocList, cells: RocList, crits: RocList, depth: RocList, moving: RocList) callconv(.c) Walked;
+extern fn roc_walk(axis: i32, inc: i32, side: i32, before: u32, laid: u32, from: RocList, poops: RocList, cells: RocList, crits: RocList, depth: RocList, moving: RocList) callconv(.c) Walked;
 
 /// **THE WALK'S LISTS** (roc/Walk.roc's `Lent` and `Work`), for at most
 /// `seen_most` critters, `moving_most` of them in motion, `poops_most`
@@ -125,24 +125,25 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
         }
 
         /// One pixel-tick: the leashed dog's step `inc` along `axis` (0 x,
-        /// 1 y), then, if it moved, the walk. The lists as it left them; the
-        /// dog's net step, how far it walked (each move by its larger axis)
-        /// and what it bumped; and, if it moved, the walk's pooper and the
-        /// pooper's anchor (-1, none).
-        pub fn run(self: *@This(), axis: i32, inc: i32) Ran {
+        /// 1 y), then, if it moved, the walk and the poop due, the dog having
+        /// walked `before` and `laid` poops laid. The lists as it left them;
+        /// the dog's net step, how far it walked (each move by its larger
+        /// axis) and what it bumped; and the poop laid: its slot (-1, none)
+        /// and where.
+        pub fn run(self: *@This(), axis: i32, inc: i32, before: u32, laid: u32) Ran {
             const n = self.crits.len;
             self.depth.len = n;
             self.moving.len = 0;
-            const r = roc_walk(axis, inc, side, self.from.toRead(), self.poops.toRead(), self.cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.moving.toChange());
+            const r = roc_walk(axis, inc, side, before, laid, self.from.toRead(), self.poops.toRead(), self.cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.moving.toChange());
             self.cells.back(r.cells);
             self.crits.back(r.crits);
             self.depth.back(r.depth);
             self.moving.back(r.moving);
             std.debug.assert(self.crits.len == n and self.from.refcount == 0 and self.poops.refcount == 0);
-            return .{ .pooper = @intCast(r.pooper), .anchor = r.anchor, .step_x = r.step_x, .step_y = r.step_y, .walked = r.walked, .bump_kind = r.bump_kind, .bump_at = r.bump_at };
+            return .{ .step_x = r.step_x, .step_y = r.step_y, .walked = r.walked, .bump_kind = r.bump_kind, .bump_at = r.bump_at, .poop_slot = r.poop_slot, .poop_x = r.poop_x, .poop_y = r.poop_y };
         }
 
-        pub const Ran = struct { pooper: usize, anchor: i32, step_x: i32, step_y: i32, walked: i32, bump_kind: i32, bump_at: i32 };
+        pub const Ran = struct { step_x: i32, step_y: i32, walked: i32, bump_kind: i32, bump_at: i32, poop_slot: i32, poop_x: i32, poop_y: i32 };
     };
 }
 
@@ -178,5 +179,5 @@ export fn roc_realloc(ptr: *anyopaque, len: usize, alignment: usize) callconv(.c
 
 comptime {
     // The layouts Roc's records have.
-    std.debug.assert(@sizeOf(Crit) == 24 and @sizeOf(Poop) == 12 and @sizeOf(Walked) == std.mem.alignForward(usize, 4 * @sizeOf(RocList) + 7 * 4, @alignOf(RocList)));
+    std.debug.assert(@sizeOf(Crit) == 24 and @sizeOf(Poop) == 12 and @sizeOf(Walked) == std.mem.alignForward(usize, 4 * @sizeOf(RocList) + 10 * 4, @alignOf(RocList)));
 }
