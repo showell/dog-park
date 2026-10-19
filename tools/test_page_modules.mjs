@@ -671,6 +671,14 @@ test("tough love: a press on a cow or a chicken is named (a dog is the page's ow
   // A chicken across the world's seam from the view's copy.
   const seam = { parkX: scene.world_px - 50, parkY: scene.world_px - 50, width: 800, height: 600 };
   assert.equal(quips.pressedCritter(seam, 60, 60, cows, chickens), "chicken");
+  // A kind the page plays with by `kinds` alone: a goat, its square its kind's px.
+  const goats = [{ kind: "goat", id: 2, parkX: 700, parkY: 500 }];
+  const goat_px = scene.kinds.find((k) => k.name === "goat").px;
+  assert.equal(quips.pressedCritter(view, 600 + goat_px / 2, 400, cows, chickens, goats), "goat");
+  assert.equal(quips.pressedCritter(view, 600 + goat_px / 2 + 1, 400, cows, chickens, goats), null);
+  const g = quips.quipper(() => 0);
+  assert.notEqual(g.say("goat"), g.say("goat"));
+  assert.match(quips.quipper(() => 0).say("yak"), /yak/, "a kind with no lines of its own still gets one");
   const q = quips.quipper(() => 0);
   const said = [q.say("cow"), q.say("cow"), q.say("chicken"), q.say("cow")];
   assert.notEqual(said[0], said[1]);
@@ -683,7 +691,10 @@ test("tough love: a press on a cow or a chicken is named (a dog is the page's ow
   assert.equal(quips.bumpedKind("dog 3 1a00,1b00\nbump 1042 chicken 2\n"), "chicken");
   assert.equal(quips.bumpedKind("bump 7 poop 12\n"), "poop");
   assert.equal(quips.bumpedKind("dog 3 1a00,1b00\n"), null);
+  assert.equal(quips.bumpedKind("bump 9 goat 3\n"), "goat");
   const b = quips.bumper(() => 0);
-  for (const kind of ["dog", "cow", "chicken", "poop"]) assert.notEqual(b.say(kind), b.say(kind));
+  for (const kind of ["dog", "cow", "chicken", "goat", "poop"]) assert.notEqual(b.say(kind), b.say(kind));
+  assert.match(b.say("goat"), /goat|Bleat/i);
+  assert.match(b.say("yak"), /yak/, "a kind with no lines of its own still gets one");
   for (let i = 0; i < 10; i++) assert.doesNotMatch(b.say("cow"), /on purpose|group chat|Still no/);
 });

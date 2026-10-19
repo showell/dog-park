@@ -170,7 +170,7 @@ async function start() {
     const v = engine.view();
     const dog = v.dogs.get(dogOfTarget(hitId));
     if (mode === "near" && dog === undefined) {
-      const critter = pressedCritter(v.viewport, e.offsetX, e.offsetY, v.cows, v.chickens ?? []);
+      const critter = pressedCritter(v.viewport, e.offsetX, e.offsetY, v.cows, v.chickens ?? [], v.others ?? []);
       if (critter !== null) return say(quips.say(critter));
     }
     if (dog !== undefined) quips.forgive();
