@@ -151,16 +151,37 @@ no_overlap = |spots| {
 
 expect no_overlap(park)
 
-## Each kind's look, in kind-number order: a line of world.zon's `.kinds`
-## (`zon`) or of world.js's `kinds` (`js`).
+## A kind's tag, by its name in `World.kinds`.
+tag_of : Str -> Kind
+tag_of = |name| {
+	if name == "dog" {
+		Dog
+	} else if name == "cow" {
+		Cow
+	} else if name == "chicken" {
+		Chicken
+	} else {
+		crash "world.roc: a kind World.kinds names that the park does not lay out"
+	}
+}
+
+kin_zon : [Breed, Herd, NoKin] -> Str
+kin_zon = |k| match k {
+	Breed => ".breed"
+	Herd => ".herd"
+	NoKin => ".none"
+}
+
+## Each kind in kind-number order: world.zon's `.kinds` (`Zon`), with its
+## spots in the first layout, or world.js's `kinds` (`Js`).
 looks : [Zon, Js] -> Str
 looks = |form| {
 	var $out = ""
 	for k in World.kinds {
 		$out = $out.concat(
 			match form {
-				Zon => "        .{ .name = \"${k.name}\", .px = ${k.px.to_str()}, .colour = \"${k.colour}\" },\n"
-				Js => "  { name: \"${k.name}\", px: ${k.px.to_str()}, colour: \"${k.colour}\" },\n"
+				Zon => "        .{ .name = \"${k.name}\", .px = ${k.px.to_str()}, .colour = \"${k.colour}\", .rank = ${k.rank.to_str()}, .kin = ${kin_zon(k.kin)}, .leash = ${if (k.leash) "true" else "false"}, .spots = .{\n${points(tag_of(k.name))}        } },\n"
+				Js => "  { name: \"${k.name}\", px: ${k.px.to_str()}, colour: \"${k.colour}\", rank: ${k.rank.to_str()}, count: ${of_kind(tag_of(k.name)).len().to_str()} },\n"
 			},
 		)
 	}
@@ -185,6 +206,10 @@ expect {
 	$names == World.kinds.map(|l| l.name)
 }
 
+## One kind leashes, and the ranks are each kind's own.
+expect World.kinds.keep_if(|k| k.leash).len() == 1
+expect World.kinds.map(|k| k.rank).len() == World.kinds.len() and World.kinds.keep_if(|k| k.rank < 0 or k.rank >= World.kinds.len().to_i64_wrap()).len() == 0
+
 expect World.kinds.len() == 3
 expect half(Dog) * 2 == dog_px and half(Cow) * 2 == cow_px and half(Chicken) * 2 == chicken_px
 expect !no_overlap([{ kind: Dog, x: 10, y: 10 }, { kind: Cow, x: 40, y: 30 }])
@@ -193,7 +218,7 @@ points : Kind -> Str
 points = |kind| {
 	var $out = ""
 	for s in of_kind(kind) {
-		$out = $out.concat("        .{ .x = ${px(s.x).to_str()}, .y = ${px(s.y).to_str()} },\n")
+		$out = $out.concat("            .{ .x = ${px(s.x).to_str()}, .y = ${px(s.y).to_str()} },\n")
 	}
 	$out
 }
@@ -206,17 +231,11 @@ zon =
 	\\    .tile_px = ${tile_px.to_str()},
 	\\    .world_tiles = ${world_tiles.to_str()},
 	\\    .park = .{ .first = ${park_first.to_str()}, .tiles = ${park_tiles.to_str()} },
-	\\    .sizes = .{ .dog_px = ${dog_px.to_str()}, .cow_px = ${cow_px.to_str()}, .chicken_px = ${chicken_px.to_str()}, .poop_px = ${poop_px.to_str()} },
+	\\    .poop_px = ${poop_px.to_str()},
 	\\    .kinds = .{
 	\\${looks(Zon)}    },
 	\\    .breeds = ${breeds.to_str()},
 	\\    .cell_per_tile = ${cell_per_tile.to_str()},
-	\\    .dogs = .{
-	\\${points(Dog)}    },
-	\\    .cows = .{
-	\\${points(Cow)}    },
-	\\    .chickens = .{
-	\\${points(Chicken)}    },
 	\\}
 	\\
 

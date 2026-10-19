@@ -78,11 +78,11 @@ test "every kind of line round-trips: written, parsed, the same integers, writte
         .{ .view = .{ .tick = 2, .w = 0, .h = 0, .tiles = .{} } },
         .{ .t = .{ .tick = 1041, .ms = 0, .drag = drag } },
         .{ .t = .{ .tick = 1042, .ms = 63, .drag = .{} } },
-        .{ .critter = .{ .who = .dog(23), .before = .{ .x = 0x45100, .y = 0x3e800 }, .after = .{ .x = 0x450f0, .y = 0x3e800 } } },
-        .{ .critter = .{ .who = .cow(7), .before = .{ .x = 0, .y = physics.world - 1 }, .after = .{ .x = 1, .y = 255 } } },
-        .{ .bump = .{ .tick = 5, .who = .{ .critter = .cow(0) } } },
+        .{ .critter = .{ .who = .of(.dog, 23), .before = .{ .x = 0x45100, .y = 0x3e800 }, .after = .{ .x = 0x450f0, .y = 0x3e800 } } },
+        .{ .critter = .{ .who = .of(.cow, 7), .before = .{ .x = 0, .y = physics.world - 1 }, .after = .{ .x = 1, .y = 255 } } },
+        .{ .bump = .{ .tick = 5, .who = .{ .critter = .of(.cow, 0) } } },
         .{ .bump = .{ .tick = 6, .who = .{ .poop = 2047 } } },
-        .{ .bump = .{ .tick = 5, .who = .{ .critter = .dog(17) } } },
+        .{ .bump = .{ .tick = 5, .who = .{ .critter = .of(.dog, 17) } } },
     };
     for (lines) |l| try roundTrip(l);
 }
@@ -95,7 +95,7 @@ test "random critter lines and drags round-trip (seeded)" {
         .fast => 500,
         .full => 5000,
     })) |_| {
-        const who: physics.Critter = if (rand.boolean()) .dog(rand.uintLessThan(u16, physics.dog_count)) else .cow(rand.uintLessThan(u16, physics.cow_count));
+        const who: physics.Critter = if (rand.boolean()) .of(.dog, rand.uintLessThan(u16, physics.countOf(.dog))) else .of(.cow, rand.uintLessThan(u16, physics.countOf(.cow)));
         const p = struct {
             fn any(r: std.Random) physics.Point {
                 return .{ .x = r.intRangeLessThan(i32, 0, physics.world), .y = r.intRangeLessThan(i32, 0, physics.world) };
@@ -128,8 +128,8 @@ test "every other spelling is refused: padding, upper case, +0.00, short or long
         " dog 223 42d2.00 46d2.00 > 42d1.f0,46d2.00",
         " dog 0223 42d2.00,46d2.00 > 42d1.f0,46d2.00",
         // Past the last dog and the last cow.
-        std.fmt.comptimePrint(" dog {d} 42d2.00,46d2.00 > 42d1.f0,46d2.00", .{physics.dog_count}),
-        std.fmt.comptimePrint(" cow {d} 42d2.00,46d2.00 > 42d1.f0,46d2.00", .{physics.cow_count}),
+        std.fmt.comptimePrint(" dog {d} 42d2.00,46d2.00 > 42d1.f0,46d2.00", .{physics.countOf(.dog)}),
+        std.fmt.comptimePrint(" cow {d} 42d2.00,46d2.00 > 42d1.f0,46d2.00", .{physics.countOf(.cow)}),
         " Dog 223 42d2.00,46d2.00 > 42d1.f0,46d2.00",
         // Displacements.
         "t 1041 +0 drag +0.00,0@3",
@@ -158,7 +158,7 @@ test "every other spelling is refused: padding, upper case, +0.00, short or long
         "from 1040 wal 5",
         "leash 1041",
         "leash 1041 219 7",
-        std.fmt.comptimePrint("leash 1041 {d}", .{physics.dog_count}),
+        std.fmt.comptimePrint("leash 1041 {d}", .{physics.countOf(.dog)}),
         "letgo",
         "letgo 1042 1",
         "rest 1042 x",

@@ -23,20 +23,23 @@
 //     tick(board, t, drag)         drag: [[dx, dy, ms], ...] in 256ths, as the
 //                                  pointer made them; merged, capped and run:
 //                                  { checked (text), drag (as capped), flags,
-//                                    walk: ["dog:ID" | "cow:ID"], the last
-//                                    walk's critters in visit order }
+//                                    walk: ["KIND:ID"], the last walk's
+//                                    critters in visit order }
 //     tLine(t, plusMs, drag)       the `t` line, for a capped drag
 //     header({ ms, count }, req, from, wall)   wall: a number, or "none"
 //     loadLine(width, height)
 //     viewLine(t, width, height, tiles), heldLine(t, tiles)
-//     critters(board)              { dogs: [{ id, x, y }], cows: [...] }, in 256ths,
-//                                  the critters the board has
+//     critters(board)              { dogs: [{ id, x, y }], cows: [...], ... }, in 256ths,
+//                                  the critters the board has, a list for
+//                                  each kind (its name + "s"), and poops
 //     readTile(line, boards)       a `tile` line placed on those boards (a list):
 //                                  its tile, { col, row }, or "malformed"
 //     readBoard(line, board)       a `board T` line laid over the board: T or "malformed"
 //     readState(line, board)       a `state` line's leash and drag set on the board:
 //                                  { view: { width, height, tiles }, held }, or "malformed"
 //     readInput(line)              an `input` line: { h, t, dog }, or "malformed"
+
+import { kinds as world_kinds } from "./world.js";
 
 export const LIVE = 0;
 export const KEPT = 1;
@@ -52,12 +55,17 @@ export function createPhysics(x) {
   const decoder = new TextDecoder();
   const bytes = (ptr, len) => new Uint8Array(x.memory.buffer, ptr, len);
   const ints = () => new Int32Array(x.memory.buffer, x.ints(), x.intsCap());
-  // The last tick's walk: the critters it moved, in visit order, as
-  // "dog:ID" or "cow:ID".
-  const takeWalk = () => {
-    const nd = x.dogCount();
-    return [...new Uint16Array(x.memory.buffer, x.walkAt(), x.walkLen())].map((i) => (i < nd ? `dog:${i}` : `cow:${i - nd}`));
+  // THE KINDS, by number, as the wasm counts them (its world, which
+  // world.js names: test_page_modules.mjs holds the two together): each
+  // one's name, how many, and where its critters begin among all.
+  const kinds = Array.from({ length: x.kindCount() }, (_, k) => ({ name: world_kinds[k].name, base: x.kindBase(k), size: x.kindSize(k) }));
+  const nameOf = (i) => {
+    const k = kinds.find((k) => i >= k.base && i < k.base + k.size);
+    return `${k.name}:${i - k.base}`;
   };
+  // The last tick's walk: the critters it moved, in visit order, as
+  // "KIND:ID" ("dog:3", "cow:0").
+  const takeWalk = () => [...new Uint16Array(x.memory.buffer, x.walkAt(), x.walkLen())].map(nameOf);
   const text = (len) => decoder.decode(bytes(x.outBuf(), len));
   const putLine = (line) => {
     const b = encoder.encode(line);
@@ -134,12 +142,9 @@ export function createPhysics(x) {
     viewLine(t, w, h, tiles) { return text(x.writeView(t, w, h, putTiles(tiles))); },
     heldLine(t, tiles) { return text(x.writeHeld(t, putTiles(tiles))); },
     critters(b) {
-      return {
-        dogs: listOf(x.dogsAt(b), x.dogKnown(b), x.dogCount()),
-        cows: listOf(x.cowsAt(b), x.cowKnown(b), x.cowCount()),
-        chickens: listOf(x.chickensAt(b), x.chickenKnown(b), x.chickenCount()),
-        poops: listOf(x.poopsAt(b), x.poopKnown(b), x.poopCount()),
-      };
+      const out = { poops: listOf(x.poopsAt(b), x.poopKnown(b), x.poopCount()) };
+      for (const k of kinds) out[`${k.name}s`] = listOf(x.crittersAt(b) + 8 * k.base, x.crittersKnown(b) + k.base, k.size);
+      return out;
     },
     readTile(line, boards) {
       const n = putLine(line);

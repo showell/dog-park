@@ -247,21 +247,8 @@ pub const Resolution = union(enum) {
 pub fn resolve(b: *Board, out: *std.ArrayList(u8), alloc: std.mem.Allocator) !Resolution {
     _ = out;
     _ = alloc;
-    var all: [physics.critter_count]Critter = undefined;
-    var n: usize = 0;
-    for (0..physics.cow_count) |i| {
-        all[n] = .cow(@intCast(i));
-        n += 1;
-    }
-    for (0..physics.dog_count) |i| {
-        all[n] = .dog(@intCast(i));
-        n += 1;
-    }
-    for (0..physics.chicken_count) |i| {
-        all[n] = .chicken(@intCast(i));
-        n += 1;
-    }
-    for (all[0..n], 0..) |c, i| {
+    const all = physics.ranked;
+    for (all, 0..) |c, i| {
         if (b.known(c) != .present) continue;
         for (all[0..i]) |o| {
             if (b.known(o) == .present and physics.squaresOverlap(b.at(c), c.half(), b.at(o), o.half())) return .{ .nowhere = c };
@@ -318,9 +305,7 @@ pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
         });
         try w.writeAll(t.bytes());
     }
-    for (0..physics.cow_count) |i| try position(w, &s.kept.board, .cow(@intCast(i)));
-    for (0..physics.dog_count) |i| try position(w, &s.kept.board, .dog(@intCast(i)));
-    for (0..physics.chicken_count) |i| try position(w, &s.kept.board, .chicken(@intCast(i)));
+    for (physics.ranked) |c| try position(w, &s.kept.board, c);
     for (s.kept.board.poops, s.kept.board.poop_known, 0..) |p, k, i| {
         if (k != .present) continue;
         var pb: [64]u8 = undefined;
@@ -368,7 +353,7 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
             s.kept.board.hold = .none;
         } else {
             var it = std.mem.splitScalar(u8, hold, ' ');
-            const dog: u16 = @intCast(try wire.parseDec(it.next() orelse "", physics.dog_count - 1));
+            const dog: u16 = @intCast(try wire.parseDec(it.next() orelse "", physics.countOf(physics.leashed_kind) - 1));
             if (!std.mem.eql(u8, it.next() orelse "", "drag")) return error.Bad;
             const which = it.next() orelse "";
             const drag: physics.Drag = if (std.mem.eql(u8, which, "on")) .on else if (std.mem.eql(u8, which, "ended")) .{ .ended = try wire.parseDec(it.next() orelse "", std.math.maxInt(u63)) } else return error.Bad;
@@ -385,17 +370,13 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
         s.kept.pending[s.kept.pending_len] = in.h;
         s.kept.pending_len += 1;
     }
-    var expect: [physics.critter_count]Critter = undefined;
-    for (0..physics.cow_count) |i| expect[i] = .cow(@intCast(i));
-    for (0..physics.dog_count) |i| expect[physics.cow_count + i] = .dog(@intCast(i));
-    for (0..physics.chicken_count) |i| expect[physics.cow_count + physics.dog_count + i] = .chicken(@intCast(i));
-    for (expect, 0..) |c, i| {
+    for (physics.ranked, 0..) |c, i| {
         if (i > 0) text = lines.next() orelse return error.Bad;
         var e = wire.Entries.of(text);
         const one = (try e.next()) orelse return error.Bad;
         if (one != .critter or !one.critter.who.eql(c) or try e.next() != null) return error.Bad;
         s.kept.board.place(c, one.critter.at);
-        if (c.kind == .dog) s.kept.board.walked[c.n] = one.critter.walked;
+        if (c.kind == physics.leashed_kind) s.kept.board.walked[c.n] = one.critter.walked;
     }
     // The poops, by rising number, then `end`.
     s.kept.board.poop_known = @splat(.absent);

@@ -20,7 +20,7 @@ const print = false;
 
 /// The configuration the hashes were recorded under: world.zon and
 /// rules.zon, hashed.
-pub const recorded_under: u64 = 0x629a7a1f8fffed0f;
+pub const recorded_under: u64 = 0xaaceccbac9cd3e7f;
 
 /// Steps a recording's test aside under another configuration than the
 /// one it was recorded under, saying which recording.
@@ -48,12 +48,8 @@ const want = [dogs.len + 1]u64{ 0x9a6f4cc5e0f7d950, 0x0922e18850956701, 0x79296e
 
 fn hashOf(b: *const Board) u64 {
     var h = std.hash.Wyhash.init(0);
-    h.update(std.mem.sliceAsBytes(&b.dogs));
-    h.update(std.mem.sliceAsBytes(&b.cows));
-    h.update(std.mem.sliceAsBytes(&b.chickens));
-    h.update(std.mem.sliceAsBytes(&b.dog_known));
-    h.update(std.mem.sliceAsBytes(&b.cow_known));
-    h.update(std.mem.sliceAsBytes(&b.chicken_known));
+    h.update(std.mem.sliceAsBytes(&b.points));
+    h.update(std.mem.sliceAsBytes(&b.known_at));
     h.update(std.mem.sliceAsBytes(&b.walked));
     h.update(std.mem.sliceAsBytes(&b.poops));
     h.update(std.mem.sliceAsBytes(&b.poop_known));

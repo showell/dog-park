@@ -164,25 +164,15 @@ fn quote(out: *Text, line: wire.Line) Text.Error!void {
 
 /// The critters a report names in its critter lines.
 const Named = struct {
-    dogs: [physics.dog_count]Mark = @splat(.unnamed),
-    cows: [physics.cow_count]Mark = @splat(.unnamed),
-    chickens: [physics.chicken_count]Mark = @splat(.unnamed),
+    marks: [physics.critter_count]Mark = @splat(.unnamed),
 
     const Mark = enum { unnamed, named };
 
     fn has(self: *const Named, c: physics.Critter) bool {
-        return switch (c.kind) {
-            .dog => self.dogs[c.n] == .named,
-            .cow => self.cows[c.n] == .named,
-            .chicken => self.chickens[c.n] == .named,
-        };
+        return self.marks[physics.critterIndex(c)] == .named;
     }
     fn name(self: *Named, c: physics.Critter) void {
-        switch (c.kind) {
-            .dog => self.dogs[c.n] = .named,
-            .cow => self.cows[c.n] = .named,
-            .chicken => self.chickens[c.n] = .named,
-        }
+        self.marks[physics.critterIndex(c)] = .named;
     }
 };
 
@@ -275,18 +265,9 @@ fn writeBoard(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.
     try out.str("board ");
     try out.dec(t);
     const leashed = b.leashedDog();
-    if (leashed) |l| try boardEntry(out, b, .dog(l));
-    for (0..physics.cow_count) |i| {
-        const c: physics.Critter = .cow(@intCast(i));
-        if (awake.has(c) or named.has(c)) try boardEntry(out, b, c);
-    }
-    for (0..physics.dog_count) |i| {
-        const c: physics.Critter = .dog(@intCast(i));
-        if (leashed != null and leashed.? == i) continue;
-        if (awake.has(c) or named.has(c)) try boardEntry(out, b, c);
-    }
-    for (0..physics.chicken_count) |i| {
-        const c: physics.Critter = .chicken(@intCast(i));
+    if (leashed) |l| try boardEntry(out, b, .of(physics.leashed_kind, l));
+    for (physics.ranked) |c| {
+        if (leashed != null and c.kind == physics.leashed_kind and leashed.? == c.n) continue;
         if (awake.has(c) or named.has(c)) try boardEntry(out, b, c);
     }
     // Every poop in the region's tiles, by number: the page drops its
@@ -444,7 +425,7 @@ const Run = struct {
     fn regionHeld(self: *Run) bool {
         const k = self.kept;
         const l = k.board.leashedDog() orelse return true;
-        const span = physics.TileSpan.of(physics.region(k.board.dogs[l]));
+        const span = physics.TileSpan.of(physics.region(k.board.of(physics.leashed_kind)[l]));
         var row = span.row_lo;
         while (row <= span.row_hi) : (row += 1) {
             var col = span.col_lo;

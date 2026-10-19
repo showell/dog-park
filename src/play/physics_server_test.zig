@@ -191,7 +191,7 @@ fn tileLineOf(alloc: std.mem.Allocator, b: *const Board, t: tiles.Tile) ![]const
     try w.dec(@intCast(t.row));
     var n: usize = 0;
     for ([_]physics.Kind{ .cow, .dog }) |kind| {
-        const many: usize = if (kind == .cow) physics.cow_count else physics.dog_count;
+        const many: usize = if (kind == .cow) physics.countOf(.cow) else physics.countOf(.dog);
         for (0..many) |i| {
             const c: physics.Critter = .{ .kind = kind, .n = @intCast(i) };
             const at = physics.tileOf(b.at(c));
@@ -220,7 +220,7 @@ fn tileSetOf(cols: [2]i32, rows: [2]i32) wire.TileSet {
 
 /// The region's tiles around a dog.
 fn regionOf(b: *const Board, dog: u16) wire.TileSet {
-    const span = physics.TileSpan.of(physics.region(b.dogs[dog]));
+    const span = physics.TileSpan.of(physics.region(b.of(.dog)[dog]));
     return tileSetOf(.{ span.col_lo, span.col_hi }, .{ span.row_lo, span.row_hi });
 }
 
@@ -334,7 +334,7 @@ test "3 and 30 (502). a lost answer: the byte-identical resend gets the stored a
     const again = try rig.report(page.body());
     try testing.expectEqualStrings(first, again);
     try testing.expectEqual(log_after, rig.server.log_size);
-    try testing.expect(std.meta.eql(board_after.dogs, rig.server.kept.board.dogs));
+    try testing.expectEqualSlices(physics.Point, board_after.of(.dog), rig.server.kept.board.of(.dog));
     page.acked();
     try dragTicks(&rig, &page, 3);
 }
@@ -352,21 +352,21 @@ test "4. a load picks the game up: after play, the critters where they stand, no
     _ = try rig.report(page.body());
     try testing.expect(rig.server.kept.pending_len > 0);
     const played = rig.server.kept.board;
-    try testing.expect(!std.meta.eql(Board.laidOut().dogs, played.dogs));
+    try testing.expect(!std.mem.eql(u8, std.mem.sliceAsBytes(Board.laidOut().of(.dog)), std.mem.sliceAsBytes(played.of(.dog))));
     const kept = rig.server.kept.tick;
     // The page reloads: the game as it stands, the leash off.
     const answer = try rig.loadFrom("1280x800", .kept);
     var buf: [128]u8 = undefined;
     try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "epoch {d}.2\nkept {d}\nstate leash none drag none laid 0 view 1280x800 held\n", .{ t0, kept }), answer);
-    try testing.expect(std.meta.eql(played.dogs, rig.server.kept.board.dogs));
-    try testing.expect(std.meta.eql(played.cows, rig.server.kept.board.cows));
+    try testing.expectEqualSlices(physics.Point, played.of(.dog), rig.server.kept.board.of(.dog));
+    try testing.expectEqualSlices(physics.Point, played.of(.cow), rig.server.kept.board.of(.cow));
     try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
     try testing.expectEqual(@as(usize, 0), rig.server.kept.pending_len);
     // A deploy after the load: the same board, at the same tick.
     try rig.restart(t0 + 60_000);
     try testing.expect(rig.started.board == .applied);
     try testing.expectEqual(kept, rig.server.kept.tick);
-    try testing.expect(std.meta.eql(played.dogs, rig.server.kept.board.dogs));
+    try testing.expectEqualSlices(physics.Point, played.of(.dog), rig.server.kept.board.of(.dog));
     try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
     // And the page that loads now plays on from it.
     var fresh = try Page.loaded(&rig, try rig.loadFrom("1280x800", .kept));
@@ -375,8 +375,8 @@ test "4. a load picks the game up: after play, the critters where they stand, no
     // Start over: the first layout.
     _ = try rig.loadFrom("1280x800", .layout);
     const first = Board.laidOut();
-    try testing.expect(std.meta.eql(first.dogs, rig.server.kept.board.dogs));
-    try testing.expect(std.meta.eql(first.cows, rig.server.kept.board.cows));
+    try testing.expectEqualSlices(physics.Point, first.of(.dog), rig.server.kept.board.of(.dog));
+    try testing.expectEqualSlices(physics.Point, first.of(.cow), rig.server.kept.board.of(.cow));
     try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
 }
 
@@ -399,8 +399,8 @@ test "5. a restart under a new physics hash, with a log tail after the snapshot:
     try rig.restart(t0 + 60_000);
     try testing.expectEqual(wire.physics_hash, rig.server.physics_hash);
     try testing.expectEqual(was.tick, rig.server.kept.tick);
-    try testing.expect(std.meta.eql(was.board.dogs, rig.server.kept.board.dogs));
-    try testing.expect(std.meta.eql(was.board.cows, rig.server.kept.board.cows));
+    try testing.expectEqualSlices(physics.Point, was.board.of(.dog), rig.server.kept.board.of(.dog));
+    try testing.expectEqualSlices(physics.Point, was.board.of(.cow), rig.server.kept.board.of(.cow));
     try testing.expectEqual(was.board.hold, rig.server.kept.board.hold);
     try testing.expectEqualSlices(physics.Human, was.pendingSlice(), rig.server.kept.pendingSlice());
     try testing.expect(rig.started.board == .applied);
@@ -461,7 +461,7 @@ test "13. a leash at the screen's edge, small display against large, the same re
         const region = regionOf(&page.board, the_dog);
         // The small display's 4 tiles hold the dog, at the region's edge;
         // the large one's every tile of the region.
-        const dog_tile = physics.tileOf(page.board.dogs[the_dog]);
+        const dog_tile = physics.tileOf(page.board.of(.dog)[the_dog]);
         var view = switch (display) {
             .small => tileSetOf(.{ dog_tile.col, dog_tile.col + 1 }, .{ dog_tile.row, dog_tile.row + 1 }),
             .large => region,
@@ -500,8 +500,8 @@ test "13. a leash at the screen's edge, small display against large, the same re
     }
     defer for (lines) |l| testing.allocator.free(l);
     try testing.expectEqualStrings(lines[0], lines[1]);
-    try testing.expect(std.meta.eql(boards[0].dogs, boards[1].dogs));
-    try testing.expect(std.meta.eql(boards[0].cows, boards[1].cows));
+    try testing.expectEqualSlices(physics.Point, boards[0].of(.dog), boards[1].of(.dog));
+    try testing.expectEqualSlices(physics.Point, boards[0].of(.cow), boards[1].of(.cow));
 }
 
 test "15. a lost answer and a trailing leash: the byte-identical resend gets the stored answer, and R + 1 doesn't repeat the leash" {
@@ -598,7 +598,7 @@ test "19. a torn log tail at restart: dropped, and the board is where the last w
     try rig.restart(t0 + 1000);
     try testing.expectEqual(torn.len, rig.started.board.applied.torn_bytes);
     try testing.expectEqual(was.tick, rig.server.kept.tick);
-    try testing.expect(std.meta.eql(was.board.dogs, rig.server.kept.board.dogs));
+    try testing.expectEqualSlices(physics.Point, was.board.of(.dog), rig.server.kept.board.of(.dog));
     // The new run appends to a log of its own, never after the torn bytes.
     try testing.expect(!std.mem.eql(u8, log, rig.server.log_path));
     var again = try Page.loaded(&rig, try rig.load("1280x800"));
@@ -670,8 +670,8 @@ test "the torus' seam (decision 14): a leash at the world's corner views and hol
     const near = physics.px(200);
     const far = physics.world - near;
     for ([_]*Board{ &rig.server.kept.board, &page.board }) |b| {
-        b.place(.dog(the_dog), .{ .x = near, .y = near });
-        b.place(.cow(0), .{ .x = far, .y = near });
+        b.place(.of(.dog, the_dog), .{ .x = near, .y = near });
+        b.place(.of(.cow, 0), .{ .x = far, .y = near });
     }
     try leashUp(&rig, &page, the_dog);
     try testing.expect(regionOf(&page.board, the_dog).holds(.{ .col = edge, .row = 0 }));
@@ -738,7 +738,7 @@ test "the breaker: the third differ in a row answers reload differs; three of th
         for (0..3) |i| {
             try page.begin();
             try page.write(.{ .t = .{ .tick = page.from + 1, .ms = 0, .drag = .{} } });
-            try page.write(.{ .bump = .{ .tick = page.from + 1, .who = .{ .critter = .cow(0) } } });
+            try page.write(.{ .bump = .{ .tick = page.from + 1, .who = .{ .critter = .of(.cow, 0) } } });
             const a = try rig.report(page.body());
             if (i < 2) {
                 try testing.expect(std.mem.indexOf(u8, a, "\ndiffer ") != null);
@@ -848,10 +848,10 @@ test "a park starts once from its base, logged first, and a restart applies the 
     try testing.expect(std.mem.startsWith(u8, try rig.logBytes(), "entry resolved "));
     const was = rig.server.kept.board;
     var other = Board.laidOut();
-    other.dogs[0].x += physics.px(1);
+    other.ofMut(.dog)[0].x += physics.px(1);
     rig.started = try rig.server.start(rig.io(), rig.arena.allocator(), rig.data, &other, t0 + 1);
     try testing.expect(rig.started.board == .applied);
-    try testing.expect(std.meta.eql(was.dogs, rig.server.kept.board.dogs));
+    try testing.expectEqualSlices(physics.Point, was.of(.dog), rig.server.kept.board.of(.dog));
 }
 
 test "a park with two critters overlapping does not start, and the log says which (no tick makes one: it is a bug)" {
@@ -863,14 +863,14 @@ test "a park with two critters overlapping does not start, and the log says whic
     rig.server = try testing.allocator.create(Server);
     defer rig.deinit();
     var base = Board.laidOut();
-    base.dogs[7] = .{ .x = base.dogs[6].x + physics.px(5), .y = base.dogs[6].y };
+    base.ofMut(.dog)[7] = .{ .x = base.of(.dog)[6].x + physics.px(5), .y = base.of(.dog)[6].y };
     try testing.expectError(error.ParkDoesNotResolve, rig.server.start(rig.io(), rig.arena.allocator(), rig.data, &base, t0));
     try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "the park does not start: dog 7 overlaps another") != null);
 }
 
 test "a snapshot reads back what it wrote" {
     var k: judge.Kept = .{ .tick = 99, .board = Board.laidOut() };
-    k.board.dogs[3].x += 77;
+    k.board.ofMut(.dog)[3].x += 77;
     k.board.hold = .{ .leashed = .{ .dog = 3, .drag = .{ .ended = 97 } } };
     k.pending[0] = .grab;
     k.pending[1] = .letgo;
@@ -884,7 +884,7 @@ test "a snapshot reads back what it wrote" {
     try testing.expectEqual(@as(Tick, 99), back.kept.tick);
     try testing.expectEqual(k.board.hold, back.kept.board.hold);
     try testing.expectEqualSlices(physics.Human, k.pendingSlice(), back.kept.pendingSlice());
-    try testing.expect(std.meta.eql(k.board.dogs, back.kept.board.dogs));
+    try testing.expectEqualSlices(physics.Point, k.board.of(.dog), back.kept.board.of(.dog));
     try testing.expectError(error.SnapshotDoesNotRead, plog.readSnapshot(text[0 .. text.len - 4]));
 }
 
@@ -982,8 +982,8 @@ test "the log rotates at a snapshot past rotate_at: the snapshot names the new l
     const tick = rig.server.kept.tick;
     try rig.restart(t0 + 60_000);
     try testing.expectEqual(tick, rig.server.kept.tick);
-    try testing.expect(std.meta.eql(board.dogs, rig.server.kept.board.dogs));
-    try testing.expect(std.meta.eql(board.cows, rig.server.kept.board.cows));
+    try testing.expectEqualSlices(physics.Point, board.of(.dog), rig.server.kept.board.of(.dog));
+    try testing.expectEqualSlices(physics.Point, board.of(.cow), rig.server.kept.board.of(.cow));
 }
 
 test "the closed logs kept: one goes an hour after it ended (its successor's start), oldest first past the byte cap; the log being written always stays" {

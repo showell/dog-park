@@ -278,13 +278,13 @@ pub fn game(req: *Request, io: Io, alloc: Alloc, v: View) !void {
         });
         const herd = largestHerd(&k.board);
         try b.print(alloc, "<tr><td>{d}</td><td>{s}</td><td>{s}</td><td>{d}</td><td>{d}</td><td{s}>{d} of {d}</td><td>{d}</td><td>{s}</td><td{s}>{s}</td></tr>", .{
-            slot,                                                            ago,                                  leash,             k.tick, g.epoch,
-            if (herd == physics.cow_count) " class=\"bad\"" else "",         herd,                                 physics.cow_count, poops,  try html.htmlEscape(alloc, logs),
+            slot,                                                            ago,                                  leash,                 k.tick, g.epoch,
+            if (herd == physics.countOf(.cow)) " class=\"bad\"" else "",     herd,                                 physics.countOf(.cow), poops,  try html.htmlEscape(alloc, logs),
             if (f.overlaps > 0 or g.stuck != null) " class=\"bad\"" else "", try html.htmlEscape(alloc, findings),
         });
     }
     try b.appendSlice(alloc, "</table>\n");
-    try b.print(alloc, "<p class=\"muted\">{d} games started this run (a game starts at its player's first load); the data: {s}. A herd of all {d} is a win.</p>\n", .{ started, try html.htmlEscape(alloc, v.data_dir), physics.cow_count });
+    try b.print(alloc, "<p class=\"muted\">{d} games started this run (a game starts at its player's first load); the data: {s}. A herd of all {d} is a win.</p>\n", .{ started, try html.htmlEscape(alloc, v.data_dir), physics.countOf(.cow) });
     try b.appendSlice(alloc, "</body></html>\n");
     return respond(req, b.items);
 }
@@ -313,21 +313,21 @@ fn logsText(io: Io, alloc: Alloc, dir: []const u8) ![]const u8 {
 /// their centres are at most two cow-widths apart on the larger axis,
 /// round the torus; the largest group's size.
 pub fn largestHerd(b: *const physics.Board) usize {
-    const n = physics.cow_count;
+    const n = physics.countOf(.cow);
     var parent: [n]usize = undefined;
     for (&parent, 0..) |*p, i| p.* = i;
-    const link = physics.measureOf(physics.px(2 * physics.cow_px));
+    const link = physics.measureOf(physics.px(2 * physics.pxOf(.cow)));
     for (0..n) |i| {
-        if (b.cow_known[i] != .present) continue;
+        if (b.knownOf(.cow)[i] != .present) continue;
         for (i + 1..n) |j| {
-            if (b.cow_known[j] != .present) continue;
-            if (physics.measure(physics.delta(b.cows[i], b.cows[j])) <= link) parent[root(&parent, i)] = root(&parent, j);
+            if (b.knownOf(.cow)[j] != .present) continue;
+            if (physics.measure(physics.delta(b.of(.cow)[i], b.of(.cow)[j])) <= link) parent[root(&parent, i)] = root(&parent, j);
         }
     }
     var sizes: [n]usize = @splat(0);
     var most: usize = 0;
     for (0..n) |i| {
-        if (b.cow_known[i] != .present) continue;
+        if (b.knownOf(.cow)[i] != .present) continue;
         const r = root(&parent, i);
         sizes[r] += 1;
         most = @max(most, sizes[r]);
@@ -347,9 +347,9 @@ test "the herd: cows within two cow-widths link, through others, round the torus
     try std.testing.expectEqual(@as(usize, 1), largestHerd(&b));
     // A chain of three, each 80 px from the next, across the world's seam.
     const w = physics.world;
-    b.cows[0] = .{ .x = physics.px(20), .y = physics.px(500) };
-    b.cows[1] = .{ .x = w - physics.px(60), .y = physics.px(500) };
-    b.cows[2] = .{ .x = w - physics.px(140), .y = physics.px(500) };
+    b.ofMut(.cow)[0] = .{ .x = physics.px(20), .y = physics.px(500) };
+    b.ofMut(.cow)[1] = .{ .x = w - physics.px(60), .y = physics.px(500) };
+    b.ofMut(.cow)[2] = .{ .x = w - physics.px(140), .y = physics.px(500) };
     try std.testing.expectEqual(@as(usize, 3), largestHerd(&b));
 }
 

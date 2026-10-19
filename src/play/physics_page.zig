@@ -15,9 +15,9 @@
 //! page), `outBuf` (a line or lines, written here; each writer starts it
 //! afresh and answers its length), `ints` (numbers both ways: a drag's
 //! displacements, tile lists, what an answer line said), and each board's
-//! critters and poops (`dogsAt`, `dogKnown`, `cowsAt`, `cowKnown`,
-//! `chickensAt`, `chickenKnown`, `poopsAt`, `poopKnown`: x, y pairs of
-//! `i32` in 256ths, and one byte each, 1 when the board has it).
+//! critters and poops (`crittersAt`, `crittersKnown`, every kind's by
+//! `kindBase` and `kindSize`; `poopsAt`, `poopKnown`: x, y pairs of `i32`
+//! in 256ths, and one byte each, 1 when the board has it).
 //!
 //! Ticks cross as `f64` (JavaScript's numbers; a tick fits in 2^53).
 
@@ -96,47 +96,37 @@ export fn tilePx() u32 {
 export fn worldTiles() u32 {
     return tiles.world_tiles;
 }
-export fn dogPx() u32 {
-    return physics.dog_px;
-}
-export fn cowPx() u32 {
-    return physics.cow_px;
-}
-export fn chickenPx() u32 {
-    return physics.chicken_px;
-}
 export fn poopPx() u32 {
     return physics.poop_px;
 }
 export fn breeds() u32 {
     return physics.breeds;
 }
-export fn dogCount() u32 {
-    return physics.dog_count;
+/// **THE CRITTERS, KIND-BLIND** (QUEUE 240): how many kinds; each kind's
+/// count, square and where its critters begin among all; and every
+/// critter's point (x, y) and whether the board has it, by index among all
+/// (physics.zig's `critterIndex`): the page reads its kinds from here and
+/// world.js, and names none.
+export fn kindCount() u32 {
+    return physics.kind_count;
 }
-export fn cowCount() u32 {
-    return physics.cow_count;
+export fn kindSize(k: u32) u32 {
+    return physics.counts[k];
 }
-export fn dogsAt(b: u32) [*]i32 {
-    return @ptrCast(&board(b).dogs);
+export fn kindBase(k: u32) u32 {
+    return physics.bases[k];
 }
-export fn dogKnown(b: u32) [*]u8 {
-    return @ptrCast(&board(b).dog_known);
+export fn kindPx(k: u32) u32 {
+    return physics.kinds[k].px;
 }
-export fn cowsAt(b: u32) [*]i32 {
-    return @ptrCast(&board(b).cows);
+export fn critterCount() u32 {
+    return physics.critter_count;
 }
-export fn cowKnown(b: u32) [*]u8 {
-    return @ptrCast(&board(b).cow_known);
+export fn crittersAt(b: u32) [*]i32 {
+    return @ptrCast(&board(b).points);
 }
-export fn chickenCount() u32 {
-    return physics.chicken_count;
-}
-export fn chickensAt(b: u32) [*]i32 {
-    return @ptrCast(&board(b).chickens);
-}
-export fn chickenKnown(b: u32) [*]u8 {
-    return @ptrCast(&board(b).chicken_known);
+export fn crittersKnown(b: u32) [*]u8 {
+    return @ptrCast(&board(b).known_at);
 }
 export fn poopCount() u32 {
     return physics.poop_count;
@@ -190,7 +180,7 @@ export fn dragOf(b: u32) f64 {
 /// the world (wrapped across the seam); their count, 0 with nothing leashed.
 export fn regionTiles(b: u32) u32 {
     const l = board(b).leashedDog() orelse return 0;
-    const span = physics.TileSpan.of(physics.region(board(b).dogs[l]));
+    const span = physics.TileSpan.of(physics.region(board(b).of(physics.leashed_kind)[l]));
     var n: u32 = 0;
     var row = span.row_lo;
     while (row <= span.row_hi) : (row += 1) {
@@ -253,7 +243,7 @@ fn humanOf(kind: u32, dog: u32) physics.Human {
 /// unchanged.
 export fn human(b: u32, kind: u32, t: f64, dog: u32) i32 {
     const h = humanOf(kind, dog);
-    if (h != .grab and h != .letgo and dog >= physics.dog_count) return -1 - @as(i32, @intFromEnum(physics.Refusal.leash_no_such_dog));
+    if (h != .grab and h != .letgo and dog >= physics.countOf(physics.leashed_kind)) return -1 - @as(i32, @intFromEnum(physics.Refusal.leash_no_such_dog));
     if (physics.input(board(b), &begun[b], h)) |r| return -1 - @as(i32, @intFromEnum(r));
     var w = out();
     const at: Tick = tickOf(t);
@@ -433,7 +423,7 @@ fn readTileWords(w: *Words, mask: u32) error{Malformed}!i32 {
                 switch (e) {
                     .critter => |c| if (b.known(c.who) != .present) {
                         b.place(c.who, c.at);
-                        if (c.who.kind == .dog) b.walked[c.who.n] = c.walked;
+                        if (c.who.kind == physics.leashed_kind) b.walked[c.who.n] = c.walked;
                     },
                     .poop => |p| if (b.poop_known[p.n] != .present) {
                         b.poops[p.n] = p.at;
@@ -465,7 +455,7 @@ fn readBoardWords(w: *Words, b: u32) error{Malformed}!i32 {
             switch (e) {
                 .critter => |c| {
                     self.b.place(c.who, c.at);
-                    if (c.who.kind == .dog) self.b.walked[c.who.n] = c.walked;
+                    if (c.who.kind == physics.leashed_kind) self.b.walked[c.who.n] = c.walked;
                 },
                 .poop => {},
             }
@@ -484,7 +474,7 @@ fn readBoardWords(w: *Words, b: u32) error{Malformed}!i32 {
     var again = w.*;
     const n = try entries(w, ctx, Ctx.place);
     if (ctx.b.leashedDog()) |l| {
-        const span = physics.TileSpan.of(physics.region(ctx.b.dogs[l]));
+        const span = physics.TileSpan.of(physics.region(ctx.b.of(physics.leashed_kind)[l]));
         for (&ctx.b.poops, &ctx.b.poop_known) |p, *k| {
             if (k.* == .present and span.holdsPoint(p)) k.* = .absent;
         }
@@ -518,7 +508,7 @@ fn readStateWords(w: *Words, b: u32) error{Malformed}!void {
     if (std.mem.eql(u8, who, "none")) {
         if (!std.mem.eql(u8, drag, "none")) return error.Malformed;
     } else {
-        const dog: u16 = @intCast(try wire.parseDec(who, physics.dog_count - 1));
+        const dog: u16 = @intCast(try wire.parseDec(who, physics.countOf(physics.leashed_kind) - 1));
         const d: physics.Drag = if (std.mem.eql(u8, drag, "on")) .on else if (std.mem.eql(u8, drag, "ended"))
             .{ .ended = try wire.parseDec(w.next() orelse return error.Malformed, std.math.maxInt(u32)) }
         else
@@ -611,7 +601,7 @@ fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
     try report.appendSlice(testing.allocator, outText(writeHeader(1791935990000, 1, 1, 0, 1791936000000)));
     try report.appendSlice(testing.allocator, outText(@intCast(human(live, @intFromEnum(HumanKind.leash), 1, the_dog))));
     const r = regionTiles(live);
-    const span = physics.TileSpan.of(physics.region(boards[live].dogs[the_dog]));
+    const span = physics.TileSpan.of(physics.region(boards[live].of(physics.leashed_kind)[the_dog]));
     try testing.expectEqual(@as(u32, @intCast((span.col_hi - span.col_lo + 1) * (span.row_hi - span.row_lo + 1))), r);
     for (0..r) |i| k.sent.add(.{ .col = ints_buf[2 * i], .row = ints_buf[2 * i + 1] });
     try report.appendSlice(testing.allocator, outText(writeView(1, 1280, 800, r)));
@@ -631,7 +621,7 @@ fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
 test "regionTiles: the region is the world, every tile named once, wherever the leashed dog stands" {
     reset();
     boards[live] = physics.Board.laidOut();
-    boards[live].place(.dog(the_dog), .{ .x = physics.px(200), .y = physics.px(200) });
+    boards[live].place(.of(.dog, the_dog), .{ .x = physics.px(200), .y = physics.px(200) });
     _ = human(live, @intFromEnum(HumanKind.leash), 1, the_dog);
     const n = regionTiles(live);
     try testing.expectEqual(@as(u32, tiles.world_tiles * tiles.world_tiles), n);
@@ -685,7 +675,7 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
     try testing.expectEqual(@as(i32, 0), ints_buf[2]);
     const board_line = lines.next().?;
     try testing.expect(std.mem.startsWith(u8, board_line, "board 1"));
-    boards[scratch].dogs[3] = .{ .x = 1, .y = 1 };
+    boards[scratch].ofMut(.dog)[3] = .{ .x = 1, .y = 1 };
     try testing.expect(readBoard(putLine(board_line), scratch) >= 0);
     try testing.expectEqual(@as(f64, 1), lineTick());
 
@@ -700,12 +690,12 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
     try testing.expectEqual(@as(i32, -1), readInput(putLine("input view 9 1x1")));
 
     reset();
-    boards[live].place(.dog(2), .{ .x = 5, .y = 5 });
+    boards[live].place(.of(.dog, 2), .{ .x = 5, .y = 5 });
     try testing.expectEqual(@as(i32, 2), readTile(putLine("tile 2,2 dog 0 355.00,361.00 dog 2 1.00,1.00"), 0b011));
-    try testing.expectEqual(physics.Point{ .x = 5, .y = 5 }, boards[live].dogs[2]);
-    try testing.expectEqual(physics.Point{ .x = 256, .y = 256 }, boards[kept].dogs[2]);
-    try testing.expectEqual(physics.Known.present, boards[live].dog_known[0]);
-    try testing.expectEqual(physics.Known.absent, boards[scratch].dog_known[0]);
+    try testing.expectEqual(physics.Point{ .x = 5, .y = 5 }, boards[live].of(.dog)[2]);
+    try testing.expectEqual(physics.Point{ .x = 256, .y = 256 }, boards[kept].of(.dog)[2]);
+    try testing.expectEqual(physics.Known.present, boards[live].knownOf(.dog)[0]);
+    try testing.expectEqual(physics.Known.absent, boards[scratch].knownOf(.dog)[0]);
     try testing.expectEqualSlices(i32, &.{ 2, 2 }, ints_buf[0..2]);
     try testing.expectEqual(@as(i32, -1), readTile(putLine("tile 2,2 dog 0 0355.00,361.00"), 1));
 }

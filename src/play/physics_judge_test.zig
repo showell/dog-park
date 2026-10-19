@@ -48,11 +48,11 @@ pub const follower: u16 = 23;
 /// from the board, so the example's walk stays small.
 pub fn exampleBoard() Board {
     var b = Board.laidOut();
-    for (&b.dog_known, 0..) |*k, i| {
+    for (b.knownOfMut(.dog), 0..) |*k, i| {
         if (i != leashed and i != follower) k.* = .absent;
     }
-    b.dogs[leashed] = px(1000, 1000);
-    b.dogs[follower] = px(1105, 1000);
+    b.ofMut(.dog)[leashed] = px(1000, 1000);
+    b.ofMut(.dog)[follower] = px(1105, 1000);
     return b;
 }
 
@@ -68,7 +68,7 @@ fn tileSet(cols: [2]i32, rows: [2]i32) wire.TileSet {
 
 /// The region's tiles: the whole world, every tile once.
 pub fn exampleRegion() wire.TileSet {
-    const span = physics.TileSpan.of(physics.region(exampleBoard().dogs[leashed]));
+    const span = physics.TileSpan.of(physics.region(exampleBoard().of(.dog)[leashed]));
     return tileSet(.{ span.col_lo, span.col_hi }, .{ span.row_lo, span.row_hi });
 }
 
@@ -169,7 +169,7 @@ test "the worked example's region is the world, and every critter on the board i
     b.hold = .{ .leashed = .{ .dog = leashed, .drag = .on } };
     try testing.expectEqual(@as(usize, tiles.world_tiles * tiles.world_tiles), exampleRegion().slice().len);
     const sc = physics.Scene.of(&b).?;
-    try testing.expectEqual(@as(usize, 2 + physics.cow_count + physics.chicken_count), sc.len);
+    try testing.expectEqual(@as(usize, 2 + physics.countOf(.cow) + physics.countOf(.chicken)), sc.len);
 }
 
 test "a report with no ticks is kept at its own from, its inputs waiting for the next tick" {

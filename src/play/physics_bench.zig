@@ -58,7 +58,7 @@ const Herd = struct { board: Board, dogs: u16, cows: u16 };
 fn packedHerd() Herd {
     var herd = Board.empty();
     const c0 = 16000;
-    herd.place(.dog(0), px(c0, c0));
+    herd.place(.of(.dog, 0), px(c0, c0));
     herd.hold = .{ .leashed = .{ .dog = 0, .drag = .on } };
     var n: u16 = 1;
     var gy: i32 = -7;
@@ -66,16 +66,16 @@ fn packedHerd() Herd {
         var gx: i32 = -7;
         while (gx <= 7) : (gx += 1) {
             if (@max(@abs(gx), @abs(gy)) <= 1) continue;
-            if (n == physics.dog_count) break :outer;
-            herd.place(.dog(n), px(c0 + 45 * gx, c0 + 45 * gy));
+            if (n == physics.countOf(.dog)) break :outer;
+            herd.place(.of(.dog, n), px(c0 + 45 * gx, c0 + 45 * gy));
             n += 1;
         }
     }
     var cow: u16 = 0;
     for ([_]i32{ -440, -375, 375, 440 }) |x| {
         var y: i32 = -330;
-        while (y <= 330 and cow < physics.cow_count) : (y += 64) {
-            herd.place(.cow(cow), px(c0 + x, c0 + y));
+        while (y <= 330 and cow < physics.countOf(.cow)) : (y += 64) {
+            herd.place(.of(.cow, cow), px(c0 + x, c0 + y));
             cow += 1;
         }
     }
@@ -90,7 +90,7 @@ fn busiestSpot() Busiest {
     var park = Board.laidOut();
     var busiest: u16 = 0;
     var most: usize = 0;
-    for (0..physics.dog_count) |i| {
+    for (0..physics.countOf(.dog)) |i| {
         park.hold = .{ .leashed = .{ .dog = @intCast(i), .drag = .on } };
         const n = awakeCount(&park);
         if (n > most) {
@@ -112,7 +112,7 @@ const strewn_poops = 500;
 fn strewnSpot(spot: Busiest) Board {
     var b = spot.board;
     const sc = physics.Scene.of(&b).?;
-    const at = b.dogs[spot.dog];
+    const at = b.of(.dog)[spot.dog];
     var n: u16 = 0;
     var ring: i32 = 1;
     while (n < strewn_poops and ring < 30) : (ring += 1) {
@@ -160,7 +160,7 @@ fn busiestReport(spot: Busiest, w: *wire.Text) !judge.Kept {
     var view: wire.TileSet = .{};
     var t: physics.Tick = 1;
     while (t <= report_ticks) : (t += 1) {
-        const span = physics.TileSpan.of(physics.region(page.dogs[busiest]));
+        const span = physics.TileSpan.of(physics.region(page.of(.dog)[busiest]));
         var r = span.row_lo;
         while (r <= span.row_hi) : (r += 1) {
             var c = span.col_lo;
@@ -190,9 +190,7 @@ fn busiestReport(spot: Busiest, w: *wire.Text) !judge.Kept {
 fn shifted(b: Board, by: i32) Board {
     var out = b;
     const d = by * physics.tile;
-    for (&out.dogs) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
-    for (&out.cows) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
-    for (&out.chickens) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
+    for (&out.points) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
     for (&out.poops) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
     return out;
 }
@@ -218,7 +216,7 @@ fn printLines(io: std.Io, full: physics.Capped) !void {
     }.f;
     for ([_]i32{ 0, tiles_from_middle }) |by| {
         const park = shifted(Board.laidOut(), by);
-        for (0..physics.dog_count) |i| {
+        for (0..physics.countOf(.dog)) |i| {
             var b = park;
             b.hold = .{ .leashed = .{ .dog = @intCast(i), .drag = .on } };
             _ = physics.tick(&b, 1, &.{}, full.slice(), &lines);
@@ -329,7 +327,7 @@ pub fn main(init: std.process.Init) !void {
     const east = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = 0 }});
     probe = strewn;
     _ = physics.tick(&probe, 1, &.{}, full.slice(), &lines);
-    std.debug.print("the busiest spot strewn with {d} poops in view: the full drag (the leashed dog {d} px, {s}): {d} lines, {d:.1} us a tick; 100 px east, {d:.1} us\n", .{ poopsSeen(&strewn), @divTrunc(physics.measure(physics.delta(strewn.dogs[busiest], probe.dogs[busiest])), physics.unit), if (probe.hold.leashed.drag == .on) "no bump" else "bumped", lines.len, timeTick(io, &strewn, &.{}, full.slice()), timeTick(io, &strewn, &.{}, east.slice()) });
+    std.debug.print("the busiest spot strewn with {d} poops in view: the full drag (the leashed dog {d} px, {s}): {d} lines, {d:.1} us a tick; 100 px east, {d:.1} us\n", .{ poopsSeen(&strewn), @divTrunc(physics.measure(physics.delta(strewn.of(.dog)[busiest], probe.of(.dog)[busiest])), physics.unit), if (probe.hold.leashed.drag == .on) "no bump" else "bumped", lines.len, timeTick(io, &strewn, &.{}, full.slice()), timeTick(io, &strewn, &.{}, east.slice()) });
     probe = park;
     std.debug.print("the busiest spot, no poop, 100 px east: {d:.1} us a tick\n", .{timeTick(io, &probe, &.{}, east.slice())});
 

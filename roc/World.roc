@@ -34,18 +34,26 @@ World := [].{
 	poop_px : I64
 	poop_px = 12
 
-	## THE KINDS OF CRITTER, each said here once. A kind's number is its
-	## place in `kinds`: the number physics.zig's `Kind` and the walk's
-	## `Wish.kind_of` cross with. `name` is what the formats and the page
-	## call it, `px` its square's side, and `colour` how the page draws a
-	## kind it has no art for: a square of that colour, `px` across.
-	Look : { name : Str, px : I64, colour : Str }
+	## THE KINDS OF CRITTER, each said here once; the physics' Zig knows no
+	## kind but by these. A kind's number is its place in `kinds`: the
+	## number physics.zig's `Kind` and the walk's `Wish.kind_of` cross with.
+	## - `name`: what the formats and the page call it;
+	## - `px`: its square's side;
+	## - `colour`: how the page draws a kind it has no art for, a square of
+	##   that colour `px` across;
+	## - `rank`: its place in the cascade (lower is more alpha; the leashed
+	##   critter is before all), and the order the physics lists the kinds;
+	## - `kin`: who it nudges and is nudged by: `breed`, its own breed of
+	##   the kind (critter n is of breed n mod `breeds`); `herd`, every one of
+	##   the kind; `none`, nobody;
+	## - `leash`: whether a human leashes it (one kind does, the walk's own).
+	Look : { name : Str, px : I64, colour : Str, rank : I64, kin : [Breed, Herd, NoKin], leash : Bool }
 
 	kinds : List(Look)
 	kinds = [
-		{ name: "dog", px: dog_px, colour: "#a0522d" },
-		{ name: "cow", px: cow_px, colour: "#555555" },
-		{ name: "chicken", px: chicken_px, colour: "#d4a017" },
+		{ name: "dog", px: dog_px, colour: "#a0522d", rank: 1, kin: Breed, leash: Bool.True },
+		{ name: "cow", px: cow_px, colour: "#555555", rank: 0, kin: Herd, leash: Bool.False },
+		{ name: "chicken", px: chicken_px, colour: "#d4a017", rank: 2, kin: NoKin, leash: Bool.False },
 	]
 
 	## The critters are kept by cells: a tile cut `cell_per_tile` ways on

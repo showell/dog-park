@@ -96,11 +96,8 @@ pub const Text = struct {
         return self.hexDigits(h, 8);
     }
     pub fn critter(self: *Text, c: Critter) Error!void {
-        try self.str(switch (c.kind) {
-            .dog => "dog ",
-            .cow => "cow ",
-            .chicken => "chicken ",
-        });
+        try self.str(@tagName(c.kind));
+        try self.str(" ");
         try self.dec(c.n);
     }
     pub fn tileList(self: *Text, list: []const tiles.Tile) Error!void {
@@ -292,7 +289,7 @@ pub fn entry(w: *Text, b: *const physics.Board, c: Critter) Text.Error!void {
     try w.critter(c);
     try w.char(' ');
     try w.pos(b.at(c));
-    if (c.kind == .dog and b.walked[c.n] != 0) {
+    if (c.kind == physics.leashed_kind and b.walked[c.n] != 0) {
         try w.str(" walked ");
         try w.hexPoint(b.walked[c.n]);
     }
@@ -476,10 +473,8 @@ fn parseTick(s: []const u8) ParseError!Tick {
 }
 
 fn parseCritter(kind: []const u8, n: []const u8) ParseError!Critter {
-    if (std.mem.eql(u8, kind, "dog")) return .dog(@intCast(try parseDec(n, physics.dog_count - 1)));
-    if (std.mem.eql(u8, kind, "cow")) return .cow(@intCast(try parseDec(n, physics.cow_count - 1)));
-    if (std.mem.eql(u8, kind, "chicken")) return .chicken(@intCast(try parseDec(n, physics.chicken_count - 1)));
-    return error.Malformed;
+    const k = std.meta.stringToEnum(physics.Kind, kind) orelse return error.Malformed;
+    return .of(k, @intCast(try parseDec(n, physics.countOf(k) - 1)));
 }
 
 pub fn parsePoopNumber(n: []const u8) ParseError!u16 {
@@ -554,7 +549,7 @@ pub fn parse(text: []const u8) ParseError!Line {
     }
     if (std.mem.eql(u8, word, "leash") or std.mem.eql(u8, word, "release")) {
         const t = try parseTick(try w.next());
-        const dog: u16 = @intCast(try parseDec(try w.next(), physics.dog_count - 1));
+        const dog: u16 = @intCast(try parseDec(try w.next(), physics.countOf(physics.leashed_kind) - 1));
         try w.end();
         return if (word[0] == 'l') .{ .leash = .{ .tick = t, .dog = dog } } else .{ .release = .{ .tick = t, .dog = dog } };
     }
@@ -641,7 +636,7 @@ pub const Entries = struct {
         const who = try parseCritter(kind, n);
         const at = try parsePos(try self.w.next());
         var walked: u32 = 0;
-        if (who.kind == .dog and self.w.more() and std.mem.startsWith(u8, self.w.rest, "walked ")) {
+        if (who.kind == physics.leashed_kind and self.w.more() and std.mem.startsWith(u8, self.w.rest, "walked ")) {
             _ = try self.w.next();
             walked = try parseHexPoint(try self.w.next(), std.math.maxInt(u32));
             if (walked == 0) return error.Malformed;

@@ -451,13 +451,11 @@ pub const Server = struct {
             try out.dec(@intCast(t.col));
             try out.char(',');
             try out.dec(@intCast(t.row));
-            if (leashed) |l| try tileEntry(out, &k.board, t, .dog(l));
-            for (0..physics.cow_count) |i| try tileEntry(out, &k.board, t, .cow(@intCast(i)));
-            for (0..physics.dog_count) |i| {
-                if (leashed != null and leashed.? == i) continue;
-                try tileEntry(out, &k.board, t, .dog(@intCast(i)));
+            if (leashed) |l| try tileEntry(out, &k.board, t, .of(physics.leashed_kind, l));
+            for (physics.ranked) |c| {
+                if (leashed != null and c.kind == physics.leashed_kind and leashed.? == c.n) continue;
+                try tileEntry(out, &k.board, t, c);
             }
-            for (0..physics.chicken_count) |i| try tileEntry(out, &k.board, t, .chicken(@intCast(i)));
             for (k.board.poops, k.board.poop_known, 0..) |p, known, i| {
                 if (known != .present) continue;
                 const at = physics.tileOf(p);
@@ -535,7 +533,7 @@ pub const Server = struct {
             var begun: physics.Begun = .{};
             for (self.kept.pendingSlice()) |h| _ = physics.input(&b, &begun, h);
             if (b.leashedDog()) |l| {
-                const span = physics.TileSpan.of(physics.region(b.dogs[l]));
+                const span = physics.TileSpan.of(physics.region(b.of(physics.leashed_kind)[l]));
                 var row = span.row_lo;
                 while (row <= span.row_hi) : (row += 1) {
                     var col = span.col_lo;

@@ -168,7 +168,7 @@ test("sketch B, the second half, and 2: a page whose board drifted is refuted, r
     // the server's board line can put it back.
     const K = rig.engine.debug().K;
     const x = rig.physics.raw;
-    for (const b of [LIVE, KEPT]) new Int32Array(x.memory.buffer, x.dogsAt(b), 2 * x.dogCount())[2 * dog.id] += 512;
+    for (const b of [LIVE, KEPT]) new Int32Array(x.memory.buffer, x.crittersAt(b), 2 * x.critterCount())[2 * (x.kindBase(0) + dog.id)] += 512;
     for (let i = 0; i < 10; i++) {
       rig.engine.intent({ kind: "drag", dogId: dog.id, dx: 3, dy: 1 });
       await rig.ticks(1);

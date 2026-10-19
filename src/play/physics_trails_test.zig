@@ -25,7 +25,7 @@ fn d(x: i32, y: i32) physics.Disp {
 }
 
 /// Chicken 0's home, and a point `x`, `y` px from it.
-const home = layout.chickenHome(0);
+const home = layout.home(.of(.chicken, 0));
 fn nearHome(x: i32, y: i32) Point {
     return .{ .x = home.x + physics.px(x), .y = home.y + physics.px(y) };
 }
@@ -33,7 +33,7 @@ fn nearHome(x: i32, y: i32) Point {
 /// An empty board with dog 0 leashed at `at`, a drag on.
 fn leashedAt(at: Point) Board {
     var b = Board.empty();
-    b.place(.dog(0), at);
+    b.place(.of(.dog, 0), at);
     b.hold = .{ .leashed = .{ .dog = 0, .drag = .on } };
     return b;
 }
@@ -72,13 +72,13 @@ test "the trail comes from the tail: a chain of three of the leashed dog's breed
     // leashed dog, dog 8 follows dog 4), and the deepest poops, away from
     // its anchor. Dog 1, another breed, is no part of the herd's depth.
     var b = leashedAt(px(300, 1050));
-    b.place(.dog(4), px(244, 1050));
-    b.place(.dog(8), px(188, 1050));
+    b.place(.of(.dog, 4), px(244, 1050));
+    b.place(.of(.dog, 8), px(188, 1050));
     var t: physics.Tick = 1;
     while (t <= 7) : (t += 1) _ = ticked(&b, t, &.{}, &.{d(100, 0)});
     // Each closes to the band's outer edge, 70 px behind the one ahead.
-    try testing.expectEqual(px(930, 1050), b.dogs[4]);
-    try testing.expectEqual(px(860, 1050), b.dogs[8]);
+    try testing.expectEqual(px(930, 1050), b.of(.dog)[4]);
+    try testing.expectEqual(px(860, 1050), b.of(.dog)[8]);
     try testing.expectEqual(@as(u32, 1), b.laid);
     try testing.expectEqual(px(830, 1050), b.poops[0]);
     // Seven more: the next 700 px, the next slot, behind the tail again.
@@ -95,7 +95,7 @@ test "a poop whose spot is taken lands at the nearest free spot on the rings aro
     // poop lands on a later ring, its north-west corner first, clear.
     var b = leashedAt(px(300, 1050));
     b.walked[0] = physics.poop_every - @as(u32, @intCast(physics.px(1)));
-    b.place(.chicken(0), px(271, 1050));
+    b.place(.of(.chicken, 0), px(271, 1050));
     _ = ticked(&b, 1, &.{}, &.{d(1, 0)});
     try testing.expectEqual(@as(u32, 1), b.laid);
     // The spot is (271, 1050); 16 px clears the chicken's half and the
@@ -111,20 +111,20 @@ test "a dog whose step a poop vetoes takes the exact sidestep instead; and when 
     // Dog 4 follows the leashed dog west; a poop touches its west side,
     // on its line: it steps 1 px south instead (on the line, +).
     var b = leashedAt(nearHome(-200, 400));
-    b.place(.dog(4), nearHome(0, 400));
+    b.place(.of(.dog, 4), nearHome(0, 400));
     poopAt(&b, 9, nearHome(-20, 400));
     b.laid = 10;
     _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
-    try testing.expectEqual(nearHome(0, 401), b.dogs[4]);
+    try testing.expectEqual(nearHome(0, 401), b.of(.dog)[4]);
     try overlapsNone(&b);
     // A second poop touching its south side: the sidestep is vetoed too.
     var c = leashedAt(nearHome(-200, 400));
-    c.place(.dog(4), nearHome(0, 400));
+    c.place(.of(.dog, 4), nearHome(0, 400));
     poopAt(&c, 9, nearHome(-20, 400));
     poopAt(&c, 3, nearHome(0, 420));
     c.laid = 10;
     _ = ticked(&c, 1, &.{}, &.{d(-1, 0)});
-    try testing.expectEqual(nearHome(0, 400), c.dogs[4]);
+    try testing.expectEqual(nearHome(0, 400), c.of(.dog)[4]);
     try overlapsNone(&c);
 }
 
@@ -136,23 +136,23 @@ test "a cow's step into a chicken shoves it by the step and as much again away f
     // The leashed dog, east, scares cow 0 west half a pixel; chicken 0
     // touches cow 0's west side, 9 px north of its line.
     var b = leashedAt(nearHome(182, 9));
-    b.place(.cow(0), nearHome(31, 9));
-    b.place(.chicken(0), home);
+    b.place(.of(.cow, 0), nearHome(31, 9));
+    b.place(.of(.chicken, 0), home);
     _ = ticked(&b, 1, &.{}, &.{d(1, 0)});
-    try testing.expectEqual(Point{ .x = home.x + physics.px(31) - 128, .y = home.y + physics.px(9) }, b.cows[0]);
-    try testing.expectEqual(Point{ .x = home.x - 128, .y = home.y - 128 }, b.chickens[0]);
+    try testing.expectEqual(Point{ .x = home.x + physics.px(31) - 128, .y = home.y + physics.px(9) }, b.of(.cow)[0]);
+    try testing.expectEqual(Point{ .x = home.x - 128, .y = home.y - 128 }, b.of(.chicken)[0]);
     try overlapsNone(&b);
     // Cow 1, touching cow 0 on the north-west and the chicken on the
     // north: cow 0 nudges it, and the chicken, shoved north, would land
     // on it. Nobody goes west; cow 0 sidesteps south instead.
     var c = leashedAt(nearHome(182, 9));
-    c.place(.cow(0), nearHome(31, 9));
-    c.place(.cow(1), nearHome(-11, -31));
-    c.place(.chicken(0), home);
+    c.place(.of(.cow, 0), nearHome(31, 9));
+    c.place(.of(.cow, 1), nearHome(-11, -31));
+    c.place(.of(.chicken, 0), home);
     _ = ticked(&c, 1, &.{}, &.{d(1, 0)});
-    try testing.expectEqual(Point{ .x = home.x + physics.px(31), .y = home.y + physics.px(9) + 128 }, c.cows[0]);
-    try testing.expectEqual(nearHome(-11, -31), c.cows[1]);
-    try testing.expectEqual(home, c.chickens[0]);
+    try testing.expectEqual(Point{ .x = home.x + physics.px(31), .y = home.y + physics.px(9) + 128 }, c.of(.cow)[0]);
+    try testing.expectEqual(nearHome(-11, -31), c.of(.cow)[1]);
+    try testing.expectEqual(home, c.of(.chicken)[0]);
     try overlapsNone(&c);
 }
 
@@ -163,12 +163,12 @@ test "the leashed dog shoves a free chicken off its front: it slides off within 
     // goes south (+), a pixel each way a pixel-tick, until clear (24 px:
     // a dog's half and a chicken's).
     var b = leashedAt(nearHome(-24, 0));
-    b.place(.chicken(0), home);
+    b.place(.of(.chicken, 0), home);
     const lines = ticked(&b, 1, &.{}, &.{d(40, 0)});
     try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
-    try testing.expectEqual(nearHome(16, 0), b.dogs[0]);
-    try testing.expectEqual(nearHome(24, 24), b.chickens[0]);
-    try testing.expect(lineOf(&lines, .chicken(0)) != null);
+    try testing.expectEqual(nearHome(16, 0), b.of(.dog)[0]);
+    try testing.expectEqual(nearHome(24, 24), b.of(.chicken)[0]);
+    try testing.expect(lineOf(&lines, .of(.chicken, 0)) != null);
     try overlapsNone(&b);
 }
 
@@ -181,7 +181,7 @@ test "the leashed dog slides around a poop, a pixel sideways each pixel-tick, aw
     b.laid = 5;
     const lines = ticked(&b, 1, &.{}, &.{d(30, 0)});
     try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
-    try testing.expectEqual(nearHome(15, 385), b.dogs[0]);
+    try testing.expectEqual(nearHome(15, 385), b.of(.dog)[0]);
     try overlapsNone(&b);
 }
 
@@ -190,13 +190,13 @@ test "the leashed dog bumps a boxed-in chicken only when the shove and the slide
     // cow behind the chicken stops the shove, a dog of another breed
     // beside the leashed dog the slide.
     var b = leashedAt(nearHome(-24, 0));
-    b.place(.chicken(0), home);
-    b.place(.cow(0), nearHome(31, 0));
-    b.place(.dog(1), nearHome(-24, 28));
+    b.place(.of(.chicken, 0), home);
+    b.place(.of(.cow, 0), nearHome(31, 0));
+    b.place(.of(.dog, 1), nearHome(-24, 28));
     const lines = ticked(&b, 1, &.{}, &.{d(5, 0)});
-    try testing.expectEqual(@as(?physics.Bumped, .{ .critter = .chicken(0) }), bumpOf(&lines));
-    try testing.expectEqual(nearHome(-24, 0), b.dogs[0]);
-    try testing.expectEqual(home, b.chickens[0]);
+    try testing.expectEqual(@as(?physics.Bumped, .{ .critter = .of(.chicken, 0) }), bumpOf(&lines));
+    try testing.expectEqual(nearHome(-24, 0), b.of(.dog)[0]);
+    try testing.expectEqual(home, b.of(.chicken)[0]);
 }
 
 // ------------------------------------------------------ the chickens' turn
@@ -205,13 +205,13 @@ test "the newest poop blocks a chicken's step: it goes around it" {
     // Proves the fix that keeps no critter on unripe poop: the newest
     // poop touches the chicken's east side, on its way to a ripe one.
     var b = leashedAt(nearHome(0, 400));
-    b.place(.chicken(0), home);
+    b.place(.of(.chicken, 0), home);
     poopAt(&b, 0, nearHome(100, 0));
     poopAt(&b, 1, nearHome(16, 0));
     b.laid = 2;
     _ = ticked(&b, 1, &.{}, &.{d(10, 0)});
     // Blocked east, it sidesteps the whole 5 px south (on the line, +).
-    try testing.expectEqual(nearHome(0, 5), b.chickens[0]);
+    try testing.expectEqual(nearHome(0, 5), b.of(.chicken)[0]);
     try overlapsNone(&b);
 }
 
@@ -219,20 +219,20 @@ test "a chicken in a chicken's step blocks it: it goes around it, as round a poo
     // Chicken 1 touches chicken 0's east side, on chicken 0's way to a
     // ripe poop; chicken 0 goes first, in seen order.
     var b = leashedAt(nearHome(0, 400));
-    b.place(.chicken(0), home);
-    b.place(.chicken(1), nearHome(20, 0));
+    b.place(.of(.chicken, 0), home);
+    b.place(.of(.chicken, 1), nearHome(20, 0));
     poopAt(&b, 0, nearHome(100, 0));
     b.laid = 7;
     _ = ticked(&b, 1, &.{}, &.{d(10, 0)});
     // Blocked east, it sidesteps the whole 5 px south (on the line, +).
-    try testing.expectEqual(nearHome(0, 5), b.chickens[0]);
+    try testing.expectEqual(nearHome(0, 5), b.of(.chicken)[0]);
     try overlapsNone(&b);
 }
 
 test "a chicken eats every ripe poop its square overlaps, and the eaten slot is a line" {
     // Proves rule 10: 20 px off, a 5 px step overlaps it (16 is touching).
     var b = leashedAt(nearHome(0, 400));
-    b.place(.chicken(0), home);
+    b.place(.of(.chicken, 0), home);
     poopAt(&b, 0, nearHome(20, 0));
     b.laid = 7;
     const lines = ticked(&b, 1, &.{}, &.{d(10, 0)});
@@ -248,11 +248,11 @@ test "a chicken eats every ripe poop its square overlaps, and the eaten slot is 
 test "a chicken sees ripe poop out to chicken_sight, and no farther: at it, it goes; a 256th past, it stays home" {
     for ([_]i32{ 0, 1 }) |past| {
         var b = leashedAt(nearHome(0, 400));
-        b.place(.chicken(0), home);
+        b.place(.of(.chicken, 0), home);
         poopAt(&b, 0, .{ .x = home.x + physics.chicken_sight + past, .y = home.y });
         b.laid = 7;
         _ = ticked(&b, 1, &.{}, &.{d(10, 0)});
-        if (past == 0) try testing.expect(b.chickens[0].x > home.x) else try testing.expectEqual(home, b.chickens[0]);
+        if (past == 0) try testing.expect(b.of(.chicken)[0].x > home.x) else try testing.expectEqual(home, b.of(.chicken)[0]);
     }
 }
 
@@ -261,10 +261,10 @@ test "no chicken moves in a tick the leashed dog ends where it began" {
     // its path. Out 10 px and back in one tick: the chicken, 100 px from
     // home, stays, and writes no line.
     var b = leashedAt(nearHome(0, 400));
-    b.place(.chicken(0), nearHome(100, 0));
+    b.place(.of(.chicken, 0), nearHome(100, 0));
     const lines = ticked(&b, 1, &.{}, &.{ d(10, 0), d(-10, 0) });
-    try testing.expectEqual(nearHome(100, 0), b.chickens[0]);
-    try testing.expectEqual(@as(?physics.CritterLine, null), lineOf(&lines, .chicken(0)));
+    try testing.expectEqual(nearHome(100, 0), b.of(.chicken)[0]);
+    try testing.expectEqual(@as(?physics.CritterLine, null), lineOf(&lines, .of(.chicken, 0)));
 }
 
 test "ripe: every slot but the newest, laid - 1 mod 2048, at laid 0 and 1 and across the slots' wrap and the counter's" {
@@ -297,7 +297,7 @@ test "the poops by tile: a slot laid anew mid-drag leaves its old tile's list, s
     b.walked[0] = physics.poop_every - @as(u32, @intCast(physics.px(1)));
     const lines = ticked(&b, 1, &.{}, &.{d(100, 0)});
     try testing.expectEqual(px(471, 1050), b.poops[0]);
-    try testing.expectEqual(px(600, 1050), b.dogs[0]);
+    try testing.expectEqual(px(600, 1050), b.of(.dog)[0]);
     try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
     try overlapsNone(&b);
     // The slot was seen at the start, so its line is its new point (the
@@ -324,5 +324,5 @@ test "the poops by tile: a poop across the world's seam still blocks the leashed
     poopAt(&b, 3, px(@import("tiles.zig").world_px - 10, 1050));
     b.laid = 4;
     _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
-    try testing.expectEqual(px(10, 1051), b.dogs[0]);
+    try testing.expectEqual(px(10, 1051), b.of(.dog)[0]);
 }

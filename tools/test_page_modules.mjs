@@ -94,16 +94,19 @@ test("the page's world is the physics': world.js and the wasm, both printed from
   const x = instance.exports;
   assert.equal(scene.tile_px, x.tilePx());
   assert.equal(scene.world_tiles, x.worldTiles());
-  assert.equal(scene.cow_count, x.cowCount());
-  assert.equal(scene.park_tiles * scene.park_tiles * scene.breeds, x.dogCount());
-  assert.equal(scene.dog_px, x.dogPx());
-  assert.equal(scene.cow_px, x.cowPx());
-  assert.equal(scene.chicken_px, x.chickenPx());
+  const k = Object.fromEntries(scene.kinds.map((kind, i) => [kind.name, i]));
+  assert.equal(scene.cow_count, x.kindSize(k.cow));
+  assert.equal(scene.park_tiles * scene.park_tiles * scene.breeds, x.kindSize(k.dog));
+  assert.equal(scene.dog_px, x.kindPx(k.dog));
+  assert.equal(scene.cow_px, x.kindPx(k.cow));
+  assert.equal(scene.chicken_px, x.kindPx(k.chicken));
   assert.equal(scene.poop_px, x.poopPx());
   assert.equal(scene.breeds, x.breeds());
   // The kinds, in their numbers' order, each its size.
   assert.deepEqual(scene.kinds.map((k) => k.name), ["dog", "cow", "chicken"]);
-  assert.deepEqual(scene.kinds.map((k) => k.px), [x.dogPx(), x.cowPx(), x.chickenPx()]);
+  assert.equal(x.kindCount(), scene.kinds.length);
+  assert.deepEqual(scene.kinds.map((kind) => kind.px), scene.kinds.map((_, i) => x.kindPx(i)));
+  assert.deepEqual(scene.kinds.map((kind) => kind.count), scene.kinds.map((_, i) => x.kindSize(i)));
 });
 
 test("a critter with art is its glyph; a kind with none, a square of its colour, its px across, centred where it stands", () => {

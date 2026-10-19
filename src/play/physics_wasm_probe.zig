@@ -16,7 +16,7 @@ var lines: physics.Lines = .{};
 /// One tick of the laid-out park with dog `dog` leashed and dragged.
 export fn probeTick(dog: u32, dx: i32, dy: i32) u32 {
     board = physics.Board.laidOut();
-    board.hold = .{ .leashed = .{ .dog = @intCast(dog % physics.dog_count), .drag = .on } };
+    board.hold = .{ .leashed = .{ .dog = @intCast(dog % physics.countOf(.dog)), .drag = .on } };
     const drag = physics.mergeAndCap(&.{.{ .dx = dx, .dy = dy }});
     _ = physics.tick(&board, 1, &.{}, drag.slice(), &lines);
     var w: wire.Text = .{ .buf = &text };
