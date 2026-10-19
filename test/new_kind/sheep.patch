@@ -1,0 +1,155 @@
+--- a/roc/Rules.roc
++++ b/roc/Rules.roc
+@@ -32,7 +32,7 @@
+ 
+ 	## The kinds, by the tags the rules name them with: World.roc's `kinds`,
+ 	## in its order (Wish.roc's `kind_of` numbers them so).
+-	Kind : [Dog, Cow, Chicken, Goat]
++	Kind : [Dog, Cow, Chicken, Goat, Sheep]
+ 
+ 	## A dog keeps this from a moving dog of another breed; a cow from any
+ 	## moving dog.
+@@ -55,6 +55,7 @@
+ 		Cow => Moves({ gathers: Nearest, pace: { num: 1, den: 2 } })
+ 		Chicken => Still
+ 		Goat => Moves({ gathers: Nearest, pace: { num: 1, den: 2 } })
++		Sheep => Moves({ gathers: Nearest, pace: { num: 1, den: 2 } })
+ 	}
+ 
+ 	## Whether a kind moves in the walk (`mover` says how), as a match of its
+@@ -66,6 +67,7 @@
+ 		Cow => Bool.True
+ 		Chicken => Bool.False
+ 		Goat => Bool.True
++		Sheep => Bool.True
+ 	}
+ 
+ 	## **THE RULES BY PAIR OF KINDS**: the answer of a moving critter of kind
+@@ -105,6 +107,15 @@
+ 		(Goat, Cow) => Ignore
+ 		(Goat, Chicken) => Ignore
+ 		(Goat, Goat) => Herd({ inner: 35, outer: 120 })
++		(Dog, Sheep) => Keep(63)
++		(Cow, Sheep) => Ignore
++		(Chicken, Sheep) => Ignore
++		(Goat, Sheep) => Ignore
++		(Sheep, Dog) => Keep(wary)
++		(Sheep, Cow) => Ignore
++		(Sheep, Chicken) => Ignore
++		(Sheep, Goat) => Ignore
++		(Sheep, Sheep) => Herd({ inner: 40, outer: 90 })
+ 	}
+ 
+ 	## **THE FORAGE** (decision 31), a behaviour a kind may have (Wish.roc's
+@@ -155,17 +166,17 @@
+ expect Rules.is_power_of_two(Rules.poop.slots) and Rules.poop.slots <= 65536
+ expect Rules.poop.grid > 0 and Rules.poop.reach % Rules.poop.grid == 0
+ expect Rules.chickens.pace.den > 0
+-expect [Dog, Cow, Chicken, Goat].map(
++expect [Dog, Cow, Chicken, Goat, Sheep].map(
+ 	|k| Rules.walks(k) == (
+ 		match Rules.mover(k) {
+ 			Moves(_) => Bool.True
+ 			Still => Bool.False
+ 		}
+ 	),
+-) == [Bool.True, Bool.True, Bool.True, Bool.True]
+-expect [Dog, Cow, Chicken, Goat].map(
++) == [Bool.True, Bool.True, Bool.True, Bool.True, Bool.True]
++expect [Dog, Cow, Chicken, Goat, Sheep].map(
+ 	|k| match Rules.mover(k) {
+ 		Moves(m) => m.pace.den > 0
+ 		Still => Bool.True
+ 	},
+-) == [Bool.True, Bool.True, Bool.True, Bool.True]
++) == [Bool.True, Bool.True, Bool.True, Bool.True, Bool.True]
+--- a/roc/Wish.roc
++++ b/roc/Wish.roc
+@@ -36,6 +36,7 @@
+ 		Cow => Stays
+ 		Chicken => Forages(Rules.chickens)
+ 		Goat => Stays
++		Sheep => Stays
+ 	}
+ 
+ 	kind_of : U8 -> Kind
+@@ -44,6 +45,7 @@
+ 		1 => Cow
+ 		2 => Chicken
+ 		3 => Goat
++		4 => Sheep
+ 		_ => crash "a kind physics.zig's Kind does not number"
+ 	}
+ 
+--- a/roc/World.roc
++++ b/roc/World.roc
+@@ -100,6 +100,15 @@
+ 			kin: Herd,
+ 			leash: Bool.False,
+ 		},
++		{
++			name: "sheep",
++			px: 30,
++			colour: "#b8b8a0",
++			emoji: "",
++			rank: 4,
++			kin: Herd,
++			leash: Bool.False,
++		},
+ 	]
+ 
+ 	## The critters are kept by cells: a tile cut `cell_per_tile` ways on
+--- a/roc/world.roc
++++ b/roc/world.roc
+@@ -52,7 +52,7 @@
+ px : I64 -> I64
+ px = |n| n * 256
+ 
+-Kind : [Dog, Cow, Chicken, Goat]
++Kind : [Dog, Cow, Chicken, Goat, Sheep]
+ 
+ Spot : { kind : Kind, x : I64, y : I64 }
+ 
+@@ -72,7 +72,7 @@
+ 		{ kind: Dog, x: far, y: far },
+ 	]
+ 	if (col + row) % 2 == 0 {
+-		dogs.concat([{ kind: Cow, x: mid, y: mid }])
++		dogs.concat([{ kind: Cow, x: mid, y: mid }, { kind: Sheep, x: mid, y: corner_in }])
+ 	} else {
+ 		chickens = dogs.concat([
+ 			{ kind: Chicken, x: mid - chicken_off, y: mid },
+@@ -123,6 +123,7 @@
+ 	Cow => cow_px // 2
+ 	Chicken => chicken_px // 2
+ 	Goat => goat_px // 2
++	Sheep => 15
+ }
+ 
+ ## The short way between two coordinates round the torus, its length.
+@@ -174,6 +175,8 @@
+ 		Chicken
+ 	} else if name == "goat" {
+ 		Goat
++	} else if name == "sheep" {
++		Sheep
+ 	} else {
+ 		crash "world.roc: a kind World.kinds names that the park does not lay out"
+ 	}
+@@ -211,6 +214,7 @@
+ 		Cow => "cow"
+ 		Chicken => "chicken"
+ 		Goat => "goat"
++		Sheep => "sheep"
+ 	}
+ 	var $names = []
+ 	var $n = 0
+@@ -225,7 +229,7 @@
+ expect World.kinds.keep_if(|k| k.leash).len() == 1
+ expect World.kinds.map(|k| k.rank).len() == World.kinds.len() and World.kinds.keep_if(|k| k.rank < 0 or k.rank >= World.kinds.len().to_i64_wrap()).len() == 0
+ 
+-expect World.kinds.len() == 4
++expect World.kinds.len() == 5
+ expect half(Dog) * 2 == dog_px and half(Cow) * 2 == cow_px and half(Chicken) * 2 == chicken_px and half(Goat) * 2 == goat_px
+ expect !no_overlap([{ kind: Dog, x: 10, y: 10 }, { kind: Cow, x: 40, y: 30 }])
+ 

@@ -164,12 +164,12 @@ test "the worked example, dog 23's step at 1041 a 256th off: differ at that line
     try testing.expectEqual(@as(physics.Tick, 1040), k.tick);
 }
 
-test "the worked example's region is the world, and every critter on the board is seen: the two dogs, the cows, the chickens" {
+test "the worked example's region is the world, and every critter on the board is seen: the two dogs, and every critter of every other kind" {
     var b = exampleBoard();
     b.hold = .{ .leashed = .{ .dog = leashed, .drag = .on } };
     try testing.expectEqual(@as(usize, tiles.world_tiles * tiles.world_tiles), exampleRegion().slice().len);
     const sc = physics.Scene.of(&b).?;
-    try testing.expectEqual(@as(usize, 2 + physics.countOf(.cow) + physics.countOf(.chicken)), sc.len);
+    try testing.expectEqual(@as(usize, 2 + physics.critter_count - physics.countOf(.dog)), sc.len);
 }
 
 test "a report with no ticks is kept at its own from, its inputs waiting for the next tick" {

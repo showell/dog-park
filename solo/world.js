@@ -13,7 +13,8 @@ export const poop_px = 12;
 export const breeds = 4;
 // Each kind of critter, its number its place here (roc/World.roc).
 export const kinds = [
-  { name: "dog", px: 28, colour: "#a0522d", rank: 1, count: 64 },
-  { name: "cow", px: 42, colour: "#555555", rank: 0, count: 8 },
-  { name: "chicken", px: 20, colour: "#d4a017", rank: 2, count: 16 },
+  { name: "dog", px: 28, colour: "#a0522d", emoji: "", rank: 1, count: 64 },
+  { name: "cow", px: 42, colour: "#555555", emoji: "🐄", rank: 0, count: 8 },
+  { name: "chicken", px: 20, colour: "#d4a017", emoji: "🐓", rank: 2, count: 16 },
+  { name: "goat", px: 30, colour: "#8a8a8a", emoji: "🐐", rank: 3, count: 4 },
 ];

@@ -201,7 +201,7 @@ async function start() {
       if (v.bumped.kind !== "none") say(bumps.say(v.bumped.kind));
     }
     drawn = mode === "overview"
-      ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed, overviewAt, v.chickens ?? []) }
+      ? { mode, objects: overviewScene(v.viewport, [...v.dogs.values()], v.cows, v.subscribed, v.lastLeashed, overviewAt, v.chickens ?? [], v.others ?? []) }
       : { mode, objects: nearScene(v.viewport, [...v.dogs.values()], v.cows, v.leashed, { alpha: v.alpha, was: v.was }, v.visits, { chickens: v.chickens ?? [], poops: v.poops ?? [], others: v.others ?? [], labels }) };
     const note = v.status.kind === "stopped" ? v.status.message
       : v.status.kind === "reloading" ? `reloading: ${v.status.why}`

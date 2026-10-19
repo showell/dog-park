@@ -35,6 +35,7 @@ Wish := [].{
 		Dog => Stays
 		Cow => Stays
 		Chicken => Forages(Rules.chickens)
+		Goat => Stays
 	}
 
 	kind_of : U8 -> Kind
@@ -42,6 +43,7 @@ Wish := [].{
 		0 => Dog
 		1 => Cow
 		2 => Chicken
+		3 => Goat
 		_ => crash "a kind physics.zig's Kind does not number"
 	}
 
@@ -295,7 +297,7 @@ nb = |kind, kin, j, x, y| {
 }
 
 ## The kinds as physics.zig's `Kind` numbers them.
-expect Wish.kind_of(0) == Dog and Wish.kind_of(1) == Cow and Wish.kind_of(2) == Chicken
+expect Wish.kind_of(0) == Dog and Wish.kind_of(1) == Cow and Wish.kind_of(2) == Chicken and Wish.kind_of(3) == Goat
 
 ## Alone, a critter wants nothing.
 expect Wish.wish(dog_me, []) == { anchor: -1, x: 0, y: 0 }

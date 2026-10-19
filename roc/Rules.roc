@@ -32,7 +32,7 @@ Rules := [].{
 
 	## The kinds, by the tags the rules name them with: World.roc's `kinds`,
 	## in its order (Wish.roc's `kind_of` numbers them so).
-	Kind : [Dog, Cow, Chicken]
+	Kind : [Dog, Cow, Chicken, Goat]
 
 	## A dog keeps this from a moving dog of another breed; a cow from any
 	## moving dog.
@@ -45,6 +45,8 @@ Rules := [].{
 	## - A dog takes every moving critter's answer, and keeps pace.
 	## - A cow takes its nearest moving critter's alone, at half the pace.
 	## - A chicken is never in motion in the walk (it forages, after it).
+	## - A goat, like a cow, takes its nearest moving critter's alone, at
+	##   half the pace.
 	Mover : { gathers : Gathers, pace : Share }
 
 	mover : Kind -> [Moves(Mover), Still]
@@ -52,6 +54,7 @@ Rules := [].{
 		Dog => Moves({ gathers: Each, pace: { num: 1, den: 1 } })
 		Cow => Moves({ gathers: Nearest, pace: { num: 1, den: 2 } })
 		Chicken => Still
+		Goat => Moves({ gathers: Nearest, pace: { num: 1, den: 2 } })
 	}
 
 	## Whether a kind moves in the walk (`mover` says how), as a match of its
@@ -62,6 +65,7 @@ Rules := [].{
 		Dog => Bool.True
 		Cow => Bool.True
 		Chicken => Bool.False
+		Goat => Bool.True
 	}
 
 	## **THE RULES BY PAIR OF KINDS**: the answer of a moving critter of kind
@@ -78,6 +82,11 @@ Rules := [].{
 	##   closes in to touching.
 	## - Neither heeds a chicken, and a chicken (never in motion in the walk)
 	##   answers nobody.
+	## - **A goat is bold**: a dog within 120 px, it closes in to touching
+	##   (a dog keeps 63 px from it, as from a cow, so a goat that comes up
+	##   to the dogs pushes them about); with another goat its nearest, it
+	##   herds, 35 to 120 px off. It heeds no cow, and no cow or chicken
+	##   heeds it.
 	rule : Kind, Kind, Bool -> Rule
 	rule = |wisher, seen, kin| match (wisher, seen) {
 		(Dog, Dog) => if (kin) Herd({ inner: 42, outer: 70 }) else Keep(wary)
@@ -89,6 +98,13 @@ Rules := [].{
 		(Chicken, Dog) => Ignore
 		(Chicken, Cow) => Ignore
 		(Chicken, Chicken) => Ignore
+		(Dog, Goat) => Keep(63)
+		(Cow, Goat) => Ignore
+		(Chicken, Goat) => Ignore
+		(Goat, Dog) => Close(120)
+		(Goat, Cow) => Ignore
+		(Goat, Chicken) => Ignore
+		(Goat, Goat) => Herd({ inner: 35, outer: 120 })
 	}
 
 	## **THE FORAGE** (decision 31), a behaviour a kind may have (Wish.roc's
@@ -139,17 +155,17 @@ Rules := [].{
 expect Rules.is_power_of_two(Rules.poop.slots) and Rules.poop.slots <= 65536
 expect Rules.poop.grid > 0 and Rules.poop.reach % Rules.poop.grid == 0
 expect Rules.chickens.pace.den > 0
-expect [Dog, Cow, Chicken].map(
+expect [Dog, Cow, Chicken, Goat].map(
 	|k| Rules.walks(k) == (
 		match Rules.mover(k) {
 			Moves(_) => Bool.True
 			Still => Bool.False
 		}
 	),
-) == [Bool.True, Bool.True, Bool.True]
-expect [Dog, Cow, Chicken].map(
+) == [Bool.True, Bool.True, Bool.True, Bool.True]
+expect [Dog, Cow, Chicken, Goat].map(
 	|k| match Rules.mover(k) {
 		Moves(m) => m.pace.den > 0
 		Still => Bool.True
 	},
-) == [Bool.True, Bool.True, Bool.True]
+) == [Bool.True, Bool.True, Bool.True, Bool.True]

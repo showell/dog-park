@@ -27,6 +27,8 @@ cow_px = World.cow_px
 
 chicken_px = World.chicken_px
 
+goat_px = World.goat_px
+
 poop_px = World.poop_px
 
 breeds = World.breeds
@@ -36,6 +38,8 @@ cell_per_tile = World.cell_per_tile
 corner_in = World.corner_in
 
 chicken_off = World.chicken_off
+
+goat_above = World.goat_above
 
 park_first : I64
 park_first = (world_tiles - park_tiles) // 2
@@ -48,14 +52,15 @@ expect breeds == 4
 px : I64 -> I64
 px = |n| n * 256
 
-Kind : [Dog, Cow, Chicken]
+Kind : [Dog, Cow, Chicken, Goat]
 
 Spot : { kind : Kind, x : I64, y : I64 }
 
 ## Who stands in one tile of the park, and where, in pixels from its
 ## top-left corner. Every tile holds a dog of each breed, breed b in corner
 ## b (NW, NE, SW, SE); a white tile (column plus row even) a cow in the middle; a blue
-## one two chickens either side of it.
+## one two chickens either side of it, and a blue tile in an even row and
+## odd column (four of the eight) a goat above them.
 tile_spots : I64, I64 -> List(Spot)
 tile_spots = |col, row| {
 	far = tile_px - corner_in
@@ -69,10 +74,15 @@ tile_spots = |col, row| {
 	if (col + row) % 2 == 0 {
 		dogs.concat([{ kind: Cow, x: mid, y: mid }])
 	} else {
-		dogs.concat([
+		chickens = dogs.concat([
 			{ kind: Chicken, x: mid - chicken_off, y: mid },
 			{ kind: Chicken, x: mid + chicken_off, y: mid },
 		])
+		if row % 2 == 0 and col % 2 == 1 {
+			chickens.concat([{ kind: Goat, x: mid, y: mid - goat_above }])
+		} else {
+			chickens
+		}
 	}
 }
 
@@ -104,6 +114,7 @@ of_kind = |kind| park.keep_if(|s| s.kind == kind)
 
 expect of_kind(Dog).len() == (park_tiles * park_tiles * breeds).to_u64_wrap()
 expect of_kind(Cow).len() + of_kind(Chicken).len() // 2 == (park_tiles * park_tiles).to_u64_wrap()
+expect of_kind(Goat).len() == 4
 
 ## A critter's square's half side, in pixels.
 half : Kind -> I64
@@ -111,6 +122,7 @@ half = |kind| match kind {
 	Dog => dog_px // 2
 	Cow => cow_px // 2
 	Chicken => chicken_px // 2
+	Goat => goat_px // 2
 }
 
 ## The short way between two coordinates round the torus, its length.
@@ -160,6 +172,8 @@ tag_of = |name| {
 		Cow
 	} else if name == "chicken" {
 		Chicken
+	} else if name == "goat" {
+		Goat
 	} else {
 		crash "world.roc: a kind World.kinds names that the park does not lay out"
 	}
@@ -181,7 +195,7 @@ looks = |form| {
 		$out = $out.concat(
 			match form {
 				Zon => "        .{ .name = \"${k.name}\", .px = ${k.px.to_str()}, .colour = \"${k.colour}\", .rank = ${k.rank.to_str()}, .kin = ${kin_zon(k.kin)}, .leash = ${if (k.leash) "true" else "false"}, .spots = .{\n${points(tag_of(k.name))}        } },\n"
-				Js => "  { name: \"${k.name}\", px: ${k.px.to_str()}, colour: \"${k.colour}\", rank: ${k.rank.to_str()}, count: ${of_kind(tag_of(k.name)).len().to_str()} },\n"
+				Js => "  { name: \"${k.name}\", px: ${k.px.to_str()}, colour: \"${k.colour}\", emoji: \"${k.emoji}\", rank: ${k.rank.to_str()}, count: ${of_kind(tag_of(k.name)).len().to_str()} },\n"
 			},
 		)
 	}
@@ -196,6 +210,7 @@ expect {
 		Dog => "dog"
 		Cow => "cow"
 		Chicken => "chicken"
+		Goat => "goat"
 	}
 	var $names = []
 	var $n = 0
@@ -210,8 +225,8 @@ expect {
 expect World.kinds.keep_if(|k| k.leash).len() == 1
 expect World.kinds.map(|k| k.rank).len() == World.kinds.len() and World.kinds.keep_if(|k| k.rank < 0 or k.rank >= World.kinds.len().to_i64_wrap()).len() == 0
 
-expect World.kinds.len() == 3
-expect half(Dog) * 2 == dog_px and half(Cow) * 2 == cow_px and half(Chicken) * 2 == chicken_px
+expect World.kinds.len() == 4
+expect half(Dog) * 2 == dog_px and half(Cow) * 2 == cow_px and half(Chicken) * 2 == chicken_px and half(Goat) * 2 == goat_px
 expect !no_overlap([{ kind: Dog, x: 10, y: 10 }, { kind: Cow, x: 40, y: 30 }])
 
 points : Kind -> Str

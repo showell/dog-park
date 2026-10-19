@@ -103,7 +103,7 @@ test("the page's world is the physics': world.js and the wasm, both printed from
   assert.equal(scene.poop_px, x.poopPx());
   assert.equal(scene.breeds, x.breeds());
   // The kinds, in their numbers' order, each its size.
-  assert.deepEqual(scene.kinds.map((k) => k.name), ["dog", "cow", "chicken"]);
+  assert.deepEqual(scene.kinds.map((k) => k.name), ["dog", "cow", "chicken", "goat"]);
   assert.equal(x.kindCount(), scene.kinds.length);
   assert.deepEqual(scene.kinds.map((kind) => kind.px), scene.kinds.map((_, i) => x.kindPx(i)));
   assert.deepEqual(scene.kinds.map((kind) => kind.count), scene.kinds.map((_, i) => x.kindSize(i)));
@@ -119,13 +119,22 @@ test("a critter with art is its glyph; a kind with none, a square of its colour,
   for (const k of scene.kinds) assert.match(k.colour, /^#[0-9a-f]{6}$/);
 });
 
-test("a critter of a kind the page has no art for is drawn as its kind's square, where it stands", () => {
+test("a critter of a kind the page draws by `kinds` alone is its emoji, or with none its kind's square, where it stands; on the overview, a dot of its colour", () => {
   const viewport = { parkX: 0, parkY: 0, width: 800, height: 600 };
-  const goats = [{ kind: scene.kinds[1].name, id: 4, parkX: 300, parkY: 200 }];
-  const objects = scene.nearScene(viewport, [], [], { kind: "none" }, scene.still, new Map(), { chickens: [], poops: [], others: goats, labels: "hidden" });
-  const square = objects.find((o) => o.id === `${goats[0].kind}:4`);
-  assert.deepEqual(square, { id: `${goats[0].kind}:4`, shape: "rect", x: 300 - scene.kinds[1].px / 2, y: 200 - scene.kinds[1].px / 2, w: scene.kinds[1].px, h: scene.kinds[1].px, fill: scene.kinds[1].colour, role: "scenery" });
+  const goat = scene.kinds.find((k) => k.name === "goat");
+  const bare = scene.kinds.find((k) => k.emoji === "");
+  const others = [{ kind: "goat", id: 4, parkX: 300, parkY: 200 }, { kind: bare.name, id: 5, parkX: 400, parkY: 250 }];
+  const objects = scene.nearScene(viewport, [], [], { kind: "none" }, scene.still, new Map(), { chickens: [], poops: [], others, labels: "hidden" });
+  assert.deepEqual(objects.find((o) => o.id === "goat:4"), { id: "goat:4", shape: "glyph", x: 300, y: 200, w: goat.px, h: goat.px, text: "🐐", fill: "#000", role: "scenery" });
+  assert.deepEqual(objects.find((o) => o.id === `${bare.name}:5`), { id: `${bare.name}:5`, shape: "rect", x: 400 - bare.px / 2, y: 250 - bare.px / 2, w: bare.px, h: bare.px, fill: bare.colour, role: "scenery" });
   assert.deepEqual(scene.drawn_kinds, ["dog", "cow", "chicken"]);
+  // The cow's and chicken's art are World.roc's too.
+  assert.equal(scene.cow_emoji, scene.kinds.find((k) => k.name === "cow").emoji);
+  assert.equal(scene.chicken_emoji, scene.kinds.find((k) => k.name === "chicken").emoji);
+  const over = scene.overviewScene(viewport, [], [], new Map([["0,0", true]]), { kind: "none" }, { parkX: 0, parkY: 0 }, [], [{ kind: "goat", id: 4, parkX: 300, parkY: 200 }]);
+  const dot = over.find((o) => o.id === "goat:4");
+  assert.equal(dot.shape, "dot");
+  assert.equal(dot.fill, goat.colour);
 });
 
 test("the overview frame: the whole world once, a square window as large as fits, its top-left anywhere round the torus", () => {

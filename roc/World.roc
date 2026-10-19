@@ -31,6 +31,9 @@ World := [].{
 	chicken_px : I64
 	chicken_px = 20
 
+	goat_px : I64
+	goat_px = 30
+
 	poop_px : I64
 	poop_px = 12
 
@@ -41,6 +44,8 @@ World := [].{
 	## - `px`: its square's side;
 	## - `colour`: how the page draws a kind it has no art for, a square of
 	##   that colour `px` across;
+	## - `emoji`: the page's art for a kind it draws by `kinds` alone, or ""
+	##   for none (a dog's look is its breed's, solo/scene.js's `dog_looks`);
 	## - `rank`: its place in the cascade (lower is more alpha; the leashed
 	##   critter is before all), and the order the physics lists the kinds;
 	## - `kin`: who it nudges and is nudged by: `breed`, its own breed of
@@ -51,6 +56,7 @@ World := [].{
 		name : Str,
 		px : I64,
 		colour : Str,
+		emoji : Str,
 		rank : I64,
 		kin : [Breed, Herd, NoKin],
 		leash : Bool,
@@ -58,14 +64,40 @@ World := [].{
 
 	kinds : List(Look)
 	kinds = [
-		{ name: "dog", px: dog_px, colour: "#a0522d", rank: 1, kin: Breed, leash: Bool.True },
-		{ name: "cow", px: cow_px, colour: "#555555", rank: 0, kin: Herd, leash: Bool.False },
+		{
+			name: "dog",
+			px: dog_px,
+			colour: "#a0522d",
+			emoji: "",
+			rank: 1,
+			kin: Breed,
+			leash: Bool.True,
+		},
+		{
+			name: "cow",
+			px: cow_px,
+			colour: "#555555",
+			emoji: "🐄",
+			rank: 0,
+			kin: Herd,
+			leash: Bool.False,
+		},
 		{
 			name: "chicken",
 			px: chicken_px,
 			colour: "#d4a017",
+			emoji: "🐓",
 			rank: 2,
 			kin: NoKin,
+			leash: Bool.False,
+		},
+		{
+			name: "goat",
+			px: goat_px,
+			colour: "#8a8a8a",
+			emoji: "🐐",
+			rank: 3,
+			kin: Herd,
 			leash: Bool.False,
 		},
 	]
@@ -87,4 +119,9 @@ World := [].{
 
 	chicken_off : I64
 	chicken_off = 15
+
+	## How far above a goat's blue tile's middle it stands: over its
+	## chickens, under the tile's top dogs.
+	goat_above : I64
+	goat_above = 45
 }

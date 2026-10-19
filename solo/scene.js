@@ -12,12 +12,13 @@
 // the physics' world.
 import { dog_px, cow_px, chicken_px, poop_px, breeds, kinds } from "./world.js";
 export { dog_px, cow_px, chicken_px, poop_px, breeds, kinds };
-export const cow_emoji = "🐄";
-// The kinds the page draws with art (and plays with by name); any other
-// kind World.roc says is drawn as its square (`critterShape`).
+// Each kind's art is World.roc's (`kinds`' `emoji`, through world.js).
+const emojiOf = (name) => kinds.find((k) => k.name === name).emoji;
+export const cow_emoji = emojiOf("cow");
+// The kinds the page plays with by name; any other kind World.roc says is
+// drawn by `kinds` alone: its emoji, or its square (`critterShape`).
 export const drawn_kinds = ["dog", "cow", "chicken"];
-// Full-bodied.
-export const chicken_emoji = "🐓";
+export const chicken_emoji = emojiOf("chicken");
 // A dog's poop: a little brown circle, under every critter.
 export const poop_fill = "#7a4a1a";
 // The breeds: dog n has look n mod `breeds`, one look each.
@@ -329,10 +330,11 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
     const at = onScreen(p);
     out.push({ id: `poop:${p.id}`, shape: "dot", x: at.viewportX, y: at.viewportY, w: poop_px, h: poop_px, fill: poop_fill, role: "scenery" });
   }
-  // A kind with no art: its square, in its colour (World.roc's `kinds`).
+  // A kind the page plays with by `kinds` alone: its emoji, or with none
+  // its square in its colour (World.roc's `kinds`).
   for (const o of more.others ?? []) {
     const look = kinds.find((k) => k.name === o.kind);
-    out.push(critterShape(`${o.kind}:${o.id}`, onScreen(o), look, undefined, "scenery"));
+    out.push(critterShape(`${o.kind}:${o.id}`, onScreen(o), look, look.emoji || undefined, "scenery"));
   }
   for (const c of more.chickens) {
     sprite(`chicken:${c.id}`, c, between(was.chickens.get(c.id), c, alpha), chicken_emoji, chicken_px, "scenery");
@@ -361,7 +363,7 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
 // tile is not subscribed: only remembered), the dog leashed last ringed;
 // the margins over what spills past the window; the view a rectangle; and
 // the two scrollbars.
-export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at, chickens = []) {
+export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at, chickens = [], others = []) {
   const o = overviewFrame(viewport.width, viewport.height, at);
   const ground = "#556";
   const w = o.window;
@@ -393,6 +395,13 @@ export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at,
     const p = overviewFromPark(o, c.parkX, c.parkY);
     out.push({ id: `chicken:${c.id}`, shape: "dot", x: p.viewportX, y: p.viewportY, w: 4, h: 4,
       fill: live(c) ? "#c8102e" : "#e9a0a8", role: "scenery" });
+  }
+  // Any other kind (World.roc's `kinds`): a dot in its colour.
+  for (const c of others) {
+    if (!shown(c)) continue;
+    const p = overviewFromPark(o, c.parkX, c.parkY);
+    out.push({ id: `${c.kind}:${c.id}`, shape: "dot", x: p.viewportX, y: p.viewportY, w: 6, h: 6,
+      fill: kinds.find((k) => k.name === c.kind).colour, role: "scenery" });
   }
   for (const d of dogs) {
     if (!shown(d)) continue;

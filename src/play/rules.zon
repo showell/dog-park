@@ -6,22 +6,32 @@
         .{ .gathers = .each, .pace = .{ .num = 1, .den = 1 } },
         .{ .gathers = .nearest, .pace = .{ .num = 1, .den = 2 } },
         null,
+        .{ .gathers = .nearest, .pace = .{ .num = 1, .den = 2 } },
     },
     .answers = .{
         .{
             .{ .kin = .{ .herd = .{ .inner = 42, .outer = 70 } }, .other = .{ .keep = 158 } },
             .{ .kin = .{ .keep = 63 }, .other = .{ .keep = 63 } },
             .{ .kin = .ignore, .other = .ignore },
+            .{ .kin = .{ .keep = 63 }, .other = .{ .keep = 63 } },
         },
         .{
             .{ .kin = .{ .keep = 158 }, .other = .{ .keep = 158 } },
             .{ .kin = .{ .close = 245 }, .other = .{ .close = 245 } },
             .{ .kin = .ignore, .other = .ignore },
+            .{ .kin = .ignore, .other = .ignore },
         },
         .{
             .{ .kin = .ignore, .other = .ignore },
             .{ .kin = .ignore, .other = .ignore },
             .{ .kin = .ignore, .other = .ignore },
+            .{ .kin = .ignore, .other = .ignore },
+        },
+        .{
+            .{ .kin = .{ .close = 120 }, .other = .{ .close = 120 } },
+            .{ .kin = .ignore, .other = .ignore },
+            .{ .kin = .ignore, .other = .ignore },
+            .{ .kin = .{ .herd = .{ .inner = 35, .outer = 120 } }, .other = .{ .herd = .{ .inner = 35, .outer = 120 } } },
         },
     },
     .chickens = .{ .sight = 500, .step = 8, .pace = .{ .num = 1, .den = 2 }, .home_band = 32 },

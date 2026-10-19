@@ -20,7 +20,7 @@ const print = false;
 
 /// The configuration the hashes were recorded under: world.zon and
 /// rules.zon, hashed.
-pub const recorded_under: u64 = 0x6ca22f616825fcf5;
+pub const recorded_under: u64 = 0x0d414c38bec2b0a2;
 
 /// Steps a recording's test aside under another configuration than the
 /// one it was recorded under, saying which recording.
@@ -44,7 +44,7 @@ const ticks = 48;
 /// forage from afar.
 const long_ticks = 400;
 
-const want = [dogs.len + 1]u64{ 0x9a6f4cc5e0f7d950, 0x0922e18850956701, 0x79296e971270c533, 0x7498728c4fc05b73, 0xd8b5463f11b4706d, 0xabc940c5e9df6132, 0xc70b495e4247cbad, 0x25df35e820144db2, 0x9c9252a180ce81c2 };
+const want = [dogs.len + 1]u64{ 0xb9acbbed8b960b06, 0x0b614f9bfb2f65c9, 0x1420e0b4446cc0e8, 0x542957c2473f22f4, 0xcd04a9b96f2b2b30, 0x137bdc54d2326644, 0xf644a13115e1cf2e, 0xfc468cb44cea733c, 0x69527b6a329114ea };
 
 fn hashOf(b: *const Board) u64 {
     var h = std.hash.Wyhash.init(0);
@@ -58,7 +58,9 @@ fn hashOf(b: *const Board) u64 {
 }
 
 /// Dog `dog` leashed in the first layout and dragged `ticks` ticks: a
-/// heading that turns now and then, a step of 20 to 100 px on each axis.
+/// heading that turns now and then, a step of 20 to 100 px on each axis,
+/// and grabbed again when a bump ends the drag (else a run that bumps
+/// early plays nothing after: dog 0's long run did, once the goats came).
 fn played(dog: u16, n_ticks: physics.Tick) u64 {
     var b = Board.laidOut();
     b.hold = .{ .leashed = .{ .dog = dog, .drag = .on } };
@@ -75,7 +77,9 @@ fn played(dog: u16, n_ticks: physics.Tick) u64 {
             if (hx == 0 and hy == 0) hx = 1;
         }
         const drag = [1]physics.Disp{.{ .dx = physics.px(hx * r.intRangeAtMost(i32, 20, 100)), .dy = physics.px(hy * r.intRangeAtMost(i32, 20, 100)) }};
-        if (physics.tick(&b, t, &.{}, &drag, &lines)) |refusal| std.debug.panic("refused: {t}", .{refusal});
+        const humans: []const physics.Human = if (b.hold == .leashed and b.hold.leashed.drag != .on) &.{.grab} else &.{};
+        if (physics.tick(&b, t, humans, &drag, &lines)) |refusal| std.debug.panic("refused: {t}", .{refusal});
+
     }
     return hashOf(&b);
 }
