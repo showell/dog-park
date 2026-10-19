@@ -98,13 +98,15 @@ pub const Pt = extern struct { x: i32, y: i32 };
 /// `mode` (roc/physics.roc's `walk`): a pixel-tick, or the forage turn.
 const mode_pixel_tick: i32 = 0;
 const mode_forage: i32 = 1;
+const mode_settle: i32 = 2;
 extern fn roc_walk(mode: i32, axis: i32, inc: i32, side: i32, before: u32, laid: u32, from: RocList, poops: RocList, homes: RocList, cells: RocList, crits: RocList, depth: RocList, eaten: RocList, moving: RocList) callconv(.c) Walked;
 
 /// **THE WALK'S LISTS** (roc/Walk.roc's `Lent` and `Work`), for at most
 /// `seen_most` critters, `moving_most` of them in motion, `poops_most`
 /// poops, `tiles` tiles and `side` by `side` cells. The physics fills
-/// `poops` and `from` whenever the poops change, and `crits` and `cells`
-/// (`words` a cell, `cellPut`) for each walk; the walk changes those two and
+/// `poops` and `from` whenever the poops change, and `crits` once a
+/// tick with `cells` clear (`words` a cell), which Roc settles (`settle`)
+/// and keeps from then on; the walk changes those two and
 /// fills `moving` (the leashed dog, then each visited); `depth` is its
 /// working room.
 pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poops_most: usize, comptime tiles: usize, comptime side: usize) type {
@@ -128,9 +130,15 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
             @memset(&self.cells.items, 0);
         }
 
-        /// Seen critter `j` stands in cell `c`.
-        pub fn cellPut(self: *@This(), c: u16, j: usize) void {
-            self.cells.items[@as(usize, c) * words + j / 64] |= @as(u64, 1) << @intCast(j % 64);
+        /// Roc settles the crits into the cells (roc/Walk.roc's `settle`):
+        /// each crit's cell, and its bit in it.
+        pub fn settle(self: *@This()) void {
+            const n = self.crits.len;
+            self.depth.len = 0;
+            self.moving.len = 0;
+            self.eaten.len = 0;
+            _ = self.call(mode_settle, 0, 0, 0, 0);
+            std.debug.assert(self.crits.len == n);
         }
 
         /// One pixel-tick: the leashed dog's step `inc` along `axis` (0 x,

@@ -150,7 +150,8 @@ Walk := [].{
 		## lists the host lends are counted atomically (the walk's first cut
 		## did 30 of these a visit, more than a third of its time).
 		{ depth: depth0, moving: moving0, park: park0 } = work0
-		{ cells: cells0, crits: crits0 } = park0
+		{ cells: cells0, crits: crits_kept } = park0
+		crits0 = crits_kept
 		var $depth = put(depth0, 0, 0)
 		var $moving = moving0.append(0)
 		herd = (get_c(crits0, 0)).kin
@@ -197,6 +198,53 @@ Walk := [].{
 			}
 		}
 		{ anchor: $anchor, pooper: $pooper, work: { depth: $depth, moving: $moving, park: { cells: $cells, crits: $crits } } }
+	}
+
+	## The keys as a walk starts them: the leashed dog visited (the walk
+	## starts from it), every other not lined up. The park's crits persist
+	## from walk to walk, so the walk sets them, not the host.
+	fresh_keys : List(Crit) -> List(Crit)
+	fresh_keys = |crits0| {
+		## The length read before the list goes to `$crits`: a read after
+		## would share it, and the first `put` would copy it (an allocation
+		## the host refuses).
+		n = crits0.len()
+		var $crits = crits0
+		var $j = 0
+		while $j < n {
+			c = get_c($crits, $j)
+			k = if $j == 0 visited else not_lined_up
+			if c.key != k {
+				$crits = put($crits, $j, { ..c, key: k })
+			} else {
+				{}
+			}
+			$j = $j + 1
+		}
+		$crits
+	}
+
+	## **THE GRID SETTLED**: each critter of the park into the cell it
+	## stands in, its `cell` and its bit in `cells` (lent all clear, `words`
+	## a cell). Once a tick, before its first pixel-tick; the walk and the
+	## forage turn keep it from then on (`move_to`).
+	settle : Park -> Park
+	settle = |park0| {
+		{ cells: c0, crits: k0 } = park0
+		words = c0.len() // (side * side).to_u64_wrap()
+		n = k0.len()
+		var $cells = c0
+		var $crits = k0
+		var $j = 0
+		while $j < n {
+			c = get_c($crits, $j)
+			in_cell = ((c.y // cell) * side + c.x // cell).to_u16_wrap()
+			$crits = put($crits, $j, { ..c, cell: in_cell })
+			at = in_cell.to_u64() * words + $j // 64
+			$cells = put($cells, at, get_u64($cells, at).bitwise_or((1).shl_wrap(($j % 64).to_u8_wrap())))
+			$j = $j + 1
+		}
+		{ cells: $cells, crits: $crits }
 	}
 
 	## **ONE PIXEL-TICK** (decision 30): the leashed dog's step `inc` along
@@ -964,6 +1012,9 @@ Walk := [].{
 		if now_in == c.cell {
 			{ cells, crits }
 		} else {
+			## Inline, not Grid.move: a call into another module with the
+			## list copies it in a release build (an allocation the host
+			## refuses).
 			bit = (1).shl_wrap((j % 64).to_u8_wrap())
 			was = c.cell.to_u64() * s.words + j // 64
 			now = now_in.to_u64() * s.words + j // 64
@@ -1238,6 +1289,9 @@ Walk := [].{
 		if now_in == c.cell {
 			{ cells, crits }
 		} else {
+			## Inline, not Grid.move: a call into another module with the
+			## list copies it in a release build (an allocation the host
+			## refuses).
 			bit = (1).shl_wrap((j % 64).to_u8_wrap())
 			was = c.cell.to_u64() * s.words + j // 64
 			now = now_in.to_u64() * s.words + j // 64
@@ -1457,22 +1511,8 @@ crit = |kind, kin, x, y| {
 
 dog = |x, y| crit(0, 0, x, y)
 
-one : U64
-one = 1
-
 ## The park of `cs`: each in its cell, the leashed dog visited.
-park_of = |cs| {
-	var $cells = List.repeat(0, (Walk.side * Walk.side).to_u64_wrap())
-	var $crits = []
-	var $j = 0
-	for c in cs {
-		cl = (c.y // Walk.cell) * Walk.side + c.x // Walk.cell
-		$crits = $crits.append({ ..c, cell: cl.to_u16_wrap(), key: if ($j == 0) Walk.visited else Walk.not_lined_up })
-		$cells = $cells.update(cl.to_u64_wrap(), |w| w.bitwise_or(one.shl_wrap($j.to_u8_wrap()))) ?? $cells
-		$j = $j + 1
-	}
-	{ cells: $cells, crits: $crits }
-}
+park_of = |cs| Walk.settle({ cells: List.repeat(0, (Walk.side * Walk.side).to_u64_wrap()), crits: cs })
 
 ## The walk of `cs` with no poop, or with one poop at `(px, py)` px in
 ## tile `t` (row by row, 350 px tiles).

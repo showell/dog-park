@@ -229,6 +229,9 @@ fn sweepLimit(p: Pt, h: i32, axis: i32, s: i32, o: Pt, oh: i32) i32 {
 // ── the walk ────────────────────────────────────────────────────────────
 
 fn walk(t: *Tick, most: i32) struct { pooper: usize, anchor: i32 } {
+    // The keys as a walk starts them (Walk.roc's `fresh_keys`): the crits
+    // persist from walk to walk.
+    for (t.crits, 0..) |*c, j| c.key = if (j == 0) roc.visited else roc.not_lined_up;
     t.depth[0] = 0;
     t.moving[0] = 0;
     t.moving_len = 1;

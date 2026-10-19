@@ -313,7 +313,7 @@ pub fn build(b: *std.Build) void {
     }
     // The physics' Roc (roc/physics.roc, the wish and the walk), built for each of the
     // physics' targets into roc/lib/, which every build links (`linkRoc`).
-    const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/World.roc", "roc/Rules.roc", "roc/platform/main.roc" };
+    const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/Grid.roc", "roc/World.roc", "roc/Rules.roc", "roc/platform/main.roc" };
     for (std.enums.values(RocTarget)) |t| {
         const roc_build = b.addSystemCommand(&.{ roc, "build", "roc/physics.roc", b.fmt("--target={t}", .{t}) });
         roc_build.setCwd(b.path("."));
@@ -325,7 +325,7 @@ pub fn build(b: *std.Build) void {
     // Roc's own tests of the world, the rules, the wish and the walk
     // (`expect`s).
     const roc_test_step = b.step("roc-test", "Roc's own tests: roc/world.roc, roc/Rules.roc, roc/Wish.roc and roc/Walk.roc's expects (needs roc; -Droc=<path>)");
-    for ([_][]const u8{ "roc/world.roc", "roc/Rules.roc", "roc/Wish.roc", "roc/Walk.roc" }) |f| {
+    for ([_][]const u8{ "roc/world.roc", "roc/Rules.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/Grid.roc" }) |f| {
         const run = b.addSystemCommand(&.{ roc, "test", f });
         run.setCwd(b.path("."));
         run.addFileInput(b.path(f));

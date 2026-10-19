@@ -708,14 +708,12 @@ pub const Scene = struct {
     /// seen critters, for each walk.
     roc_walk: roc.Walk(critter_count, walk_most + 1, poop_count, span_tiles * span_tiles, span_cells) = .{},
     poops_changed: bool = true,
-    /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210): seen index `j`
-    /// is set in the cell of the world its point stands in (`cell` a side,
-    /// `cellOf`), kept by `put` on every move; `seen_cell` is where each is set. A
-    /// square asks only the cells it could reach (`critters`), and walks
-    /// the set bits **in seen index order**, the order a scan of every
-    /// seen critter took: who is nudged, shoved or blocks first follows it.
-    seen_cells: [span_cells][span_cells]SeenSet = undefined,
-    seen_cell: [critter_count]u16 = undefined,
+    /// **THE SEEN CRITTERS BY CELL ARE ROC'S** (roc/Grid.roc): lent once
+    /// a tick, before its first pixel-tick (`lendCrits`), with the crits;
+    /// Roc settles them into its grid (Walk.roc's `settle`) and keeps both
+    /// through every walk and forage turn after. The physics never reads
+    /// the grid but in the tests' check (`bucketsHold`).
+    roc_settled: bool = false,
 
     pub fn of(b: *Board) ?Scene {
         var s: Scene = undefined;
@@ -734,12 +732,7 @@ pub const Scene = struct {
         for (by_rank) |k| for (0..countOf(k)) |i| {
             if (k != leashed_kind or i != l) s.consider(.of(k, @intCast(i)), span, l);
         };
-        s.seen_cells = @splat(@splat(.initEmpty()));
-        for (0..s.len) |j| {
-            const c = s.cellOf(s.at[j]);
-            s.seen_cell[j] = c;
-            s.cellSet(c).set(j);
-        }
+        s.roc_settled = false;
         s.poop_listed = .initEmpty();
         s.poop_head = @splat(@splat(no_poop));
         s.poop_laid = .initEmpty();
@@ -836,37 +829,22 @@ pub const Scene = struct {
         return @intCast(row * span_cells + col);
     }
 
-    fn cellSet(s: *Scene, c: u16) *SeenSet {
-        return &s.seen_cells[c / span_cells][c % span_cells];
-    }
-
-    /// Every seen critter whose point might lie within `reach` of `p` on
-    /// both axes (fewer than `reach` away: a superset of those that are):
-    /// those of the cells the square meets, round the torus.
-    pub fn critters(s: *const Scene, p: Point, reach: i32) SeenSet {
-        var out: SeenSet = .initEmpty();
-        const xs = Wrapped.of(@mod(p.x, world), reach, cell, span_cells);
-        const ys = Wrapped.of(@mod(p.y, world), reach, cell, span_cells);
-        for (0..ys.n) |ri| {
-            const r = ys.at(ri);
-            for (0..xs.n) |ci| out.setUnion(s.seen_cells[r][xs.at(ci)]);
-        }
-        return out;
-    }
-
-    /// **THE BUCKETS HOLD** every seen critter in the cell its point
-    /// stands in, and nowhere else: checked after every pixel-tick and
-    /// chicken's turn in the tests (a move that forgot its bit would let a
+    /// **THE BUCKETS HOLD** (the tests' check of Roc's grid): every seen
+    /// critter in the cell of Roc's grid its point stands in, by the
+    /// physics' own `cellOf` from where the physics put it, its crit says
+    /// so, and no bit else set (a move that forgot its bit would let a
     /// square miss whoever it overlaps).
     pub fn bucketsHold(s: *Scene) bool {
+        const w = &s.roc_walk;
+        const words = @TypeOf(w.*).words;
+        if (!s.roc_settled) return true;
         var bits: usize = 0;
-        for (s.seen_cells) |row| for (row) |set| {
-            bits += set.count();
-        };
-        if (bits != s.len) return false;
+        for (w.cells.slice()) |word| bits += @popCount(word);
+        if (bits != s.len or w.crits.len != s.len) return false;
         for (0..s.len) |j| {
             const c = s.cellOf(s.at[j]);
-            if (c != s.seen_cell[j] or !s.cellSet(c).isSet(j)) return false;
+            if (c != w.crits.items[j].cell) return false;
+            if (w.cells.items[@as(usize, c) * words + j / 64] & (@as(u64, 1) << @intCast(j % 64)) == 0) return false;
         }
         return true;
     }
@@ -896,12 +874,6 @@ pub const Scene = struct {
     pub fn put(s: *Scene, i: usize, to: Point) void {
         const p = wrapped(to);
         s.at[i] = p;
-        const c = s.cellOf(p);
-        if (c != s.seen_cell[i]) {
-            s.cellSet(s.seen_cell[i]).unset(i);
-            s.cellSet(c).set(i);
-            s.seen_cell[i] = c;
-        }
         s.board.put(s.seen[i].who, p);
     }
 
@@ -924,8 +896,6 @@ pub const span_tiles = tiles.world_tiles;
 /// The end of a tile's list of poops.
 const no_poop: u16 = std.math.maxInt(u16);
 
-/// A set of seen indexes.
-pub const SeenSet = std.StaticBitSet(critter_count);
 
 /// **A CELL OF THE SEEN CRITTERS' BUCKETS**: a tile cut `cell_per_tile`
 /// ways on each axis, a side a few critters wide.
@@ -1148,26 +1118,33 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
 }
 
 /// The seen critters and the poops for Roc (roc_physics.zig's `Walk`):
-/// the poops by tile, again if they changed; each critter, where it stands
-/// and its cell, what it is, its kin, and its key (the leashed dog, seen
-/// index 0, visited: the walk starts from it); and the cells' sets of them.
+/// the poops by tile, again if they changed; and once a tick, before its
+/// first pixel-tick, each critter, where it stands, what it is and its
+/// kin, with the cells all clear, for Roc to settle into its grid (its
+/// cell and key are Roc's). Roc keeps both from then on: only Roc moves a
+/// critter within a tick.
 fn lendCrits(sc: *Scene) void {
     const w = &sc.roc_walk;
     if (sc.poops_changed) sc.lendPoops();
+    if (sc.roc_settled) {
+        for (w.crits.items[0..w.crits.len], 0..) |*c, j| c.key = if (j == 0) roc.visited else roc.not_lined_up;
+        return;
+    }
     w.crits.len = 0;
     w.cellsClear();
-    for (sc.list(), sc.at[0..sc.len], 0..) |o, p, j| {
-        w.cellPut(sc.seen_cell[j], j);
+    for (sc.list(), sc.at[0..sc.len]) |o, p| {
         w.crits.push(.{
             .x = p.x,
             .y = p.y,
-            .cell = sc.seen_cell[j],
+            .cell = 0,
             .half = o.half,
             .kind = @intFromEnum(o.who.kind),
             .kin = kinOf(o.who) orelse roc.no_kin,
-            .key = if (j == 0) roc.visited else roc.not_lined_up,
+            .key = roc.not_lined_up,
         });
     }
+    w.settle();
+    sc.roc_settled = true;
 }
 
 /// Each critter Roc moved, put where it left it.
