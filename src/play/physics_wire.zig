@@ -482,9 +482,6 @@ fn parseCritter(kind: []const u8, n: []const u8) ParseError!Critter {
     return error.Malformed;
 }
 
-/// `parseCritter`, for the page and the snapshot's entries.
-pub const critterNamed = parseCritter;
-
 pub fn parsePoopNumber(n: []const u8) ParseError!u16 {
     return @intCast(try parseDec(n, physics.poop_count - 1));
 }

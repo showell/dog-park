@@ -83,18 +83,6 @@ pub const dead_zone: i32 = px(1);
 /// A dog keeps `wary` from a moving dog of another breed; a cow from any
 /// moving dog.
 pub const wary: i32 = px(rules.rules.dog.dog.keep);
-/// A dog's band around its anchor: too close inside, too far outside.
-pub const band_inner: i32 = px(rules.rules.dog.kin.herd.inner);
-pub const band_outer: i32 = px(rules.rules.dog.kin.herd.outer);
-/// A dog keeps this from a moving cow.
-pub const cow_room: i32 = px(rules.rules.dog.cow.keep);
-/// **A COW'S PULL** (Steve, 2026-10-15: "cows a little less attracted to
-/// each other... about 30% closer before they move toward each other"): a
-/// cow closes on its nearest moving cow only within this; past it, that
-/// cow is nearest and nothing pulls. 70% of a tile, the first layout's
-/// spacing between neighbouring cows (one each white tile, diagonal), so
-/// cows as laid out no longer draw together on their own.
-pub const cow_pull: i32 = px(rules.rules.cow.cow.close);
 /// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, the
 /// walk's dogs step at most as far as the leashed dog did, its cows half.
 pub const step_most: i32 = px(1);
@@ -181,15 +169,6 @@ pub fn wrapped(p: Point) Point {
     return .{ .x = @mod(p.x, world), .y = @mod(p.y, world) };
 }
 
-/// The copy of `p` nearest `anchor`: `anchor` plus the short way to `p`. In
-/// one tick every rectangle is built from such copies around one anchor,
-/// so the region, the swept area and the jump compare like with like
-/// across the seam.
-pub fn nearestCopy(anchor: Point, p: Point) Point {
-    const d = delta(anchor, p);
-    return .{ .x = anchor.x + d.x, .y = anchor.y + d.y };
-}
-
 pub const Axis = enum { x, y };
 
 pub fn on(p: Point, axis: Axis) i32 {
@@ -220,13 +199,6 @@ pub fn mag(v: i32) i32 {
 
 pub fn sign(v: i32) i32 {
     return if (v > 0) 1 else if (v < 0) -1 else 0;
-}
-
-/// The squared length of a vector, in `i64`.
-pub fn len2(v: Point) i64 {
-    const x: i64 = v.x;
-    const y: i64 = v.y;
-    return x * x + y * y;
 }
 
 /// A vector's length: its larger axis. Every reach is compared in it:
