@@ -156,7 +156,11 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
             return self.eaten.slice();
         }
         fn call(self: *@This(), cells: *Cells, mode: i32, axis: i32, inc: i32, before: u32, laid: u32) Walked {
+            const freed = deallocs.load(.monotonic);
+            const asked = allocs.load(.monotonic);
             const r = roc_walk(mode, axis, inc, side, before, laid, self.from.toRead(), self.poops.toRead(), self.homes.toRead(), cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.eaten.toChange(), self.moving.toChange());
+            if (allocs.load(.monotonic) != asked) std.debug.panic("roc_alloc: Roc asked for memory in a call that returned, last from 0x{x}: a list grown past its room, or a lent list copied (docs/ROC-SPEED.md); `nm` on the archive names the function", .{alloc_from.load(.monotonic)});
+            if (deallocs.load(.monotonic) != freed) @panic("roc_dealloc: Roc freed a list the physics lent it (a list kept, or a refcount word moved)");
             cells.back(r.cells);
             self.crits.back(r.crits);
             self.depth.back(r.depth);
@@ -168,27 +172,44 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
     };
 }
 
-/// A Roc crash: an overflow, or a division by zero, in the wish. The
-/// physics' numbers keep it from both; one is a bug, so a panic.
+/// A Roc crash: an overflow, a division by zero, or a `crash` (a slot
+/// that isn't there). The physics' numbers keep it from all of them; one
+/// is a bug, so a panic with Roc's message.
 export fn roc_crashed(bytes: [*]const u8, len: usize) callconv(.c) void {
     std.debug.panic("roc crashed: {s}", .{bytes[0..len]});
 }
 
-/// Roc drops its reference to a list it only read at the end of a call:
-/// for static data, no call here; and it hands back every list it changed.
-/// One is a broken seam (a refcount word moved, or a list kept).
+/// Roc frees a lent list only at a broken seam (a list kept, or a refcount
+/// word moved), or on its way to a `crash`, which drops what it holds
+/// before `roc_crashed`. So a free is counted, not a panic here: `call`
+/// panics on one after a call that returns, and a crash's own message
+/// still gets through.
+var deallocs: std.atomic.Value(usize) = .init(0);
+
 export fn roc_dealloc(ptr: *anyopaque, alignment: usize) callconv(.c) void {
     _ = ptr;
     _ = alignment;
-    @panic("roc_dealloc: Roc freed a list the physics lent it as static data");
+    _ = deallocs.fetchAdd(1, .monotonic);
 }
 
-/// Roc asks for memory only to grow a list past its room, and every list is
-/// lent with room for all a call puts in it: one is a broken seam.
+/// Every list is lent with room for all a call puts in it, so Roc asks for
+/// memory only at a broken seam (a list grown past its room, or a lent list
+/// copied because two names hold it), or on its way to a `crash`, to build
+/// its message. So a request is counted and served from `spare`, not a
+/// panic here: `call` panics on one after a call that returns (naming the
+/// last caller's address), and a crash's own message gets through to
+/// `roc_crashed`. Past `spare`, it panics here.
+var allocs: std.atomic.Value(usize) = .init(0);
+var alloc_from: std.atomic.Value(usize) = .init(0);
+var spare: [4096]u8 align(16) = undefined;
+var spare_used: std.atomic.Value(usize) = .init(0);
+
 export fn roc_alloc(len: usize, alignment: usize) callconv(.c) *anyopaque {
-    _ = len;
-    _ = alignment;
-    @panic("roc_alloc: Roc grew a list past the room the physics lent it");
+    _ = allocs.fetchAdd(1, .monotonic);
+    alloc_from.store(@returnAddress(), .monotonic);
+    const at = spare_used.fetchAdd(len + alignment, .monotonic);
+    if (at + len + alignment > spare.len) std.debug.panic("roc_alloc: Roc asked for {d} bytes from 0x{x}, past the spare the physics keeps for a crash's message: a list grown past its room, or a lent list copied", .{ len, @returnAddress() });
+    return @ptrFromInt(std.mem.alignForward(usize, @intFromPtr(&spare) + at, @max(alignment, 1)));
 }
 
 export fn roc_realloc(ptr: *anyopaque, len: usize, alignment: usize) callconv(.c) *anyopaque {

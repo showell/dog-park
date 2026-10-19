@@ -298,8 +298,16 @@ pub fn build(b: *std.Build) void {
     // it; the tests hold the checked-in files to the original world, rules
     // and physics (layout.zig, rules.zig, physics_golden_test.zig) and to
     // each other (test_page_modules.mjs) either way.
+    //
+    // **WHAT IS CHECKED IN IS WHAT THE ROC MAKES** (`roc-fresh`, in
+    // `check`): each file this writes, made again and compared byte for
+    // byte with the checked-in one. Roc's build is deterministic, so a
+    // difference is a file left stale by a .roc change (a branch once
+    // committed x64elf and wasm32 archives built from an earlier state of
+    // its source, and its judges ran against them).
     const roc = b.option([]const u8, "roc", "the Roc compiler for `zig build roc` (default: `roc` on the PATH)") orelse "roc";
     const roc_write = b.addUpdateSourceFiles();
+    const roc_fresh = b.step("roc-fresh", "Each file `zig build roc` writes, made again and compared with the checked-in one (needs roc; -Droc=<path>)");
     for ([_][3][]const u8{
         .{ "roc/world.roc", "zon", "src/play/world.zon" },
         .{ "roc/world.roc", "js", "solo/world.js" },
@@ -309,7 +317,9 @@ pub fn build(b: *std.Build) void {
         roc_run.setCwd(b.path("."));
         roc_run.addFileInput(b.path(out[0]));
         roc_run.addFileInput(b.path(if (std.mem.eql(u8, out[0], "roc/world.roc")) "roc/World.roc" else "roc/Rules.roc"));
-        roc_write.addCopyFileToSource(roc_run.captureStdOut(.{}), out[2]);
+        const made = roc_run.captureStdOut(.{});
+        roc_write.addCopyFileToSource(made, out[2]);
+        roc_fresh.dependOn(fresh(b, made, out[2]));
     }
     // The physics' Roc (roc/physics.roc, the wish and the walk), built for each of the
     // physics' targets into roc/lib/, which every build links (`linkRoc`).
@@ -320,6 +330,7 @@ pub fn build(b: *std.Build) void {
         for (roc_inputs) |f| roc_build.addFileInput(b.path(f));
         const archive = roc_build.addPrefixedOutputFileArg("--output=", b.fmt("physics-{t}.a", .{t}));
         roc_write.addCopyFileToSource(archive, b.fmt("roc/lib/physics-{t}.a", .{t}));
+        roc_fresh.dependOn(fresh(b, archive, b.fmt("roc/lib/physics-{t}.a", .{t})));
     }
     b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js, and build the physics' Roc into roc/lib/ (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
     // **A FOURTH KIND, IN ROC ALONE** (metal-vmm QUEUE 240): a copy of this
@@ -353,7 +364,18 @@ pub fn build(b: *std.Build) void {
     roc_fmt.has_side_effects = true;
     roc_test_step.dependOn(&roc_fmt.step);
     check.dependOn(&roc_fmt.step);
+    check.dependOn(roc_fresh);
     b.step("physics-server-bench", "Time a 16-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
+}
+
+/// A step that fails, naming `checked_in`, unless it is byte for byte
+/// `made`.
+fn fresh(b: *std.Build, made: std.Build.LazyPath, checked_in: []const u8) *std.Build.Step {
+    const cmp = b.addSystemCommand(&.{ "sh", "-c", "cmp -s \"$1\" \"$2\" || { echo \"$3 is not what the Roc makes: zig build roc, then commit it\" >&2; exit 1; }", "sh" });
+    cmp.addFileArg(made);
+    cmp.addFileArg(b.path(checked_in));
+    cmp.addArg(checked_in);
+    return &cmp.step;
 }
 
 /// One node test file, run after the install, its exit code the verdict.
