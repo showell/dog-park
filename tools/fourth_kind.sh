@@ -22,9 +22,12 @@ for sibling in "$here"/../*; do
     name=$(basename "$sibling")
     [ "$name" = "$(basename "$here")" ] || ln -s "$(cd "$(dirname "$sibling")" && pwd)/$name" "$work/$name"
 done
-mkdir "$work/dog-park"
-tar -C "$here" --exclude=./.zig-cache --exclude=./zig-out --exclude=./.git -cf - . | tar -C "$work/dog-park" -xf -
-cd "$work/dog-park"
+# The copy goes by this checkout's own name: a worktree's sibling may be
+# the main checkout, `dog-park`, already linked above.
+copy="$work/$(basename "$here")"
+mkdir "$copy"
+tar -C "$here" --exclude=./.zig-cache --exclude=./zig-out --exclude=./.git -cf - . | tar -C "$copy" -xf -
+cd "$copy"
 patch -p1 --quiet < "$patch_file"
 # The Zig is this checkout's, byte for byte.
 for f in $(cd "$here" && ls src/play/*.zig); do cmp -s "$here/$f" "$f" || { echo "fourth_kind: $f differs after the patch" >&2; exit 1; }; done
