@@ -28,9 +28,17 @@ Walk := [].{
 	## square's half side; its kind (0 a dog, 1 a cow, 2 a chicken); its
 	## kin, who it nudges and is nudged by (a dog its breed, a cow the
 	## breeds' count: every cow is kin to every cow; a chicken 255, none);
-	## and its key while it waits to be visited (-1 not lined up; -2
-	## visited, or the leashed dog, which the walk starts from).
+	## and its key while it waits to be visited (`not_lined_up`; `visited`,
+	## or the leashed dog, which the walk starts from).
 	Crit : { cell : U16, half : I32, key : I64, kin : U8, kind : U8, x : I32, y : I32 }
+
+	## A key's two marks, as roc_physics.zig's `not_lined_up` and `visited`
+	## number them.
+	not_lined_up : I64
+	not_lined_up = -1
+
+	visited : I64
+	visited = -2
 
 	## A poop the physics sees, and its slot (lower slots block first).
 	Poop : { slot : U16, x : I32, y : I32 }
@@ -154,7 +162,7 @@ Walk := [].{
 			} else {
 				iu = i.to_u64_wrap()
 				me = get_c($crits, iu)
-				$crits = put($crits, iu, { ..me, key: -2 })
+				$crits = put($crits, iu, { ..me, key: visited })
 				{ crits: k1, moving: m1, out: wished } = wish_of($crits, $moving, iu)
 				$crits = k1
 				$moving = m1
@@ -256,7 +264,7 @@ Walk := [].{
 							while $bits != 0 {
 								j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 								o = get_c(crits, j)
-								if o.key != -2 and Wish.kind_of(o.kind) != Chicken {
+								if o.key != visited and Wish.kind_of(o.kind) != Chicken {
 									$t = nearer($t, measure(delta(pt(o), p)), j.to_i64_wrap())
 								} else {
 									{}
@@ -358,20 +366,37 @@ Walk := [].{
 		}
 	}
 
-	## Why a step was vetoed (`why`: 0 nothing, it went; 1 a critter it may
-	## not press; 2 a chicken it can't shove; 3 a poop); and where the
-	## critter that was blocked stood, and its blocker.
+	## Why a step was vetoed (`why`, one of the four below); and where the
+	## critter that was blocked stood, and its blocker. A number, not a tag:
+	## a veto rides the group's record round the walk's inner loops
+	## (ROC-SPEED.md, on records and tags carried round a loop).
 	Veto : { at : Pt, blocker : Pt, why : U8 }
 
+	## It went: no veto.
+	why_went : U8
+	why_went = 0
+
+	## A critter it may not press.
+	why_pressed : U8
+	why_pressed = 1
+
+	## A chicken it can't shove.
+	why_chicken : U8
+	why_chicken = 2
+
+	## A poop.
+	why_poop : U8
+	why_poop = 3
+
 	went : Veto
-	went = { at: { x: 0, y: 0 }, blocker: { x: 0, y: 0 }, why: 0 }
+	went = { at: { x: 0, y: 0 }, blocker: { x: 0, y: 0 }, why: why_went }
 
 	## Critter `i` takes `step` (`step_whole`); vetoed by a poop, or by a
 	## chicken it can't shove, it tries once more with `sidestep`'s.
 	step_around : Seen, Park, U64, Pt -> Park
 	step_around = |s, park, i, step| {
 		{ park: tried, veto } = step_whole(s, park, i, step)
-		if veto.why == 2 or veto.why == 3 {
+		if veto.why == why_chicken or veto.why == why_poop {
 			{ park: again, veto: _ } = step_whole(s, tried, i, sidestep(veto, step))
 			again
 		} else {
@@ -412,11 +437,11 @@ Walk := [].{
 			## a list one function reads while its caller keeps it is counted
 			## up and down, atomically.
 			{ group: grouped, park: park1 } = gather(s, park, i, step)
-			if grouped.veto.why != 0 {
+			if grouped.veto.why != why_went {
 				{ park: park1, veto: grouped.veto }
 			} else {
 				{ park: park2, veto: cannot } = shove_veto(s, park1, step, grouped)
-				if cannot.why != 0 {
+				if cannot.why != why_went {
 					{ park: park2, veto: cannot }
 				} else {
 					{ park: move_all(s, park2, step, grouped), veto: went }
@@ -439,7 +464,7 @@ Walk := [].{
 		breed = (get_c(park.crits, i)).kin
 		var $g = { by: 0, group: lane_put(0, 0, i), n: 1, ns: 0, shoved: 0, veto: went }
 		var $k = 0
-		while $k < $g.n and $g.veto.why == 0 {
+		while $k < $g.n and $g.veto.why == why_went {
 			gk = lane_get($g.group, $k)
 			me = get_c(park.crits, gk)
 			from = pt(me)
@@ -447,25 +472,25 @@ Walk := [].{
 			h = me.half
 			match poop_under(s, to, h) {
 				Found(q) => {
-					$g = { ..$g, veto: { at: from, blocker: q, why: 3 } }
+					$g = { ..$g, veto: { at: from, blocker: q, why: why_poop } }
 				}
 				Clear => {
 					near = square_of(to, h + biggest_half)
 					var $w = 0
-					while $w < s.words and $g.veto.why == 0 {
+					while $w < s.words and $g.veto.why == why_went {
 						var $bits = near_word(s, park, near, $w)
-						while $bits != 0 and $g.veto.why == 0 {
+						while $bits != 0 and $g.veto.why == why_went {
 							j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 							o = get_c(park.crits, j)
 							if overlap(to, h, pt(o), o.half) and !in_move($g, j) {
 								if Wish.kind_of(o.kind) == Chicken {
 									if $g.ns == nudge_most {
-										$g = { ..$g, veto: { at: from, blocker: pt(o), why: 2 } }
+										$g = { ..$g, veto: { at: from, blocker: pt(o), why: why_chicken } }
 									} else {
 										$g = { ..$g, shoved: lane_put($g.shoved, $g.ns, j), by: lane_put($g.by, $g.ns, gk), ns: $g.ns + 1 }
 									}
 								} else if j == 0 or o.kin != breed or $g.n == nudge_most {
-									$g = { ..$g, veto: { at: from, blocker: pt(o), why: 1 } }
+									$g = { ..$g, veto: { at: from, blocker: pt(o), why: why_pressed } }
 								} else {
 									$g = { ..$g, group: lane_put($g.group, $g.n, j), n: $g.n + 1 }
 								}
@@ -503,7 +528,7 @@ Walk := [].{
 		crits = park.crits
 		var $v = went
 		var $m = 0
-		while $m < g.ns and $v.why == 0 {
+		while $m < g.ns and $v.why == why_went {
 			c = get_c(crits, lane_get(g.shoved, $m))
 			ch = c.half
 			land = land_of(crits, step, g, $m)
@@ -538,7 +563,7 @@ Walk := [].{
 				}
 			}
 			if bad {
-				$v = { at: pt(get_c(crits, lane_get(g.by, $m))), blocker: pt(c), why: 2 }
+				$v = { at: pt(get_c(crits, lane_get(g.by, $m))), blocker: pt(c), why: why_chicken }
 			} else {
 				{}
 			}
@@ -786,7 +811,7 @@ Walk := [].{
 ## the leashed dog first; dogs of breed 0, so kin to it.
 crit = |kind, kin, x, y| {
 	half = if (kind == 1) 21 * 256 else if (kind == 2) 10 * 256 else 14 * 256
-	{ cell: 0, half, key: -1, kin, kind, x: x * 256, y: y * 256 }
+	{ cell: 0, half, key: Walk.not_lined_up, kin, kind, x: x * 256, y: y * 256 }
 }
 
 dog = |x, y| crit(0, 0, x, y)
@@ -801,7 +826,7 @@ park_of = |cs| {
 	var $j = 0
 	for c in cs {
 		cl = (c.y // Walk.cell) * Walk.side + c.x // Walk.cell
-		$crits = $crits.append({ ..c, cell: cl.to_u16_wrap(), key: if ($j == 0) -2 else -1 })
+		$crits = $crits.append({ ..c, cell: cl.to_u16_wrap(), key: if ($j == 0) Walk.visited else Walk.not_lined_up })
 		$cells = $cells.update(cl.to_u64_wrap(), |w| w.bitwise_or(one.shl_wrap($j.to_u8_wrap()))) ?? $cells
 		$j = $j + 1
 	}
