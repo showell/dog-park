@@ -74,12 +74,13 @@ The Roc is in `roc/`, roughly in the order to read it:
     zig build roc-test   # Roc's own expects, and `roc fmt --check roc`
     zig build play       # serve the game on port 9103; open it and drag a dog
 
-`zig build roc` needs `roc` on the PATH (a recent nightly of the new
-compiler), and it rewrites the checked-in `src/play/world.zon`,
-`src/play/rules.zon`, `solo/world.js` and the compiled physics in
-`roc/lib/`: commit them with your change. Every other build reads those,
-so building the game needs no Roc, though `zig build check` runs
-`roc fmt --check` too.
+**Every build needs `roc`** on the PATH (a recent nightly of the new
+compiler), or named with `-Droc=<path>`: it builds the physics from
+`roc/` into its cache, and stops, saying so, if there is no Roc.
+`zig build roc` rewrites the checked-in `src/play/world.zon`,
+`src/play/rules.zon` and `solo/world.js` from `roc/world.roc` and
+`roc/rules.roc`: commit them with your change (`zig build check` fails on
+one left stale).
 
 **The Roc is as `roc fmt` lays it out.** `roc fmt` doesn't wrap lines.
 To break a long record, list, call or lambda's arguments, put a comma
@@ -184,8 +185,8 @@ Every build needs its sibling checkouts beside this one:
 Zig runs a path dependency's build at every configure, so even a plain
 `zig build` needs all three.
 
-The tools: zig 0.16 (`build.zig.zon`), and node for the node tests; Roc
-only to change the game's Roc ("Changing the game in Roc", above). Any
+The tools: zig 0.16 (`build.zig.zon`), Roc (a recent nightly, for every
+build: "Changing the game in Roc", above), and node for the node tests. Any
 world and rules that fit their types will play: Zig refuses at compile
 time only what the physics can't take (a critter outside the world, a park
 past its edge, poop slots not a power of two). The golden runs (today's

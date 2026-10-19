@@ -2,8 +2,8 @@
 ## (roc/physics.roc) provides one pixel-tick (Walk.roc's `pixel_tick`: the
 ## leashed dog's step, then the walk, the critters' wish Wish.roc in it),
 ## or the forage turn, by its first argument, as the C function `roc_walk`;
-## `zig build roc` builds it into an archive for each of the physics'
-## targets (roc/lib/), which the Zig links. It allocates nothing, nor calls
+## every build of the physics builds it into an archive for its target
+## (build.zig's `rocArchives`), which the Zig links. It allocates nothing, nor calls
 ## anything of the host's but `roc_crashed`. The walk's arguments are flat,
 ## each a scalar or a list, so the C function's are what the Zig declares
 ## (src/play/roc_physics.zig).

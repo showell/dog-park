@@ -1,11 +1,10 @@
 //! **THE PHYSICS' ROC**: one pixel-tick, the leashed dog's step and then
 //! the walk (roc/Walk.roc's `pixel_tick`, with the critters' wish in it,
-//! roc/Wish.roc), compiled by `zig build roc` into
-//! roc/lib/physics-<target>.a (checked in; no build runs Roc), which every
-//! build of the physics links. This file is the seam: the C function Roc
-//! provides, their arguments laid out as Roc lays records out (fields by
-//! alignment, largest first, then by name), and the host functions the
-//! archive calls.
+//! roc/Wish.roc), compiled from roc/ by every build of the physics into an
+//! archive for its target, which it links (build.zig's `rocArchives`).
+//! This file is the seam: the C function Roc provides, their arguments
+//! laid out as Roc lays records out (fields by alignment, largest first,
+//! then by name), and the host functions the archive calls.
 //!
 //! Every list goes to Roc as a `List` over a buffer of the physics' own
 //! (`Lent`), after Roc's refcount word: 0, "static data", for one Roc only

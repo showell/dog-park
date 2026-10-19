@@ -24,7 +24,7 @@ check.
    pushed (nothing checks that):
 
        cd ~/showell_repos/dog-park
-       zig build metal-gate            # the QEMU gate (README)
+       zig build metal-gate            # the QEMU gate (README); needs roc on the PATH
        node droplet/image.mjs
 
    It builds `zig-out/bin/dogpark.elf`, writes

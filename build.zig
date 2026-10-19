@@ -12,6 +12,13 @@ pub fn build(b: *std.Build) void {
     // `unstamped`, so two builds of the same code are the same bytes
     // (zig-metal-unikernel's build.zig, `Stamp`). On by default.
     const stamp = b.option(Stamp, "stamp", "on (the default): the commits baked in, for /version; off: `unstamped`, so two builds of the same code are byte-identical") orelse .on;
+    // **THE PHYSICS' ROC, BUILT BY EVERY BUILD** (`rocArchives`): an
+    // archive for each of the physics' targets, built into the cache from
+    // roc/*.roc and linked wherever the physics is (`linkRoc`); nothing
+    // built from Roc is checked in. So every build needs Roc, and without
+    // it the build stops while it is configured, saying so (`rocCompiler`).
+    const roc = rocCompiler(b);
+    const roc_lib = rocArchives(b, roc);
 
     // webbox is two modules: `webbox`, portable, what the application's code
     // imports; and `webbox_linux`, the Linux host, for a Linux `main` only.
@@ -45,14 +52,14 @@ pub fn build(b: *std.Build) void {
     // `.embedded` names it for a kernel's build, and compiled into this
     // build's play server by the same name, which serves it as
     // /physics-<hash>.wasm.
-    const physics_page_wasm = pageWasm(b, wasm32, .ReleaseSafe, physics_mod);
+    const physics_page_wasm = pageWasm(b, wasm32, .ReleaseSafe, physics_mod, roc_lib);
     const page_wasm_install = b.addInstallArtifact(physics_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } });
     b.getInstallStep().dependOn(&page_wasm_install.step);
     const page_wasm = physics_page_wasm.getEmittedBin();
     // The same in Debug, for the fast tier alone: nothing there needs the
     // served build's speed, and it compiles in about a third of the time.
     // zig-out/web-debug/physics.wasm; `check` and `slow` test the served one.
-    const debug_page_wasm = pageWasm(b, wasm32, .Debug, physics_mod);
+    const debug_page_wasm = pageWasm(b, wasm32, .Debug, physics_mod, roc_lib);
     const debug_wasm_install = b.addInstallArtifact(debug_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web-debug" } } });
 
     // The play server, for solo/: zig build play, from the checkout.
@@ -70,7 +77,7 @@ pub fn build(b: *std.Build) void {
         },
     });
     play_main.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
-    linkRoc(b, play_main, null);
+    linkRoc(roc_lib, play_main, null);
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);
@@ -91,7 +98,7 @@ pub fn build(b: *std.Build) void {
     });
     metal_app.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
     // The kernel's: x86-64, freestanding (the module takes the kernel's target).
-    linkRoc(b, metal_app, .x64elf);
+    linkRoc(roc_lib, metal_app, .x64elf);
     // **THE KERNEL, BESIDE THIS REPO**: ../zig-metal-unikernel, a path
     // dependency. Zig runs a path dependency's build at every configure,
     // lazy or not (measured: `zig build --help` runs its git and python
@@ -136,6 +143,7 @@ pub fn build(b: *std.Build) void {
         physics_mod: *std.Build.Module,
         build_mod: *std.Build.Module,
         page_wasm: std.Build.LazyPath,
+        roc_lib: RocLib,
 
         /// Every file's tests, from src/play/all_tests.zig, natively.
         fn all(u: @This(), size: Fuzz) *std.Build.Step {
@@ -165,7 +173,7 @@ pub fn build(b: *std.Build) void {
                 .strip = true,
                 .imports = &.{.{ .name = "physics_options", .module = u.physics_mod }},
             }) });
-            linkRoc(u.b, probe.root_module, null);
+            linkRoc(u.roc_lib, probe.root_module, null);
             probe.entry = .disabled;
             probe.rdynamic = true;
             step.dependOn(&probe.step);
@@ -194,10 +202,10 @@ pub fn build(b: *std.Build) void {
                     .{ .name = "dogpark_build", .module = u.build_mod },
                 },
             });
-            linkRoc(u.b, m, null);
+            linkRoc(u.roc_lib, m, null);
             return m;
         }
-    }{ .b = b, .target = target, .optimize = optimize, .webbox = webbox, .shale = shale, .host_io = host_io, .physics_mod = physics_mod, .build_mod = build_mod, .page_wasm = page_wasm };
+    }{ .b = b, .target = target, .optimize = optimize, .webbox = webbox, .shale = shale, .host_io = host_io, .physics_mod = physics_mod, .build_mod = build_mod, .page_wasm = page_wasm, .roc_lib = roc_lib };
 
     // **NODE AGAINST A FRESH BUILD**: each node test file after the install
     // (zig-out/web/physics.wasm, zig-out/bin/dog-park-play), each its own
@@ -246,7 +254,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseSafe,
         .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
     }) });
-    linkRoc(b, physics_bench.root_module, null);
+    linkRoc(roc_lib, physics_bench.root_module, null);
     const physics_bench_run = b.addRunArtifact(physics_bench);
     // `zig build physics-bench -- herd` (or `busiest`, `strewn`, `rerun`): one of the
     // bench's ticks alone, a fixed number of runs, for a profiler (metal-vmm
@@ -265,7 +273,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseSafe,
         .imports = &.{.{ .name = "physics_options", .module = physicsOptions(b, true) }},
     }) });
-    linkRoc(b, judged_bench.root_module, null);
+    linkRoc(roc_lib, judged_bench.root_module, null);
     const judged_run = b.addRunArtifact(judged_bench);
     judged_run.addArg("judge");
     _ = judged_run.captureStdOut(.{});
@@ -288,7 +296,7 @@ pub fn build(b: *std.Build) void {
         },
     });
     server_bench_mod.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
-    linkRoc(b, server_bench_mod, null);
+    linkRoc(roc_lib, server_bench_mod, null);
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
     // **THE WORLD AND ITS RULES, FROM ROC** (src/play/world.zig,
     // src/play/rules.zig): roc/world.roc and roc/rules.roc run with `roc`
@@ -301,11 +309,7 @@ pub fn build(b: *std.Build) void {
     //
     // **WHAT IS CHECKED IN IS WHAT THE ROC MAKES** (`roc-fresh`, in
     // `check`): each file this writes, made again and compared byte for
-    // byte with the checked-in one. Roc's build is deterministic, so a
-    // difference is a file left stale by a .roc change (a branch once
-    // committed x64elf and wasm32 archives built from an earlier state of
-    // its source, and its judges ran against them).
-    const roc = b.option([]const u8, "roc", "the Roc compiler for `zig build roc` (default: `roc` on the PATH)") orelse "roc";
+    // byte with the checked-in one, so none is left stale by a .roc change.
     const roc_write = b.addUpdateSourceFiles();
     const roc_fresh = b.step("roc-fresh", "Each file `zig build roc` writes, made again and compared with the checked-in one (needs roc; -Droc=<path>)");
     for ([_][3][]const u8{
@@ -321,23 +325,12 @@ pub fn build(b: *std.Build) void {
         roc_write.addCopyFileToSource(made, out[2]);
         roc_fresh.dependOn(fresh(b, made, out[2]));
     }
-    // The physics' Roc (roc/physics.roc, the wish and the walk), built for each of the
-    // physics' targets into roc/lib/, which every build links (`linkRoc`).
-    const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/World.roc", "roc/Rules.roc", "roc/platform/main.roc" };
-    for (std.enums.values(RocTarget)) |t| {
-        const roc_build = b.addSystemCommand(&.{ roc, "build", "roc/physics.roc", b.fmt("--target={t}", .{t}) });
-        roc_build.setCwd(b.path("."));
-        for (roc_inputs) |f| roc_build.addFileInput(b.path(f));
-        const archive = roc_build.addPrefixedOutputFileArg("--output=", b.fmt("physics-{t}.a", .{t}));
-        roc_write.addCopyFileToSource(archive, b.fmt("roc/lib/physics-{t}.a", .{t}));
-        roc_fresh.dependOn(fresh(b, archive, b.fmt("roc/lib/physics-{t}.a", .{t})));
-    }
-    b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js, and build the physics' Roc into roc/lib/ (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
+    b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js").dependOn(&roc_write.step);
     // **A FOURTH KIND, IN ROC ALONE** (metal-vmm QUEUE 240): a copy of this
     // repository with test/fourth_kind/goat.patch (roc/*.roc only) applied,
-    // its world and rules printed and its archives built there by `zig
-    // build roc`, and src/play/fourth_kind_test.zig run against the same
-    // Zig (tools/fourth_kind.sh). The test alone, in this world, steps
+    // its world and rules printed there by `zig build roc` (its physics'
+    // Roc built by each build there), and src/play/fourth_kind_test.zig run
+    // against the same Zig (tools/fourth_kind.sh). The test alone, in this world, steps
     // aside: it has no goats.
     const fourth_test = b.step("fourth-kind-test", "The fourth kind's test against this checkout's world (it steps aside without a goat; zig build fourth-kind makes one)");
     fourth_test.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = units.module("src/play/fourth_kind_test.zig", target, optimize, fuzz) })).step);
@@ -397,7 +390,7 @@ fn nodeRun(b: *std.Build, file: []const u8) *std.Build.Step.Run {
 }
 
 /// The physics for the page (physics_page.zig's exports), compiled to wasm32.
-fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, physics_mod: *std.Build.Module) *std.Build.Step.Compile {
+fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, physics_mod: *std.Build.Module, roc_lib: RocLib) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{ .name = "physics", .root_module = b.createModule(.{
         .root_source_file = b.path("src/play/physics_page.zig"),
         .target = wasm32,
@@ -405,27 +398,53 @@ fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.built
         .strip = true,
         .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
     }) });
-    linkRoc(b, exe.root_module, null);
+    linkRoc(roc_lib, exe.root_module, null);
     exe.entry = .disabled;
     exe.rdynamic = true;
     return exe;
 }
 
-/// The Roc the physics links: roc/lib/physics-<target>.a, built by `zig build
-/// roc` from roc/physics.roc (src/play/roc_physics.zig is its seam).
+/// The physics' Roc: an archive for each target the physics compiles for,
+/// built from `roc_inputs` (src/play/roc_physics.zig is its seam).
 const RocTarget = enum { x64musl, wasm32, x64elf };
+const RocLib = std.EnumArray(RocTarget, std.Build.LazyPath);
+const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/World.roc", "roc/Rules.roc", "roc/platform/main.roc" };
+
+/// The Roc compiler: -Droc=<path> (from the build root), or `roc` on the
+/// PATH. **Every build needs one**, to build the physics: with none, the
+/// build stops here, while it is configured, saying so.
+fn rocCompiler(b: *std.Build) []const u8 {
+    const named = b.option([]const u8, "roc", "the Roc compiler (default: `roc` on the PATH); every build needs one, to build the physics") orelse "roc";
+    const none = "Dog Park's physics is built from Roc, and there is no Roc compiler at `{s}`: put a Roc nightly's `roc` on the PATH, or name one with -Droc=<path>";
+    if (std.mem.indexOfScalar(u8, named, '/') == null) return b.findProgram(&.{named}, &.{}) catch std.process.fatal(none, .{named});
+    return b.build_root.handle.realPathFileAlloc(b.graph.io, named, b.allocator) catch std.process.fatal(none, .{named});
+}
+
+/// The physics' Roc built for each target, into the cache. The compiler is
+/// an input too, so a new Roc builds them again.
+fn rocArchives(b: *std.Build, roc: []const u8) RocLib {
+    var lib: RocLib = undefined;
+    for (std.enums.values(RocTarget)) |t| {
+        const build_roc = b.addSystemCommand(&.{ roc, "build", "roc/physics.roc", b.fmt("--target={t}", .{t}) });
+        build_roc.setCwd(b.path("."));
+        build_roc.addFileInput(.{ .cwd_relative = roc });
+        for (roc_inputs) |f| build_roc.addFileInput(b.path(f));
+        lib.set(t, build_roc.addPrefixedOutputFileArg("--output=", b.fmt("physics-{t}.a", .{t})));
+    }
+    return lib;
+}
 
 /// Links the physics' Roc for `m`'s target, or `as`'s when the module takes
 /// its target from elsewhere (the kernel's).
-fn linkRoc(b: *std.Build, m: *std.Build.Module, as: ?RocTarget) void {
+fn linkRoc(lib: RocLib, m: *std.Build.Module, as: ?RocTarget) void {
     const t: RocTarget = as orelse blk: {
         const r = m.resolved_target.?.result;
         if (r.cpu.arch.isWasm()) break :blk .wasm32;
         if (r.cpu.arch == .x86_64 and r.os.tag == .freestanding) break :blk .x64elf;
         if (r.cpu.arch == .x86_64) break :blk .x64musl;
-        std.process.fatal("the physics' Roc: no archive for {t} (roc/lib has x86-64 and wasm32)", .{r.cpu.arch});
+        std.process.fatal("the physics' Roc: no archive for {t} (it is built for x86-64 and wasm32)", .{r.cpu.arch});
     };
-    m.addObjectFile(b.path(b.fmt("roc/lib/physics-{t}.a", .{t})));
+    m.addObjectFile(lib.get(t));
 }
 
 /// Whether a build bakes its commits in (`-Dstamp`), as the kernel's says.

@@ -1,7 +1,7 @@
 // **THE PHYSICS HASH'S SOURCES** (physics_wire.zig's `physics_hash`): the
 // files, by their path from src/play/, that decide a tick's lines and
 // their text, and the page's exports: the Zig, and the Roc the physics
-// links (build.zig's `roc_inputs`, the sources of roc/lib's archives). build.zig computes a CRC-32 over them, in this order, at
+// links (build.zig's `roc_inputs`, the sources of the physics' Roc archives). build.zig computes a CRC-32 over them, in this order, at
 // configure time.
 .{
     "physics.zig",
