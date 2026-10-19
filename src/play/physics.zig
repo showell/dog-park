@@ -34,6 +34,8 @@ const layout = @import("layout.zig");
 const world_file = @import("world.zig").world;
 const rules = @import("rules.zig");
 const roc = @import("roc_physics.zig");
+const walk_reference = @import("walk_reference.zig");
+const walk_judge = @import("physics_options").walk_judge;
 
 pub const dog_count = layout.dog_count;
 pub const cow_count = layout.cow_count;
@@ -1113,10 +1115,16 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
             .key = if (j == 0) roc.visited else roc.not_lined_up,
         });
     }
-    const r = w.run(switch (axis) {
+    const axis_n: i32 = switch (axis) {
         .x => 0,
         .y => 1,
-    }, inc);
+    };
+    // **THE WALK'S JUDGE** (-Dwalk-judge, walk_reference.zig): the same
+    // pixel-tick in plain Zig, compared field by field.
+    var judge: if (walk_judge) walk_reference.Judge(critter_count, walk_most + 1) else void = undefined;
+    if (walk_judge) judge.before(w.crits.slice(), w.from.slice(), w.poops.slice(), span_cells, axis_n, inc);
+    const r = w.run(axis_n, inc);
+    if (walk_judge) judge.after(w.crits.slice(), w.cells.slice(), @TypeOf(w.*).words, w.moving.slice(), r);
     for (w.crits.slice(), 0..) |c, j| {
         if (c.x != sc.at[j].x or c.y != sc.at[j].y) sc.put(j, .{ .x = c.x, .y = c.y });
     }
