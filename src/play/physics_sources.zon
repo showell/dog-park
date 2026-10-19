@@ -14,6 +14,7 @@
     "rules.zon",
     "physics_page.zig",
     "roc_physics.zig",
+    "grid.zig",
     "../../roc/physics.roc",
     "../../roc/platform/main.roc",
     "../../roc/Walk.roc",

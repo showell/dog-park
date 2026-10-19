@@ -73,7 +73,7 @@ pub fn Lent(comptime T: type, comptime most: usize) type {
 }
 
 /// Seen critter `j` (roc/Walk.roc's `Crit`): where it stands, and the cell
-/// it stands in (physics.zig's `Scene.cellOf`); its square's half side; its kind (physics.zig's `Kind`); its kin, who it
+/// it stands in (grid.zig's `cellOf`); its square's half side; its kind (physics.zig's `Kind`); its kin, who it
 /// nudges (a dog its breed, a cow the breeds' count, a chicken `no_kin`);
 /// and its key while it waits to be visited: `not_lined_up`, or `visited`
 /// (the leashed dog is lent as visited: the walk starts from it).
@@ -103,15 +103,14 @@ extern fn roc_walk(mode: i32, axis: i32, inc: i32, side: i32, before: u32, laid:
 /// **THE WALK'S LISTS** (roc/Walk.roc's `Lent` and `Work`), for at most
 /// `seen_most` critters, `moving_most` of them in motion, `poops_most`
 /// poops, `tiles` tiles and `side` by `side` cells. The physics fills
-/// `poops` and `from` whenever the poops change, and `crits` and `cells`
-/// (`words` a cell, `cellPut`) for each walk; the walk changes those two and
+/// `poops` and `from` whenever the poops change, and `crits` for each walk,
+/// and lends its own `cells` (`Cells`); the walk changes those two and
 /// fills `moving` (the leashed dog, then each visited); `depth` is its
 /// working room.
 pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poops_most: usize, comptime tiles: usize, comptime side: usize) type {
     return struct {
         from: Lent(u16, tiles + 1) = .{},
         poops: Lent(Poop, poops_most) = .{},
-        cells: Lent(u64, side * side * words) = .{},
         crits: Lent(Crit, seen_most) = .{},
         depth: Lent(u16, seen_most) = .{},
         moving: Lent(u16, moving_most) = .{},
@@ -122,16 +121,9 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
 
         pub const words = std.math.divCeil(usize, seen_most, 64) catch unreachable;
 
-        /// No critter in any cell.
-        pub fn cellsClear(self: *@This()) void {
-            self.cells.len = side * side * words;
-            @memset(&self.cells.items, 0);
-        }
-
-        /// Seen critter `j` stands in cell `c`.
-        pub fn cellPut(self: *@This(), c: u16, j: usize) void {
-            self.cells.items[@as(usize, c) * words + j / 64] |= @as(u64, 1) << @intCast(j % 64);
-        }
+        /// The cells' sets of the seen critters (`words` a cell), which
+        /// the physics keeps (grid.zig) and lends in place.
+        pub const Cells = Lent(u64, side * side * words);
 
         /// One pixel-tick: the leashed dog's step `inc` along `axis` (0 x,
         /// 1 y), then, if it moved, the walk and the poop due, the dog having
@@ -139,12 +131,12 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
         /// the dog's net step, how far it walked (each move by its larger
         /// axis) and what it bumped; and the poop laid: its slot (-1, none)
         /// and where.
-        pub fn run(self: *@This(), axis: i32, inc: i32, before: u32, laid: u32) Ran {
+        pub fn run(self: *@This(), cells: *Cells, axis: i32, inc: i32, before: u32, laid: u32) Ran {
             const n = self.crits.len;
             self.depth.len = n;
             self.moving.len = 0;
             self.eaten.len = 0;
-            const r = self.call(mode_pixel_tick, axis, inc, before, laid);
+            const r = self.call(cells, mode_pixel_tick, axis, inc, before, laid);
             std.debug.assert(self.crits.len == n and self.from.refcount == 0 and self.poops.refcount == 0);
             return .{ .step_x = r.step_x, .step_y = r.step_y, .walked = r.walked, .bump_kind = r.bump_kind, .bump_at = r.bump_at, .poop_slot = r.poop_slot, .poop_x = r.poop_x, .poop_y = r.poop_y };
         }
@@ -153,19 +145,19 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
         /// The forage turn (roc/Walk.roc's `forage_turn`), the leashed dog's
         /// net move over the tick `net` and `laid` poops laid: the crits and
         /// cells as it left them, and the slots the foragers ate.
-        pub fn forage(self: *@This(), net: i32, laid: u32) []const u16 {
+        pub fn forage(self: *@This(), cells: *Cells, net: i32, laid: u32) []const u16 {
             const n = self.crits.len;
             self.depth.len = 0;
             self.moving.len = 0;
             self.eaten.len = 0;
             std.debug.assert(self.homes.len == n);
-            _ = self.call(mode_forage, 0, net, 0, laid);
+            _ = self.call(cells, mode_forage, 0, net, 0, laid);
             std.debug.assert(self.crits.len == n);
             return self.eaten.slice();
         }
-        fn call(self: *@This(), mode: i32, axis: i32, inc: i32, before: u32, laid: u32) Walked {
-            const r = roc_walk(mode, axis, inc, side, before, laid, self.from.toRead(), self.poops.toRead(), self.homes.toRead(), self.cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.eaten.toChange(), self.moving.toChange());
-            self.cells.back(r.cells);
+        fn call(self: *@This(), cells: *Cells, mode: i32, axis: i32, inc: i32, before: u32, laid: u32) Walked {
+            const r = roc_walk(mode, axis, inc, side, before, laid, self.from.toRead(), self.poops.toRead(), self.homes.toRead(), cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.eaten.toChange(), self.moving.toChange());
+            cells.back(r.cells);
             self.crits.back(r.crits);
             self.depth.back(r.depth);
             self.eaten.back(r.eaten);

@@ -34,6 +34,7 @@ const layout = @import("layout.zig");
 const world_file = @import("world.zig").world;
 const rules = @import("rules.zig");
 const roc = @import("roc_physics.zig");
+const grid = @import("grid.zig");
 const walk_reference = @import("walk_reference.zig");
 const walk_judge = @import("physics_options").walk_judge;
 
@@ -708,14 +709,12 @@ pub const Scene = struct {
     /// seen critters, for each walk.
     roc_walk: roc.Walk(critter_count, walk_most + 1, poop_count, span_tiles * span_tiles, span_cells) = .{},
     poops_changed: bool = true,
-    /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210): seen index `j`
-    /// is set in the cell of the world its point stands in (`cell` a side,
-    /// `cellOf`), kept by `put` on every move; `seen_cell` is where each is set. A
-    /// square asks only the cells it could reach (`critters`), and walks
-    /// the set bits **in seen index order**, the order a scan of every
-    /// seen critter took: who is nudged, shoved or blocks first follows it.
-    seen_cells: [span_cells][span_cells]SeenSet = undefined,
-    seen_cell: [critter_count]u16 = undefined,
+    /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210; grid.zig): seen
+    /// index `j` is in the cell of the world its point stands in (`cell` a
+    /// side), kept by `put` on every move. Its cells are the very list the
+    /// walk lends Roc (roc/Walk.roc's `cells`), which Roc keeps as it moves
+    /// critters and hands back: no rebuild for a walk.
+    cells: Grid = .{},
 
     pub fn of(b: *Board) ?Scene {
         var s: Scene = undefined;
@@ -734,12 +733,8 @@ pub const Scene = struct {
         for (by_rank) |k| for (0..countOf(k)) |i| {
             if (k != leashed_kind or i != l) s.consider(.of(k, @intCast(i)), span, l);
         };
-        s.seen_cells = @splat(@splat(.initEmpty()));
-        for (0..s.len) |j| {
-            const c = s.cellOf(s.at[j]);
-            s.seen_cell[j] = c;
-            s.cellSet(c).set(j);
-        }
+        s.cells.clear();
+        for (s.at[0..s.len], 0..) |p, j| s.cells.add(j, p.x, p.y);
         s.poop_listed = .initEmpty();
         s.poop_head = @splat(@splat(no_poop));
         s.poop_laid = .initEmpty();
@@ -828,47 +823,12 @@ pub const Scene = struct {
         return .{ .sc = s, .cols = xs, .rows = ys };
     }
 
-    /// The cell a point stands in, `row * span_cells + col`, from the
-    /// world's (0, 0).
-    fn cellOf(_: *const Scene, p: Point) u16 {
-        const col: usize = @intCast(@divFloor(@mod(p.x, world), cell));
-        const row: usize = @intCast(@divFloor(@mod(p.y, world), cell));
-        return @intCast(row * span_cells + col);
-    }
-
-    fn cellSet(s: *Scene, c: u16) *SeenSet {
-        return &s.seen_cells[c / span_cells][c % span_cells];
-    }
-
-    /// Every seen critter whose point might lie within `reach` of `p` on
-    /// both axes (fewer than `reach` away: a superset of those that are):
-    /// those of the cells the square meets, round the torus.
-    pub fn critters(s: *const Scene, p: Point, reach: i32) SeenSet {
-        var out: SeenSet = .initEmpty();
-        const xs = Wrapped.of(@mod(p.x, world), reach, cell, span_cells);
-        const ys = Wrapped.of(@mod(p.y, world), reach, cell, span_cells);
-        for (0..ys.n) |ri| {
-            const r = ys.at(ri);
-            for (0..xs.n) |ci| out.setUnion(s.seen_cells[r][xs.at(ci)]);
-        }
-        return out;
-    }
-
     /// **THE BUCKETS HOLD** every seen critter in the cell its point
     /// stands in, and nowhere else: checked after every pixel-tick and
     /// chicken's turn in the tests (a move that forgot its bit would let a
     /// square miss whoever it overlaps).
-    pub fn bucketsHold(s: *Scene) bool {
-        var bits: usize = 0;
-        for (s.seen_cells) |row| for (row) |set| {
-            bits += set.count();
-        };
-        if (bits != s.len) return false;
-        for (0..s.len) |j| {
-            const c = s.cellOf(s.at[j]);
-            if (c != s.seen_cell[j] or !s.cellSet(c).isSet(j)) return false;
-        }
-        return true;
+    pub fn bucketsHold(s: *const Scene) bool {
+        return s.cells.holds(s.at[0..s.len]);
     }
 
     fn consider(s: *Scene, c: Critter, span: TileSpan, l: u16) void {
@@ -896,12 +856,7 @@ pub const Scene = struct {
     pub fn put(s: *Scene, i: usize, to: Point) void {
         const p = wrapped(to);
         s.at[i] = p;
-        const c = s.cellOf(p);
-        if (c != s.seen_cell[i]) {
-            s.cellSet(s.seen_cell[i]).unset(i);
-            s.cellSet(c).set(i);
-            s.seen_cell[i] = c;
-        }
+        s.cells.move(i, p.x, p.y);
         s.board.put(s.seen[i].who, p);
     }
 
@@ -924,8 +879,8 @@ pub const span_tiles = tiles.world_tiles;
 /// The end of a tile's list of poops.
 const no_poop: u16 = std.math.maxInt(u16);
 
-/// A set of seen indexes.
-pub const SeenSet = std.StaticBitSet(critter_count);
+/// The seen critters' grid, its cells stored as a list Roc can be lent.
+const Grid = grid.Grid(critter_count, span_cells, cell, roc.Lent);
 
 /// **A CELL OF THE SEEN CRITTERS' BUCKETS**: a tile cut `cell_per_tile`
 /// ways on each axis, a side a few critters wide.
@@ -933,24 +888,7 @@ pub const cell_per_tile = world_file.cell_per_tile;
 pub const cell: i32 = @divExact(tile, cell_per_tile);
 pub const span_cells: usize = span_tiles * cell_per_tile;
 
-/// **A RANGE ROUND THE TORUS**: the `n` cells (or tiles), `size` a side,
-/// that a span of `reach` either way of `v` (in [0, world)) meets, from
-/// `lo`, each named by `at` in [0, `count`); never more than `count`, so
-/// no cell comes twice.
-const Wrapped = struct {
-    lo: i32,
-    n: usize,
-    count: i32,
-
-    fn of(v: i32, reach: i32, size: i32, count: usize) Wrapped {
-        const lo = @divFloor(v - reach, size);
-        const hi = @divFloor(v + reach, size);
-        return .{ .lo = lo, .n = @min(@as(usize, @intCast(hi - lo + 1)), count), .count = @intCast(count) };
-    }
-    fn at(w: Wrapped, i: usize) usize {
-        return @intCast(@mod(w.lo + @as(i32, @intCast(i)), w.count));
-    }
-};
+const Wrapped = grid.Wrapped;
 
 comptime {
     // The world is whole cells and tiles.
@@ -1129,8 +1067,8 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
     // pixel-tick in plain Zig, compared field by field.
     var judge: if (walk_judge) walk_reference.Judge(critter_count, walk_most + 1) else void = undefined;
     if (walk_judge) judge.before(w.crits.slice(), w.from.slice(), w.poops.slice(), span_cells, axis_n, inc, before, sc.board.laid);
-    const r = w.run(axis_n, inc, before, sc.board.laid);
-    if (walk_judge) judge.after(w.crits.slice(), w.cells.slice(), @TypeOf(w.*).words, w.moving.slice(), r);
+    const r = w.run(&sc.cells.cells, axis_n, inc, before, sc.board.laid);
+    if (walk_judge) judge.after(w.crits.slice(), sc.cells.cells.slice(), Grid.words, w.moving.slice(), r);
     takeCrits(sc);
     const step: Point = .{ .x = r.step_x, .y = r.step_y };
     if (step.x != 0 or step.y != 0) {
@@ -1155,13 +1093,11 @@ fn lendCrits(sc: *Scene) void {
     const w = &sc.roc_walk;
     if (sc.poops_changed) sc.lendPoops();
     w.crits.len = 0;
-    w.cellsClear();
     for (sc.list(), sc.at[0..sc.len], 0..) |o, p, j| {
-        w.cellPut(sc.seen_cell[j], j);
         w.crits.push(.{
             .x = p.x,
             .y = p.y,
-            .cell = sc.seen_cell[j],
+            .cell = sc.cells.cell_of[j],
             .half = o.half,
             .kind = @intFromEnum(o.who.kind),
             .kin = kinOf(o.who) orelse roc.no_kin,
@@ -1252,7 +1188,7 @@ fn chickensTurn(sc: *Scene) void {
         const h = layout.home(o.who);
         w.homes.push(.{ .x = h.x, .y = h.y });
     }
-    const eaten = w.forage(@intCast(net), sc.board.laid);
+    const eaten = w.forage(&sc.cells.cells, @intCast(net), sc.board.laid);
     takeCrits(sc);
     for (eaten) |n| sc.eat(n);
     if (builtin.is_test) std.debug.assert(sc.bucketsHold());
