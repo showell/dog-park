@@ -183,13 +183,6 @@ pub fn on(p: Point, axis: Axis) i32 {
     };
 }
 
-pub fn across(axis: Axis) Axis {
-    return switch (axis) {
-        .x => .y,
-        .y => .x,
-    };
-}
-
 /// `p` moved `by` along `axis`, wrapped into the world.
 pub fn moved(p: Point, axis: Axis, by: i32) Point {
     return wrapped(switch (axis) {
@@ -1179,78 +1172,32 @@ pub const Veto = struct {
     pub const Why = enum { none, critter, chicken, poop };
 };
 
-/// **THE VETO AND THE SHOVE** (decisions 25, 30), for the two that step
-/// here, the leashed dog and a chicken (the walk's dogs and cows step in
-/// roc/Walk.roc, where the nudge is): seen critter `i` takes `step` whole,
-/// or not at all. Neither has kin, so neither nudges.
-/// - **The shove:** a chicken the leashed dog would overlap is knocked by
-///   the step plus as much again sideways, away from the dog's centre line
-///   (`shoveAside`), up to `nudge_most` chickens. Each must land clear of
-///   everyone and every poop: of every critter that stays put, the dog where
-///   it lands, and every other chicken shoved. A chicken shoves nobody.
-/// - **The veto,** if it would overlap any other critter or a chicken it
-///   can't shove, or stand on a poop (for a chicken's own step only the
-///   newest, which isn't ripe).
-/// All is checked before anyone moves; no two critters overlap, by
-/// induction.
+/// **A CHICKEN'S STEP** (decisions 30, 31), the one step left in Zig (the
+/// leashed dog's and the walk's are roc/Walk.roc's): seen chicken `i`
+/// takes `step` whole, or not at all. A chicken shoves nobody and has no
+/// kin, so any critter it would overlap vetoes it (`chicken` for another
+/// chicken, which the sidestep goes round, `critter` for a dog or a cow),
+/// and so does a poop, of which only the newest blocks it (it isn't ripe).
 fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
     if (step.x == 0 and step.y == 0) return .{};
-    const mover = sc.seen[i].who;
-    std.debug.assert(i == 0 or mover.kind == .chicken);
-    var shoved: [nudge_most]usize = undefined;
-    var ns: usize = 0;
-    var in_move: std.StaticBitSet(critter_count) = .initEmpty();
-    in_move.set(i);
+    std.debug.assert(sc.seen[i].who.kind == .chicken);
     const from = sc.pos(i);
     const to = plus(from, step);
     const h = sc.seen[i].half;
-    if (poopUnder(sc, to, h, if (mover.kind == .chicken) .eats_ripe else .eats_none)) |q| return .{ .why = .poop, .at = from, .blocker = q };
+    if (poopUnder(sc, to, h, .eats_ripe)) |q| return .{ .why = .poop, .at = from, .blocker = q };
     var near = sc.critters(to, h + cow_half);
     var it = near.iterator(.{});
     while (it.next()) |j| {
         const o = sc.seen[j];
-        if (in_move.isSet(j) or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
-        if (o.who.kind != .chicken) return .{ .why = .critter, .at = from, .blocker = sc.pos(j) };
-        if (mover.kind == .chicken or ns == nudge_most) return .{ .why = .chicken, .at = from, .blocker = sc.pos(j) };
-        shoved[ns] = j;
-        ns += 1;
-        in_move.set(j);
-    }
-    var lands: [nudge_most]Point = undefined;
-    for (shoved[0..ns], 0..) |c, m| {
-        const q = sc.pos(c);
-        const land = wrapped(plus(plus(q, step), shoveAside(step, delta(from, q))));
-        lands[m] = land;
-        const cannot: Veto = .{ .why = .chicken, .at = from, .blocker = q };
-        if (poopUnder(sc, land, chicken_half, .eats_none) != null) return cannot;
-        var by_land = sc.critters(land, chicken_half + cow_half);
-        var at_land = by_land.iterator(.{});
-        while (at_land.next()) |j| {
-            if (!in_move.isSet(j) and squaresOverlap(land, chicken_half, sc.pos(j), sc.seen[j].half)) return cannot;
-        }
-        if (squaresOverlap(land, chicken_half, to, h)) return cannot;
-        for (lands[0..m]) |o| if (squaresOverlap(land, chicken_half, o, chicken_half)) return cannot;
+        if (j == i or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
+        return .{ .why = if (o.who.kind == .chicken) .chicken else .critter, .at = from, .blocker = sc.pos(j) };
     }
     sc.put(i, to);
-    for (shoved[0..ns], lands[0..ns]) |c, land| sc.put(c, land);
     return .{};
 }
 
 fn plus(p: Point, v: Point) Point {
     return .{ .x = p.x + v.x, .y = p.y + v.y };
-}
-
-/// **A SHOVE'S SIDEWAYS PART** (decision 30): `step` turned a right angle,
-/// toward the side of the stepper's centre line the chicken is on (`d`,
-/// from the stepper to it); a chicken on the line goes to whichever side
-/// is south, or east for a step north or south.
-pub fn shoveAside(step: Point, d: Point) Point {
-    const left: Point = .{ .x = -step.y, .y = step.x };
-    const right: Point = .{ .x = step.y, .y = -step.x };
-    const side = @as(i64, step.x) * d.y - @as(i64, step.y) * d.x;
-    if (side > 0) return left;
-    if (side < 0) return right;
-    return if (left.y > 0 or (left.y == 0 and left.x > 0)) left else right;
 }
 
 /// **THE SIDESTEP** (decision 30): critter `i` takes `step` (`stepWhole`);
