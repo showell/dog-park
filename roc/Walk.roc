@@ -193,6 +193,217 @@ Walk := [].{
 		{ anchor: $anchor, pooper: $pooper, work: { depth: $depth, moving: $moving, park: { cells: $cells, crits: $crits } } }
 	}
 
+	## **ONE PIXEL-TICK** (decision 30): the leashed dog's step `inc` along
+	## `axis` (0 x, 1 y; `drag`), then, if it moved, the walk after it, of
+	## the size it moved. Hands back the work; what the dog bumped; its step;
+	## and how far it walked, each of its moves by its larger axis, for the
+	## physics' poop count.
+	Ticked : { bump : Bump, step : Pt, walk : Walked, walked : I32 }
+
+	pixel_tick : Lent, Work, I32, I32 -> Ticked
+	pixel_tick = |lent, work0, axis, inc| {
+		s = {
+			from: lent.from,
+			poops: lent.poops,
+			words: work0.park.cells.len() // (side * side).to_u64_wrap(),
+		}
+		{ depth, moving, park: park0 } = work0
+		{ cells: c0, crits: k0 } = park0
+		from = pt(get_c(k0, 0))
+		{ bump, park: park1, walked } = drag(s, { cells: c0, crits: k0 }, axis, inc)
+		{ cells: c1, crits: k1 } = park1
+		step = delta(from, pt(get_c(k1, 0)))
+		work1 = { depth, moving, park: { cells: c1, crits: k1 } }
+		if step.x == 0 and step.y == 0 {
+			{ bump, step, walk: { anchor: -1, pooper: 0, work: work1 }, walked }
+		} else {
+			{ bump, step, walk: walk(lent, work1, measure(step)), walked }
+		}
+	}
+
+	## What stopped the leashed dog: nothing (`bump_none`), seen critter
+	## `at` (`bump_critter`), or the poop in slot `at` (`bump_poop`); and
+	## where it stood (`stood`). The numbers are roc_physics.zig's.
+	Bump : { at : I32, kind : I32, stood : Pt }
+
+	bump_none : I32
+	bump_none = 0
+
+	bump_critter : I32
+	bump_critter = 1
+
+	bump_poop : I32
+	bump_poop = 2
+
+	no_bump : Bump
+	no_bump = { at: 0, kind: bump_none, stood: { x: 0, y: 0 } }
+
+	## A critter's kin when it has none (roc_physics.zig's `no_kin`, a
+	## chicken's): no dog or cow has it.
+	no_kin : U8
+	no_kin = 255
+
+	## **THE LEASHED DOG'S STEP** (decision 30): `inc` along `axis`,
+	## stopping just short of pressing into anyone (`sweep`). Stopped by a
+	## chicken, it shoves it with the rest of the step; stopped by a poop,
+	## or by a chicken it can't shove, it slides the step's size sideways,
+	## away from it, and it bumps only when the slide fails too. A dog or a
+	## cow it bumps at once. It nudges no one: for its own step its kin is
+	## `no_kin`, and its breed is put back after.
+	drag : Seen, Park, I32, I32 -> { bump : Bump, park : Park, walked : I32 }
+	drag = |s, park0, axis, inc| {
+		{ cells: c0, crits: k0 } = park0
+		me = get_c(k0, 0)
+		from = pt(me)
+		k1 = put(k0, 0, { ..me, kin: no_kin })
+		{ by, bump, park: park1 } = sweep(s, { cells: c0, crits: k1 }, axis, inc)
+		park2 = if (by != 0) move_to(s, park1, 0, wrapped(plus(from, on_axis(axis, by)))) else park1
+		{ park: park3, went, walked: more } = if bump.kind == bump_none {
+			{ park: park2, went: Bool.True, walked: 0 }
+		} else {
+			go_around(s, park2, axis, inc - by, inc.abs(), bump)
+		}
+		{ cells: c3, crits: k3 } = park3
+		k4 = put(k3, 0, { ..get_c(k3, 0), kin: me.kin })
+		{ bump: if (went) no_bump else bump, park: { cells: c3, crits: k4 }, walked: by.abs() + more }
+	}
+
+	## The leashed dog, stopped by `bump` with `rest` of its step along
+	## `axis` to go: a shove of a chicken, else the slide `size` across,
+	## away from what stopped it; whether either went, and how far it walked.
+	go_around : Seen, Park, I32, I32, I32, Bump -> { park : Park, went : Bool, walked : I32 }
+	go_around = |s, park0, axis, rest, size, bump| {
+		{ cells: c0, crits: k0 } = park0
+		chicken = bump.kind == bump_critter and Wish.kind_of((get_c(k0, bump.at.to_u64_wrap())).kind) == Chicken
+		if bump.kind == bump_critter and !chicken {
+			{ park: { cells: c0, crits: k0 }, went: Bool.False, walked: 0 }
+		} else {
+			{ park: park1, veto: shoved } = if chicken {
+				step_whole(s, { cells: c0, crits: k0 }, 0, on_axis(axis, rest))
+			} else {
+				{ park: { cells: c0, crits: k0 }, veto: { ..went, why: why_poop } }
+			}
+			if shoved.why == why_went {
+				{ park: park1, went: Bool.True, walked: rest.abs() }
+			} else {
+				{ cells: c1, crits: k1 } = park1
+				off = part_on(delta(pt(get_c(k1, 0)), bump.stood), 1 - axis)
+				{ park: park2, veto: slid } = step_whole(s, { cells: c1, crits: k1 }, 0, on_axis(1 - axis, if (off > 0) -size else size))
+				{ park: park2, went: slid.why == why_went, walked: if (slid.why == why_went) size else 0 }
+			}
+		}
+	}
+
+	## **THE SWEEP**: how far the leashed dog (seen index 0) goes along
+	## `axis` by `step` against every other seen critter and every poop the
+	## physics sees, and what stops it shortest: the lower seen index on a
+	## tie, then a poop only if it stops it shorter still, the lower slot on
+	## a tie.
+	sweep : Seen, Park, I32, I32 -> { bump : Bump, by : I32, park : Park }
+	sweep = |s, park, axis, step| {
+		{ cells, crits } = park
+		me = get_c(crits, 0)
+		p = pt(me)
+		h = me.half
+		near = square_of(p, h + biggest_half + step.abs())
+		var $best = step
+		var $bump = no_bump
+		var $w = 0
+		while $w < s.words {
+			var $bits = near_word(s, { cells, crits }, near, $w)
+			while $bits != 0 {
+				j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
+				if j != 0 {
+					o = get_c(crits, j)
+					got = sweep_limit(p, h, axis, step, pt(o), o.half)
+					if got.abs() < $best.abs() {
+						$best = got
+						$bump = { at: j.to_i32_wrap(), kind: bump_critter, stood: pt(o) }
+					} else {
+						{}
+					}
+				} else {
+					{}
+				}
+				$bits = $bits.bitwise_and($bits - 1)
+			}
+			$w = $w + 1
+		}
+		reach = h + poop_half + step.abs()
+		cols = span(p.x, reach, tile, tiles)
+		rows = span(p.y, reach, tile, tiles)
+		var $poop_best = step
+		var $poop = -1
+		var $poop_at = { x: 0, y: 0 }
+		var $r = 0
+		while $r < rows.n {
+			row = (rows.lo + $r).mod_by(tiles)
+			var $c = 0
+			while $c < cols.n {
+				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				var $k = (get_u16(s.from, t)).to_u64()
+				stop = (get_u16(s.from, t + 1)).to_u64()
+				while $k < stop {
+					q = get_poop(s, $k)
+					slot = q.slot.to_i64()
+					got = sweep_limit(p, h, axis, step, { x: q.x, y: q.y }, poop_half)
+					if got.abs() < $poop_best.abs() or ($poop >= 0 and got.abs() == $poop_best.abs() and slot < $poop) {
+						$poop_best = got
+						$poop = slot
+						$poop_at = { x: q.x, y: q.y }
+					} else {
+						{}
+					}
+					$k = $k + 1
+				}
+				$c = $c + 1
+			}
+			$r = $r + 1
+		}
+		if $poop >= 0 and $poop_best.abs() < $best.abs() {
+			{ bump: { at: $poop.to_i32_wrap(), kind: bump_poop, stood: $poop_at }, by: $poop_best, park: { cells, crits } }
+		} else {
+			{ bump: $bump, by: $best, park: { cells, crits } }
+		}
+	}
+
+	## How far the square of half `h` at `p` may go along `axis` by `s`
+	## (signed) against the square of half `oh` at `o`: contact means
+	## pressing in, so touching across the move doesn't block, and against a
+	## square it already overlaps a step may not shrink |Δ| on that axis nor
+	## change its sign (from Δ = 0 either way is free).
+	sweep_limit : Pt, I32, I32, I32, Pt, I32 -> I32
+	sweep_limit = |p, h, axis, s, o, oh| {
+		d = delta(p, o)
+		hs = h + oh
+		along = part_on(d, axis)
+		if part_on(d, 1 - axis).abs() >= hs or s == 0 {
+			s
+		} else if along.abs() >= hs {
+			if sign(along) != sign(s) {
+				s
+			} else {
+				gap = along.abs() - hs
+				if (s.abs() > gap) sign(s) * gap else s
+			}
+		} else if along == 0 or sign(along) != sign(s) {
+			s
+		} else {
+			0
+		}
+	}
+
+	## A vector `v` long along `axis` (0 x, 1 y).
+	on_axis : I32, I32 -> Pt
+	on_axis = |axis, v| if (axis == 0) { x: v, y: 0 } else { x: 0, y: v }
+
+	## A vector's part along `axis`.
+	part_on : Pt, I32 -> I32
+	part_on = |v, axis| if (axis == 0) v.x else v.y
+
+	sign : I32 -> I32
+	sign = |v| if (v > 0) 1 else if (v < 0) -1 else 0
+
 	## `pace` of `v`, rounded toward zero.
 	share : Rules.Share, I32 -> I32
 	share = |pace, v| if (pace.num == pace.den) v else (v.to_i64() * pace.num.to_i64() // pace.den.to_i64()).to_i32_wrap()
@@ -845,6 +1056,47 @@ walk_poop = |cs, px, py, t| {
 place = |r, j| match r.work.park.crits.get(j) {
 	Ok(c) => Walk.pt(c)
 	Err(_) => Walk.pt({ cell: 0, half: 0, key: 0, kin: 0, kind: 0, x: -1, y: -1 })
+}
+
+## One pixel-tick of `cs`, no poop: the leashed dog's step `inc` along
+## `axis` (0 x, 1 y), then the walk if it moved.
+tick_of = |cs, axis, inc| Walk.pixel_tick({ from: List.repeat(0, 37), poops: [], side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, axis, inc)
+
+tick_place = |r, j| place(r.walk, j)
+
+## The leashed dog sweeps up to a dog of another breed a pixel off, and
+## bumps it: a dog it never goes round.
+expect {
+	r = tick_of([dog(1000, 1000), crit(0, 1, 1029, 1000)], 0, 3 * 256)
+	tick_place(r, 0) == { x: 1001 * 256, y: 1000 * 256 } and r.bump.kind == Walk.bump_critter and r.bump.at == 1 and r.walked == 256
+}
+
+## A chicken touching in front it shoves: the chicken goes the step and a
+## step across (south, on the line), the dog goes on, no bump.
+expect {
+	r = tick_of([dog(1000, 1000), crit(2, 255, 1024, 1000)], 0, 256)
+	tick_place(r, 0) == { x: 1001 * 256, y: 1000 * 256 } and tick_place(r, 1) == { x: 1025 * 256, y: 1001 * 256 } and r.bump.kind == Walk.bump_none and r.walked == 256
+}
+
+## It nudges no one, its own breed neither: a chicken a pixel ahead (north
+## of its line) and kin beside it, the dog sweeps the pixel up to them, and
+## the shove with the rest would press the kin, so it slides the step's
+## size south, away from the chicken. It walked the pixel and the three.
+expect {
+	r = tick_of([dog(1000, 1000), crit(2, 255, 1025, 990), dog(1029, 1014)], 0, 3 * 256)
+	tick_place(r, 0) == { x: 1001 * 256, y: 1003 * 256 } and r.bump.kind == Walk.bump_none and r.walked == 4 * 256
+}
+
+## Two poops touching ahead, one north of its line and one south, stop it
+## alike: the lower slot is what stopped it (slot 1, south, listed second),
+## so it slides north, away from that one.
+expect {
+	t = 14
+	from = List.repeat(0, t + 1).concat(List.repeat(2, 36 - t))
+	poops = [{ slot: 3, x: 1020 * 256, y: 995 * 256 }, { slot: 1, x: 1020 * 256, y: 1005 * 256 }]
+	cs = [dog(1000, 1000)]
+	r = Walk.pixel_tick({ from, poops, side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, 0, 256)
+	tick_place(r, 0) == { x: 1000 * 256, y: 999 * 256 } and r.bump.kind == Walk.bump_none
 }
 
 ## Alone, the leashed dog walks no one, and is the pooper.

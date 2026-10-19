@@ -1,5 +1,6 @@
-//! **THE PHYSICS' ROC**: the walk (roc/Walk.roc, with the critters' wish
-//! in it, roc/Wish.roc), compiled by `zig build roc` into
+//! **THE PHYSICS' ROC**: one pixel-tick, the leashed dog's step and then
+//! the walk (roc/Walk.roc's `pixel_tick`, with the critters' wish in it,
+//! roc/Wish.roc), compiled by `zig build roc` into
 //! roc/lib/physics-<target>.a (checked in; no build runs Roc), which every
 //! build of the physics links. This file is the seam: the C function Roc
 //! provides, their arguments laid out as Roc lays records out (fields by
@@ -78,15 +79,21 @@ pub fn Lent(comptime T: type, comptime most: usize) type {
 /// (the leashed dog is lent as visited: the walk starts from it).
 pub const Crit = extern struct { key: i64, half: i32, x: i32, y: i32, cell: u16, kin: u8, kind: u8 };
 pub const no_kin: u8 = 255;
+
+/// What stopped the leashed dog (roc/Walk.roc's `Bump`): nothing, the seen
+/// critter at `bump_at`, or the poop in slot `bump_at`.
+pub const bump_none: i32 = 0;
+pub const bump_critter: i32 = 1;
+pub const bump_poop: i32 = 2;
 pub const not_lined_up: i64 = -1;
 pub const visited: i64 = -2;
 
 /// A poop the physics sees, and its slot (`Poop`).
 pub const Poop = extern struct { x: i32, y: i32, slot: u16 };
 
-const Walked = extern struct { cells: RocList, crits: RocList, depth: RocList, moving: RocList, anchor: i32, pooper: i32 };
+const Walked = extern struct { cells: RocList, crits: RocList, depth: RocList, moving: RocList, anchor: i32, bump_at: i32, bump_kind: i32, pooper: i32, step_x: i32, step_y: i32, walked: i32 };
 
-extern fn roc_walk(most: i32, side: i32, from: RocList, poops: RocList, cells: RocList, crits: RocList, depth: RocList, moving: RocList) callconv(.c) Walked;
+extern fn roc_walk(axis: i32, inc: i32, side: i32, from: RocList, poops: RocList, cells: RocList, crits: RocList, depth: RocList, moving: RocList) callconv(.c) Walked;
 
 /// **THE WALK'S LISTS** (roc/Walk.roc's `Lent` and `Work`), for at most
 /// `seen_most` critters, `moving_most` of them in motion, `poops_most`
@@ -117,21 +124,25 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
             self.cells.items[@as(usize, c) * words + j / 64] |= @as(u64, 1) << @intCast(j % 64);
         }
 
-        /// The walk after the leashed dog's step of size `most`: the
-        /// lists as it left them, and its pooper and the pooper's anchor
-        /// (-1, none).
-        pub fn run(self: *@This(), most: i32) struct { pooper: usize, anchor: i32 } {
+        /// One pixel-tick: the leashed dog's step `inc` along `axis` (0 x,
+        /// 1 y), then, if it moved, the walk. The lists as it left them; the
+        /// dog's net step, how far it walked (each move by its larger axis)
+        /// and what it bumped; and, if it moved, the walk's pooper and the
+        /// pooper's anchor (-1, none).
+        pub fn run(self: *@This(), axis: i32, inc: i32) Ran {
             const n = self.crits.len;
             self.depth.len = n;
             self.moving.len = 0;
-            const r = roc_walk(most, side, self.from.toRead(), self.poops.toRead(), self.cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.moving.toChange());
+            const r = roc_walk(axis, inc, side, self.from.toRead(), self.poops.toRead(), self.cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.moving.toChange());
             self.cells.back(r.cells);
             self.crits.back(r.crits);
             self.depth.back(r.depth);
             self.moving.back(r.moving);
             std.debug.assert(self.crits.len == n and self.from.refcount == 0 and self.poops.refcount == 0);
-            return .{ .pooper = @intCast(r.pooper), .anchor = r.anchor };
+            return .{ .pooper = @intCast(r.pooper), .anchor = r.anchor, .step_x = r.step_x, .step_y = r.step_y, .walked = r.walked, .bump_kind = r.bump_kind, .bump_at = r.bump_at };
         }
+
+        pub const Ran = struct { pooper: usize, anchor: i32, step_x: i32, step_y: i32, walked: i32, bump_kind: i32, bump_at: i32 };
     };
 }
 
@@ -167,5 +178,5 @@ export fn roc_realloc(ptr: *anyopaque, len: usize, alignment: usize) callconv(.c
 
 comptime {
     // The layouts Roc's records have.
-    std.debug.assert(@sizeOf(Crit) == 24 and @sizeOf(Poop) == 12 and @sizeOf(Walked) == 4 * @sizeOf(RocList) + 8);
+    std.debug.assert(@sizeOf(Crit) == 24 and @sizeOf(Poop) == 12 and @sizeOf(Walked) == std.mem.alignForward(usize, 4 * @sizeOf(RocList) + 7 * 4, @alignOf(RocList)));
 }

@@ -3,8 +3,10 @@ app [walk] { pf: platform "./platform/main.roc" }
 
 import Walk
 
-## The walk, its arguments unpacked into Walk.roc's records.
-walk = |most, side, from, poops, cells, crits, depth, moving| {
-	r = Walk.walk({ from, poops, side }, { depth, moving, park: { cells, crits } }, most)
-	{ anchor: r.anchor, cells: r.work.park.cells, crits: r.work.park.crits, depth: r.work.depth, moving: r.work.moving, pooper: r.pooper }
+## One pixel-tick (Walk.roc's `pixel_tick`: the leashed dog's step, then
+## the walk), its arguments unpacked into Walk.roc's records and its result
+## laid flat for the host.
+walk = |axis, inc, side, from, poops, cells, crits, depth, moving| {
+	r = Walk.pixel_tick({ from, poops, side }, { depth, moving, park: { cells, crits } }, axis, inc)
+	{ anchor: r.walk.anchor, bump_at: r.bump.at, bump_kind: r.bump.kind, cells: r.walk.work.park.cells, crits: r.walk.work.park.crits, depth: r.walk.work.depth, moving: r.walk.work.moving, pooper: r.walk.pooper, step_x: r.step.x, step_y: r.step.y, walked: r.walked }
 }
