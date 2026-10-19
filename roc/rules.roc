@@ -14,7 +14,12 @@ zon_rule : Rules.Rule -> Str
 zon_rule = |rule| match rule {
 	Ignore => ".ignore"
 	Keep(reach) => ".{ .keep = ${reach.to_str()} }"
-	Herd({ inner, outer }) => ".{ .herd = .{ .inner = ${inner.to_str()}, .outer = ${outer.to_str()} } }"
+	Herd(
+		{
+			inner,
+			outer,
+		},
+	) => ".{ .herd = .{ .inner = ${inner.to_str()}, .outer = ${outer.to_str()} } }"
 	Close(reach) => ".{ .close = ${reach.to_str()} }"
 }
 

@@ -175,7 +175,12 @@ Walk := [].{
 				$moving = $moving.append(iu.to_u16_wrap())
 				$count = $count + 1
 				pace = Wish.mover_of(me.kind).pace
-				{ cells: c2, crits: k2 } = step_around(s, { cells: $cells, crits: $crits }, iu, step_at_most({ x: wished.x, y: wished.y }, share(pace, most)))
+				{ cells: c2, crits: k2 } = step_around(
+					s,
+					{ cells: $cells, crits: $crits },
+					iu,
+					step_at_most({ x: wished.x, y: wished.y }, share(pace, most)),
+				)
 				$cells = c2
 				$crits = k2
 				if Wish.kind_of(me.kind) == Dog and me.kin == herd and wished.anchor >= 0 {
@@ -196,7 +201,11 @@ Walk := [].{
 				$crits = k3
 			}
 		}
-		{ anchor: $anchor, pooper: $pooper, work: { depth: $depth, moving: $moving, park: { cells: $cells, crits: $crits } } }
+		{
+			anchor: $anchor,
+			pooper: $pooper,
+			work: { depth: $depth, moving: $moving, park: { cells: $cells, crits: $crits } },
+		}
 	}
 
 	## **ONE PIXEL-TICK** (decision 30): the leashed dog's step `inc` along
@@ -234,7 +243,17 @@ Walk := [].{
 			} else {
 				lay(s, k2, { anchor, pooper, step, laid })
 			}
-			{ bump, poop, step, walk: { anchor, pooper, work: { depth: d2, moving: m2, park: { cells: c2, crits: k2 } } }, walked }
+			{
+				bump,
+				poop,
+				step,
+				walk: {
+					anchor,
+					pooper,
+					work: { depth: d2, moving: m2, park: { cells: c2, crits: k2 } },
+				},
+				walked,
+			}
 		}
 	}
 
@@ -290,7 +309,12 @@ Walk := [].{
 	lay : Seen, List(Crit), Pooping -> Laid
 	lay = |s, crits, how| {
 		p = pt(get_c(crits, how.pooper.to_u64_wrap()))
-		ahead = if (how.anchor >= 0) pt(get_c(crits, how.anchor.to_u64_wrap())) else plus(p, how.step)
+		ahead = if (how.anchor >= 0) pt(
+			get_c(
+				crits,
+				how.anchor.to_u64_wrap(),
+			),
+		) else plus(p, how.step)
 		spot = plus(p, away_from(ahead, p, poop_back))
 		slot = (how.laid.to_u64() % poop_slots).to_u16_wrap()
 		var $at = wrapped(spot)
@@ -331,7 +355,10 @@ Walk := [].{
 			{ x: length, y: 0 }
 		} else {
 			l = measure(v).to_i64()
-			{ x: (v.x.to_i64() * length.to_i64() // l).to_i32_wrap(), y: (v.y.to_i64() * length.to_i64() // l).to_i32_wrap() }
+			{
+				x: (v.x.to_i64() * length.to_i64() // l).to_i32_wrap(),
+				y: (v.y.to_i64() * length.to_i64() // l).to_i32_wrap(),
+			}
 		}
 	}
 
@@ -415,7 +442,11 @@ Walk := [].{
 		}
 		{ cells: c3, crits: k3 } = park3
 		k4 = put(k3, 0, { ..get_c(k3, 0), kin: me.kin })
-		{ bump: if (went) no_bump else bump, park: { cells: c3, crits: k4 }, walked: by.abs() + more }
+		{
+			bump: if (went) no_bump else bump,
+			park: { cells: c3, crits: k4 },
+			walked: by.abs() + more,
+		}
 	}
 
 	## The leashed dog, stopped by `bump` with `rest` of its step along
@@ -424,7 +455,14 @@ Walk := [].{
 	go_around : Seen, Park, I32, I32, I32, Bump -> { park : Park, went : Bool, walked : I32 }
 	go_around = |s, park0, axis, rest, size, bump| {
 		{ cells: c0, crits: k0 } = park0
-		chicken = bump.kind == bump_critter and Wish.kind_of((get_c(k0, bump.at.to_u64_wrap())).kind) == Chicken
+		chicken = bump.kind == bump_critter and Wish.kind_of(
+			(
+				get_c(
+					k0,
+					bump.at.to_u64_wrap(),
+				)
+			).kind,
+		) == Chicken
 		if bump.kind == bump_critter and !chicken {
 			{ park: { cells: c0, crits: k0 }, went: Bool.False, walked: 0 }
 		} else {
@@ -438,8 +476,17 @@ Walk := [].{
 			} else {
 				{ cells: c1, crits: k1 } = park1
 				off = part_on(delta(pt(get_c(k1, 0)), bump.stood), 1 - axis)
-				{ park: park2, veto: slid } = step_whole(s, { cells: c1, crits: k1 }, 0, on_axis(1 - axis, if (off > 0) -size else size))
-				{ park: park2, went: slid.why == why_went, walked: if (slid.why == why_went) size else 0 }
+				{ park: park2, veto: slid } = step_whole(
+					s,
+					{ cells: c1, crits: k1 },
+					0,
+					on_axis(1 - axis, if (off > 0) -size else size),
+				)
+				{
+					park: park2,
+					went: slid.why == why_went,
+					walked: if (slid.why == why_went) size else 0,
+				}
 			}
 		}
 	}
@@ -511,7 +558,11 @@ Walk := [].{
 			$r = $r + 1
 		}
 		if $poop >= 0 and $poop_best.abs() < $best.abs() {
-			{ bump: { at: $poop.to_i32_wrap(), kind: bump_poop, stood: $poop_at }, by: $poop_best, park: { cells, crits } }
+			{
+				bump: { at: $poop.to_i32_wrap(), kind: bump_poop, stood: $poop_at },
+				by: $poop_best,
+				park: { cells, crits },
+			}
 		} else {
 			{ bump: $bump, by: $best, park: { cells, crits } }
 		}
@@ -556,7 +607,10 @@ Walk := [].{
 
 	## `pace` of `v`, rounded toward zero.
 	share : Rules.Share, I32 -> I32
-	share = |pace, v| if (pace.num == pace.den) v else (v.to_i64() * pace.num.to_i64() // pace.den.to_i64()).to_i32_wrap()
+	share = |
+		pace,
+		v,
+	| if (pace.num == pace.den) v else (v.to_i64() * pace.num.to_i64() // pace.den.to_i64()).to_i32_wrap()
 
 	## The waiting critter with the least key, ties to the lower index; -1,
 	## none.
@@ -677,7 +731,13 @@ Walk := [].{
 
 	## Seen critter `i`'s wish, from the critters in motion where they now
 	## stand.
-	wish_of : List(Crit), List(U16), U64 -> { crits : List(Crit), moving : List(U16), out : Wish.Out }
+	wish_of : List(Crit),
+	List(U16),
+	U64 -> {
+		crits : List(Crit),
+		moving : List(U16),
+		out : Wish.Out,
+	}
 	wish_of = |crits, moving, i| {
 		me = get_c(crits, i)
 		wisher = { half: me.half, kind: me.kind }
@@ -846,12 +906,23 @@ Walk := [].{
 							if overlap(to, h, pt(o), o.half) and !in_move($g, j) {
 								if Wish.kind_of(o.kind) == Chicken {
 									if $g.ns == nudge_most {
-										$g = { ..$g, veto: { at: from, blocker: pt(o), why: why_chicken } }
+										$g = {
+											..$g,
+											veto: { at: from, blocker: pt(o), why: why_chicken },
+										}
 									} else {
-										$g = { ..$g, shoved: lane_put($g.shoved, $g.ns, j), by: lane_put($g.by, $g.ns, gk), ns: $g.ns + 1 }
+										$g = {
+											..$g,
+											shoved: lane_put($g.shoved, $g.ns, j),
+											by: lane_put($g.by, $g.ns, gk),
+											ns: $g.ns + 1,
+										}
 									}
 								} else if j == 0 or o.kin != breed or $g.n == nudge_most {
-									$g = { ..$g, veto: { at: from, blocker: pt(o), why: why_pressed } }
+									$g = {
+										..$g,
+										veto: { at: from, blocker: pt(o), why: why_pressed },
+									}
 								} else {
 									$g = { ..$g, group: lane_put($g.group, $g.n, j), n: $g.n + 1 }
 								}
@@ -878,7 +949,12 @@ Walk := [].{
 	land_of : List(Crit), Pt, Group, U64 -> Pt
 	land_of = |crits, step, g, m| {
 		p = pt(get_c(crits, lane_get(g.shoved, m)))
-		wrapped(plus(plus(p, step), shove_aside(step, delta(pt(get_c(crits, lane_get(g.by, m))), p))))
+		wrapped(
+			plus(
+				plus(p, step),
+				shove_aside(step, delta(pt(get_c(crits, lane_get(g.by, m))), p)),
+			),
+		)
 	}
 
 	## The veto of the first shove that cannot land: on a poop, on a critter
@@ -1020,14 +1096,26 @@ Walk := [].{
 					sight = (f.sight * 256).to_i32_wrap()
 					near = nearest_ripe(s, $eaten, p, sight, newest)
 					if near.slot >= 0 {
-						{ cells: c1, crits: k1 } = forage_around(s, { cells: $cells, crits: $crits }, $j, forage_at_most(delta(p, near.at), most), newest)
+						{ cells: c1, crits: k1 } = forage_around(
+							s,
+							{ cells: $cells, crits: $crits },
+							$j,
+							forage_at_most(delta(p, near.at), most),
+							newest,
+						)
 						$cells = c1
 						$crits = k1
 						$eaten = eat_under(s, $eaten, pt(get_c($crits, $j)), me.half, newest)
 					} else {
 						home = delta(p, get_pt(homes, $j))
 						if measure(home) > (f.home_band * 256).to_i32_wrap() {
-							{ park: { cells: c1, crits: k1 }, veto: _ } = forage_step(s, { cells: $cells, crits: $crits }, $j, forage_at_most(home, most), newest)
+							{ park: { cells: c1, crits: k1 }, veto: _ } = forage_step(
+								s,
+								{ cells: $cells, crits: $crits },
+								$j,
+								forage_at_most(home, most),
+								newest,
+							)
 							$cells = c1
 							$crits = k1
 							$eaten = eat_under(s, $eaten, pt(get_c($crits, $j)), me.half, newest)
@@ -1097,7 +1185,12 @@ Walk := [].{
 				stop = (get_u16(s.from, t + 1)).to_u64()
 				while $k < stop {
 					q = get_poop(s, $k)
-					if q.slot != newest and overlap(p, h, { x: q.x, y: q.y }, poop_half) and !$eaten.contains(q.slot) {
+					if q.slot != newest and overlap(
+						p,
+						h,
+						{ x: q.x, y: q.y },
+						poop_half,
+					) and !$eaten.contains(q.slot) {
 						$eaten = $eaten.append(q.slot)
 					} else {
 						{}
@@ -1262,7 +1355,10 @@ Walk := [].{
 	Square : { cols : Span, rows : Span }
 
 	square_of : Pt, I32 -> Square
-	square_of = |p, reach| { cols: span(p.x, reach, cell, side), rows: span(p.y, reach, cell, side) }
+	square_of = |p, reach| {
+		cols: span(p.x, reach, cell, side),
+		rows: span(p.y, reach, cell, side),
+	}
 
 	## Word `w` of the set of every critter in the cells of `near`.
 	near_word : Seen, Park, Square, U64 -> U64
@@ -1322,7 +1418,12 @@ Walk := [].{
 				while $k < stop {
 					q = get_poop(s, $k)
 					slot = q.slot.to_i64()
-					if ($best < 0 or slot < $best) and overlap(p, h, { x: q.x, y: q.y }, poop_half) {
+					if ($best < 0 or slot < $best) and overlap(
+						p,
+						h,
+						{ x: q.x, y: q.y },
+						poop_half,
+					) {
 						$best = slot
 						$at = { x: q.x, y: q.y }
 					} else {
@@ -1467,8 +1568,15 @@ park_of = |cs| {
 	var $j = 0
 	for c in cs {
 		cl = (c.y // Walk.cell) * Walk.side + c.x // Walk.cell
-		$crits = $crits.append({ ..c, cell: cl.to_u16_wrap(), key: if ($j == 0) Walk.visited else Walk.not_lined_up })
-		$cells = $cells.update(cl.to_u64_wrap(), |w| w.bitwise_or(one.shl_wrap($j.to_u8_wrap()))) ?? $cells
+		$crits = $crits.append({
+			..c,
+			cell: cl.to_u16_wrap(),
+			key: if ($j == 0) Walk.visited else Walk.not_lined_up,
+		})
+		$cells = $cells.update(
+			cl.to_u64_wrap(),
+			|w| w.bitwise_or(one.shl_wrap($j.to_u8_wrap())),
+		) ?? $cells
 		$j = $j + 1
 	}
 	{ cells: $cells, crits: $crits }
@@ -1476,11 +1584,19 @@ park_of = |cs| {
 
 ## The walk of `cs` with no poop, or with one poop at `(px, py)` px in
 ## tile `t` (row by row, 350 px tiles).
-walk_of = |cs| Walk.walk({ from: List.repeat(0, 37), poops: [], side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, 256)
+walk_of = |cs| Walk.walk(
+	{ from: List.repeat(0, 37), poops: [], side: Walk.side },
+	{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
+	256,
+)
 
 walk_poop = |cs, px, py, t| {
 	from = List.repeat(0, t + 1).concat(List.repeat(1, 36 - t))
-	Walk.walk({ from, poops: [{ slot: 0, x: px * 256, y: py * 256 }], side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, 256)
+	Walk.walk(
+		{ from, poops: [{ slot: 0, x: px * 256, y: py * 256 }], side: Walk.side },
+		{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
+		256,
+	)
 }
 
 place = |r, j| match r.work.park.crits.get(j) {
@@ -1490,7 +1606,14 @@ place = |r, j| match r.work.park.crits.get(j) {
 
 ## One pixel-tick of `cs`, no poop: the leashed dog's step `inc` along
 ## `axis` (0 x, 1 y), then the walk if it moved.
-tick_of = |cs, axis, inc| Walk.pixel_tick({ from: List.repeat(0, 37), poops: [], side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, axis, inc, 0, 0)
+tick_of = |cs, axis, inc| Walk.pixel_tick(
+	{ from: List.repeat(0, 37), poops: [], side: Walk.side },
+	{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
+	axis,
+	inc,
+	0,
+	0,
+)
 
 tick_place = |r, j| place(r.walk, j)
 
@@ -1498,14 +1621,23 @@ tick_place = |r, j| place(r.walk, j)
 ## bumps it: a dog it never goes round.
 expect {
 	r = tick_of([dog(1000, 1000), crit(0, 1, 1029, 1000)], 0, 3 * 256)
-	tick_place(r, 0) == { x: 1001 * 256, y: 1000 * 256 } and r.bump.kind == Walk.bump_critter and r.bump.at == 1 and r.walked == 256
+	tick_place(r, 0) == {
+		x: 1001 * 256,
+		y: 1000 * 256,
+	} and r.bump.kind == Walk.bump_critter and r.bump.at == 1 and r.walked == 256
 }
 
 ## A chicken touching in front it shoves: the chicken goes the step and a
 ## step across (south, on the line), the dog goes on, no bump.
 expect {
 	r = tick_of([dog(1000, 1000), crit(2, 255, 1024, 1000)], 0, 256)
-	tick_place(r, 0) == { x: 1001 * 256, y: 1000 * 256 } and tick_place(r, 1) == { x: 1025 * 256, y: 1001 * 256 } and r.bump.kind == Walk.bump_none and r.walked == 256
+	tick_place(r, 0) == {
+		x: 1001 * 256,
+		y: 1000 * 256,
+	} and tick_place(r, 1) == {
+		x: 1025 * 256,
+		y: 1001 * 256,
+	} and r.bump.kind == Walk.bump_none and r.walked == 256
 }
 
 ## It nudges no one, its own breed neither: a chicken a pixel ahead (north
@@ -1514,7 +1646,10 @@ expect {
 ## size south, away from the chicken. It walked the pixel and the three.
 expect {
 	r = tick_of([dog(1000, 1000), crit(2, 255, 1025, 990), dog(1029, 1014)], 0, 3 * 256)
-	tick_place(r, 0) == { x: 1001 * 256, y: 1003 * 256 } and r.bump.kind == Walk.bump_none and r.walked == 4 * 256
+	tick_place(r, 0) == {
+		x: 1001 * 256,
+		y: 1003 * 256,
+	} and r.bump.kind == Walk.bump_none and r.walked == 4 * 256
 }
 
 ## Two poops touching ahead, one north of its line and one south, stop it
@@ -1525,7 +1660,14 @@ expect {
 	from = List.repeat(0, t + 1).concat(List.repeat(2, 36 - t))
 	poops = [{ slot: 3, x: 1020 * 256, y: 995 * 256 }, { slot: 1, x: 1020 * 256, y: 1005 * 256 }]
 	cs = [dog(1000, 1000)]
-	r = Walk.pixel_tick({ from, poops, side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, 0, 256, 0, 0)
+	r = Walk.pixel_tick(
+		{ from, poops, side: Walk.side },
+		{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
+		0,
+		256,
+		0,
+		0,
+	)
 	tick_place(r, 0) == { x: 1000 * 256, y: 999 * 256 } and r.bump.kind == Walk.bump_none
 }
 
@@ -1539,7 +1681,10 @@ expect {
 ## steps the pixel west, and is the herd's deepest, so the pooper.
 expect {
 	r = walk_of([dog(1000, 1000), dog(1100, 1000)])
-	r.work.moving == [0, 1] and place(r, 1) == { x: 1099 * 256, y: 1000 * 256 } and r.pooper == 1 and r.anchor == 0
+	r.work.moving == [0, 1] and place(r, 1) == {
+		x: 1099 * 256,
+		y: 1000 * 256,
+	} and r.pooper == 1 and r.anchor == 0
 }
 
 ## The nearer is visited first, and lines up the farther, which then
@@ -1547,7 +1692,10 @@ expect {
 ## two deep. Both in the band: neither steps.
 expect {
 	r = walk_of([dog(1000, 1000), dog(1100, 1000), dog(1050, 1000)])
-	r.work.moving == [0, 2, 1] and r.pooper == 1 and r.anchor == 2 and place(r, 1) == { x: 1100 * 256, y: 1000 * 256 }
+	r.work.moving == [0, 2, 1] and r.pooper == 1 and r.anchor == 2 and place(r, 1) == {
+		x: 1100 * 256,
+		y: 1000 * 256,
+	}
 }
 
 ## A cow 100 px from the leashed dog keeps 158 px from it, at half its
@@ -1561,7 +1709,10 @@ expect {
 ## and as much again to the side (on the line: south).
 expect {
 	r = walk_of([dog(1000, 1000), dog(1100, 1000), crit(2, 255, 1076, 1000)])
-	place(r, 1) == { x: 1099 * 256, y: 1000 * 256 } and place(r, 2) == { x: 1075 * 256, y: 1001 * 256 }
+	place(r, 1) == {
+		x: 1099 * 256,
+		y: 1000 * 256,
+	} and place(r, 2) == { x: 1075 * 256, y: 1001 * 256 }
 }
 
 ## A poop touching its west side vetoes the step; it sidesteps the pixel
@@ -1584,7 +1735,10 @@ expect {
 ## another pixel east.
 expect {
 	r = walk_of([dog(1000, 1000), dog(1030, 1000), dog(1058, 1000)])
-	place(r, 1) == { x: 1031 * 256, y: 1000 * 256 } and place(r, 2) == { x: 1060 * 256, y: 1000 * 256 }
+	place(r, 1) == {
+		x: 1031 * 256,
+		y: 1000 * 256,
+	} and place(r, 2) == { x: 1060 * 256, y: 1000 * 256 }
 }
 
 ## A critter `x`, `y` in 256ths, not whole pixels.
@@ -1594,7 +1748,11 @@ dog_at = |x, y| { ..dog(0, 0), x, y }
 walk_poops = |cs, ps, t| {
 	from = List.repeat(0, t + 1).concat(List.repeat(ps.len().to_u16_wrap(), 36 - t))
 	poops = ps.map_with_index(|q, k| { slot: k.to_u16_wrap(), x: q.x * 256, y: q.y * 256 })
-	Walk.walk({ from, poops, side: Walk.side }, { depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) }, 256)
+	Walk.walk(
+		{ from, poops, side: Walk.side },
+		{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
+		256,
+	)
 }
 
 ## Four kin 100 px off, one each way: three wait (the fan), the lower
@@ -1614,7 +1772,11 @@ expect {
 ## Two poops where the step would land: the lower slot's, north of the
 ## line, is the one it goes round, so it sidesteps south.
 expect {
-	r = walk_poops([dog(1000, 1000), dog(1100, 1000)], [{ x: 1080, y: 995 }, { x: 1080, y: 1005 }], 15)
+	r = walk_poops(
+		[dog(1000, 1000), dog(1100, 1000)],
+		[{ x: 1080, y: 995 }, { x: 1080, y: 1005 }],
+		15,
+	)
 	place(r, 1) == { x: 1100 * 256, y: 1001 * 256 }
 }
 
@@ -1644,7 +1806,13 @@ expect {
 ## with 140 (the leashed dog's), not the 239 the east pair would give it,
 ## so it goes before the kin far east, which waits with 199.
 expect {
-	r = walk_of([dog(1000, 1000), dog(1100, 1000), dog(1130, 1000), dog(860, 1000), dog(1330, 1000)])
+	r = walk_of([
+		dog(1000, 1000),
+		dog(1100, 1000),
+		dog(1130, 1000),
+		dog(860, 1000),
+		dog(1330, 1000),
+	])
 	r.work.moving == [0, 1, 2, 3, 4]
 }
 
@@ -1661,28 +1829,58 @@ lone = { anchor: -1, laid: 0, pooper: 0, step: { x: 0, y: 0 } }
 ## The pooper with no anchor and no step: its centre is "ahead", so it
 ## poops east, `back` (30 px) off; the slot is `laid` mod the slots.
 expect lay_of([dog(1000, 1000)], [], 14, lone) == { slot: 0, x: 1030 * 256, y: 1000 * 256 }
-expect lay_of([dog(1000, 1000)], [], 14, { ..lone, laid: 2049 }) == { slot: 1, x: 1030 * 256, y: 1000 * 256 }
+expect lay_of(
+	[dog(1000, 1000)],
+	[],
+	14,
+	{ ..lone, laid: 2049 },
+) == { slot: 1, x: 1030 * 256, y: 1000 * 256 }
 
 ## No anchor: back along the leashed dog's step (here west, its step east).
-expect lay_of([dog(1000, 1000)], [], 14, { ..lone, step: { x: 256, y: 0 } }) == { slot: 0, x: 970 * 256, y: 1000 * 256 }
+expect lay_of(
+	[dog(1000, 1000)],
+	[],
+	14,
+	{ ..lone, step: { x: 256, y: 0 } },
+) == { slot: 0, x: 970 * 256, y: 1000 * 256 }
 
 ## Away from its anchor, each axis truncated toward zero: (-100, -33) px
 ## scaled to 30 px is (-30, -9.9), -2534.4 256ths, so -2534.
-expect lay_of([dog(1000, 1000), dog(1100, 1033)], [], 14, { ..lone, anchor: 1 }) == { slot: 0, x: 970 * 256, y: 1000 * 256 - 2534 }
+expect lay_of(
+	[dog(1000, 1000), dog(1100, 1033)],
+	[],
+	14,
+	{ ..lone, anchor: 1 },
+) == { slot: 0, x: 970 * 256, y: 1000 * 256 - 2534 }
 
 ## **THE RING ORDER**: the spot (1030, 1000) taken by a poop, every ring
 ## point nearer than a poop's side (12 px) overlaps it; ring 12 px's
 ## north-west corner (1018, 988) overlaps the pooper (18 px off, under its
 ## half and the poop's, 20), so the first free is the next clockwise.
-expect lay_of([dog(1000, 1000)], [{ slot: 5, x: 1030, y: 1000 }], 14, lone) == { slot: 0, x: 1022 * 256, y: 988 * 256 }
+expect lay_of(
+	[dog(1000, 1000)],
+	[{ slot: 5, x: 1030, y: 1000 }],
+	14,
+	lone,
+) == { slot: 0, x: 1022 * 256, y: 988 * 256 }
 
 ## The poop in the slot being laid is the one this takes the place of: it
 ## blocks nothing.
-expect lay_of([dog(1000, 1000)], [{ slot: 0, x: 1030, y: 1000 }], 14, lone) == { slot: 0, x: 1030 * 256, y: 1000 * 256 }
+expect lay_of(
+	[dog(1000, 1000)],
+	[{ slot: 0, x: 1030, y: 1000 }],
+	14,
+	lone,
+) == { slot: 0, x: 1030 * 256, y: 1000 * 256 }
 
 ## A critter blocks: a cow on the spot (half 21 px, the poop's 6) leaves
 ## free only ring 28 px, from its north-west corner.
-expect lay_of([dog(1000, 1000), crit(1, 4, 1030, 1000)], [], 14, lone) == { slot: 0, x: 1002 * 256, y: 972 * 256 }
+expect lay_of(
+	[dog(1000, 1000), crit(1, 4, 1030, 1000)],
+	[],
+	14,
+	lone,
+) == { slot: 0, x: 1002 * 256, y: 972 * 256 }
 
 ## The forage turn of crits `cs` with poops `ps` (each with its slot) all
 ## on tile `t`, each critter's home `away` px west of where it stands.
@@ -1690,19 +1888,47 @@ turn_of = |cs, ps, t, net, laid, away| {
 	from = List.repeat(0, t + 1).concat(List.repeat(ps.len().to_u16_wrap(), 36 - t))
 	poops = ps.map(|q| { slot: q.slot, x: q.x * 256, y: q.y * 256 })
 	park = park_of(cs)
-	Walk.forage_turn({ from, poops, side: Walk.side }, park, park.crits.map(|c| { x: c.x - away * 256, y: c.y }), [], net, laid)
+	Walk.forage_turn(
+		{ from, poops, side: Walk.side },
+		park,
+		park.crits.map(|c| { x: c.x - away * 256, y: c.y }),
+		[],
+		net,
+		laid,
+	)
 }
 
 hen = |x, y| crit(2, 255, x, y)
 
 ## A chicken on a ripe poop eats it, but only when the leashed dog moved
 ## (`net`): a still dog stills the turn.
-expect turn_of([dog(500, 500), hen(1000, 1000)], [{ slot: 0, x: 1000, y: 1000 }], 14, 0, 2, 0).eaten == []
-expect turn_of([dog(500, 500), hen(1000, 1000)], [{ slot: 0, x: 1000, y: 1000 }], 14, 512, 2, 0).eaten == [0]
+expect turn_of(
+	[dog(500, 500), hen(1000, 1000)],
+	[{ slot: 0, x: 1000, y: 1000 }],
+	14,
+	0,
+	2,
+	0,
+).eaten == []
+expect turn_of(
+	[dog(500, 500), hen(1000, 1000)],
+	[{ slot: 0, x: 1000, y: 1000 }],
+	14,
+	512,
+	2,
+	0,
+).eaten == [0]
 
 ## The newest poop (slot `laid` - 1) is never eaten: a hen bound home
 ## (100 px west) steps off it, its sidestep tried, and eats nothing.
-expect turn_of([dog(500, 500), hen(1000, 1000)], [{ slot: 1, x: 1000, y: 1000 }], 14, 512, 2, 100).eaten == []
+expect turn_of(
+	[dog(500, 500), hen(1000, 1000)],
+	[{ slot: 1, x: 1000, y: 1000 }],
+	14,
+	512,
+	2,
+	100,
+).eaten == []
 
 ## Its home past the band (32 px): a hen with nothing to eat walks home
 ## 1 px (half the dog's 2 px); within the band it stays put.
@@ -1724,7 +1950,14 @@ expect {
 ## Toward a ripe poop 100 px east: at most half the dog's net move (here
 ## 4 px of 8) and at most its step (8 px).
 expect {
-	r = turn_of([dog(500, 500), hen(1000, 1000)], [{ slot: 0, x: 1100, y: 1000 }], 14, 8 * 256, 2, 0)
+	r = turn_of(
+		[dog(500, 500), hen(1000, 1000)],
+		[{ slot: 0, x: 1100, y: 1000 }],
+		14,
+		8 * 256,
+		2,
+		0,
+	)
 	match r.park.crits.get(1) {
 		Ok(c) => Walk.pt(c) == { x: 1004 * 256, y: 1000 * 256 }
 		Err(_) => Bool.False

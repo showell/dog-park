@@ -344,6 +344,15 @@ pub fn build(b: *std.Build) void {
         run.has_side_effects = true;
         roc_test_step.dependOn(&run.step);
     }
+    // **THE ROC IS AS `roc fmt` LAYS IT OUT**, in `check` and `roc-test`. A
+    // long line is broken by a trailing comma after its last item, which
+    // `roc fmt` lays out one item a line (shale's cookbook/roc/roc_commas.shale
+    // does it), never by hand: `roc fmt` joins those back.
+    const roc_fmt = b.addSystemCommand(&.{ roc, "fmt", "--check", "roc" });
+    roc_fmt.setCwd(b.path("."));
+    roc_fmt.has_side_effects = true;
+    roc_test_step.dependOn(&roc_fmt.step);
+    check.dependOn(&roc_fmt.step);
     b.step("physics-server-bench", "Time a 16-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
 }
 

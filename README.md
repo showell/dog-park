@@ -71,14 +71,19 @@ The Roc is in `roc/`, roughly in the order to read it:
 **To change something and see it:**
 
     zig build roc        # print the world and rules for the Zig, and build the Roc for each target
-    zig build roc-test   # Roc's own expects
+    zig build roc-test   # Roc's own expects, and `roc fmt --check roc`
     zig build play       # serve the game on port 9103; open it and drag a dog
 
 `zig build roc` needs `roc` on the PATH (a recent nightly of the new
 compiler), and it rewrites the checked-in `src/play/world.zon`,
 `src/play/rules.zon`, `solo/world.js` and the compiled physics in
 `roc/lib/`: commit them with your change. Every other build reads those,
-so building the game needs no Roc.
+so building the game needs no Roc, though `zig build check` runs
+`roc fmt --check` too.
+
+**The Roc is as `roc fmt` lays it out.** `roc fmt` doesn't wrap lines.
+To break a long record, list, call or lambda's arguments, put a comma
+after its last item, and `roc fmt` lays it out one item a line.
 
 **To know a change is right:** `zig build check` runs every Zig test, the
 physics compiled to WebAssembly, and the page's tests. The Zig tests hold

@@ -92,7 +92,27 @@ Wish := [].{
 	}
 
 	start : State
-	start = { a_ax: 0, a_ay: 0, a_tx: 0, a_ty: 0, anchor: -1, anchor_d: 0, b_ax: 0, b_ay: 0, b_d: -1, b_half: 0, b_j: 0, b_kin: Bool.False, b_kind: 0, b_tx: 0, b_ty: 0, inner: 0, outer: 0, x: 0, y: 0 }
+	start = {
+		a_ax: 0,
+		a_ay: 0,
+		a_tx: 0,
+		a_ty: 0,
+		anchor: -1,
+		anchor_d: 0,
+		b_ax: 0,
+		b_ay: 0,
+		b_d: -1,
+		b_half: 0,
+		b_j: 0,
+		b_kin: Bool.False,
+		b_kind: 0,
+		b_tx: 0,
+		b_ty: 0,
+		inner: 0,
+		outer: 0,
+		x: 0,
+		y: 0,
+	}
 
 	## Whether a kind takes part in the walk: one that moves in it (Rules.roc's
 	## `mover`); one never in motion there is never lined up.
@@ -123,7 +143,18 @@ Wish := [].{
 			Each => answer(s, pick(me.kind, n), me.half.to_i64(), n, d)
 			Nearest => {
 				if s.b_d < 0 or d < s.b_d or (d == s.b_d and n.j < s.b_j) {
-					{ ..s, b_ax: ax, b_ay: ay, b_d: d, b_half: n.half, b_j: n.j, b_kin: n.kin, b_kind: n.kind, b_tx: n.tx.to_i64(), b_ty: n.ty.to_i64() }
+					{
+						..s,
+						b_ax: ax,
+						b_ay: ay,
+						b_d: d,
+						b_half: n.half,
+						b_j: n.j,
+						b_kin: n.kin,
+						b_kind: n.kind,
+						b_tx: n.tx.to_i64(),
+						b_ty: n.ty.to_i64(),
+					}
 				} else {
 					s
 				}
@@ -139,7 +170,17 @@ Wish := [].{
 		if r.code == 2 {
 			j = n.j.to_i64()
 			if s.anchor < 0 or d < s.anchor_d or (d == s.anchor_d and j < s.anchor) {
-				{ ..s, anchor: j, anchor_d: d, inner: r.a, outer: r.b, a_ax: ax, a_ay: ay, a_tx: n.tx.to_i64(), a_ty: n.ty.to_i64() }
+				{
+					..s,
+					anchor: j,
+					anchor_d: d,
+					inner: r.a,
+					outer: r.b,
+					a_ax: ax,
+					a_ay: ay,
+					a_tx: n.tx.to_i64(),
+					a_ty: n.ty.to_i64(),
+				}
 			} else {
 				s
 			}
@@ -170,7 +211,16 @@ Wish := [].{
 		s = if s0.b_d < 0 {
 			s0
 		} else {
-			n = { ax: s0.b_ax.to_i32_wrap(), ay: s0.b_ay.to_i32_wrap(), half: s0.b_half, tx: s0.b_tx.to_i32_wrap(), ty: s0.b_ty.to_i32_wrap(), j: s0.b_j, kin: s0.b_kin, kind: s0.b_kind }
+			n = {
+				ax: s0.b_ax.to_i32_wrap(),
+				ay: s0.b_ay.to_i32_wrap(),
+				half: s0.b_half,
+				tx: s0.b_tx.to_i32_wrap(),
+				ty: s0.b_ty.to_i32_wrap(),
+				j: s0.b_j,
+				kin: s0.b_kin,
+				kind: s0.b_kind,
+			}
 			answer(s0, pick(me.kind, n), me.half.to_i64(), n, s0.b_d)
 		}
 		band = if s.anchor < 0 {
@@ -182,7 +232,11 @@ Wish := [].{
 		} else {
 			{ x: 0, y: 0 }
 		}
-		{ anchor: s.anchor.to_i32_wrap(), x: (s.x + band.x).to_i32_wrap(), y: (s.y + band.y).to_i32_wrap() }
+		{
+			anchor: s.anchor.to_i32_wrap(),
+			x: (s.x + band.x).to_i32_wrap(),
+			y: (s.y + band.y).to_i32_wrap(),
+		}
 	}
 
 	## A rule as numbers: `code` 0 `Ignore`, 1 `Keep` (`a` its reach), 2
@@ -229,7 +283,16 @@ dog_me = { half: 14 * 256, kind: 0 }
 
 cow_me = { half: 21 * 256, kind: 1 }
 
-nb = |kind, kin, j, x, y| { ax: -x, ay: -y, half: if (kind == 1) 21 * 256 else 14 * 256, tx: x, ty: y, j: j, kin: kin, kind: kind }
+nb = |kind, kin, j, x, y| {
+	ax: -x,
+	ay: -y,
+	half: if (kind == 1) 21 * 256 else 14 * 256,
+	tx: x,
+	ty: y,
+	j: j,
+	kin: kin,
+	kind: kind,
+}
 
 ## The kinds as physics.zig's `Kind` numbers them.
 expect Wish.kind_of(0) == Dog and Wish.kind_of(1) == Cow and Wish.kind_of(2) == Chicken
@@ -249,11 +312,17 @@ expect Wish.wish(dog_me, [nb(0, Bool.False, 3, 200 * 256, 0)]) == { anchor: -1, 
 expect Wish.wish(dog_me, [nb(0, Bool.True, 5, 100 * 256, 0)]) == { anchor: 5, x: 30 * 256, y: 0 }
 
 ## Of two kin the nearer anchors; at an equal distance, the lower index.
-expect Wish.wish(dog_me, [nb(0, Bool.True, 9, 60 * 256, 0), nb(0, Bool.True, 4, 0, 60 * 256)]).anchor == 4
+expect Wish.wish(
+	dog_me,
+	[nb(0, Bool.True, 9, 60 * 256, 0), nb(0, Bool.True, 4, 0, 60 * 256)],
+).anchor == 4
 
 ## A cow heeds only its nearest: a cow 100 px east (within 245) draws it
 ## toward touching (42 px apart), though a dog 150 px west would scare it.
-expect Wish.wish(cow_me, [nb(1, Bool.False, 2, 100 * 256, 0), nb(0, Bool.False, 7, -150 * 256, 0)]) == { anchor: -1, x: 58 * 256, y: 0 }
+expect Wish.wish(
+	cow_me,
+	[nb(1, Bool.False, 2, 100 * 256, 0), nb(0, Bool.False, 7, -150 * 256, 0)],
+) == { anchor: -1, x: 58 * 256, y: 0 }
 
 ## Coinciding centres: away is east.
 expect Wish.wish(dog_me, [nb(0, Bool.False, 3, 0, 0)]) == { anchor: -1, x: 158 * 256, y: 0 }
@@ -265,11 +334,17 @@ expect Wish.wish(dog_me, [nb(0, Bool.True, 5, 55 * 256, 0)]) == { anchor: 5, x: 
 
 ## A dog keeps 63 px from a cow, and the rooms add: a cow 50 px north and
 ## a dog of another breed 150 px east, so 13 px south and 8 px west.
-expect Wish.wish(dog_me, [nb(1, Bool.False, 2, 0, -50 * 256), nb(0, Bool.False, 3, 150 * 256, 0)]) == { anchor: -1, x: -8 * 256, y: 13 * 256 }
+expect Wish.wish(
+	dog_me,
+	[nb(1, Bool.False, 2, 0, -50 * 256), nb(0, Bool.False, 3, 150 * 256, 0)],
+) == { anchor: -1, x: -8 * 256, y: 13 * 256 }
 
 ## The room and the anchor together: kin 100 px east (closes 30) and a dog
 ## of another breed 150 px east (8 west): 22 px east.
-expect Wish.wish(dog_me, [nb(0, Bool.True, 5, 100 * 256, 0), nb(0, Bool.False, 3, 150 * 256, 0)]) == { anchor: 5, x: 22 * 256, y: 0 }
+expect Wish.wish(
+	dog_me,
+	[nb(0, Bool.True, 5, 100 * 256, 0), nb(0, Bool.False, 3, 150 * 256, 0)],
+) == { anchor: 5, x: 22 * 256, y: 0 }
 
 ## A chicken is nothing to a dog.
 expect Wish.wish(dog_me, [nb(2, Bool.False, 40, 10 * 256, 0)]) == { anchor: -1, x: 0, y: 0 }
@@ -283,17 +358,37 @@ expect Wish.wish(cow_me, [nb(0, Bool.False, 7, 0, 100 * 256)]) == { anchor: -1, 
 ## A cow's nearest, at an equal distance, is the lower index: the cow (2,
 ## east) before the dog (7, north), so it closes in east rather than flees
 ## south.
-expect Wish.wish(cow_me, [nb(0, Bool.False, 7, 0, -100 * 256), nb(1, Bool.False, 2, 100 * 256, 0)]) == { anchor: -1, x: 58 * 256, y: 0 }
+expect Wish.wish(
+	cow_me,
+	[nb(0, Bool.False, 7, 0, -100 * 256), nb(1, Bool.False, 2, 100 * 256, 0)],
+) == { anchor: -1, x: 58 * 256, y: 0 }
 
 ## A wish along a diagonal is each axis scaled and truncated toward zero:
 ## a dog of another breed 100 px east and 37 px south, 58 px short, so
 ## -58 px and -(37 * 58 / 100) px, truncated: -21.46 px is -5493 256ths.
-expect Wish.wish(dog_me, [nb(0, Bool.False, 3, 100 * 256, 37 * 256)]) == { anchor: -1, x: -58 * 256, y: -5493 }
+expect Wish.wish(
+	dog_me,
+	[nb(0, Bool.False, 3, 100 * 256, 37 * 256)],
+) == { anchor: -1, x: -58 * 256, y: -5493 }
 
 ## The vectors as given: the away vector is used for room, the toward one
 ## for closing in, so at half a world (where both point the same way) each
 ## rule reads its own.
-expect Wish.wish(dog_me, [{ ax: 100 * 256, ay: 0, half: 14 * 256, tx: 100 * 256, ty: 0, j: 3, kin: Bool.False, kind: 0 }]) == { anchor: -1, x: 58 * 256, y: 0 }
+expect Wish.wish(
+	dog_me,
+	[
+		{
+			ax: 100 * 256,
+			ay: 0,
+			half: 14 * 256,
+			tx: 100 * 256,
+			ty: 0,
+			j: 3,
+			kin: Bool.False,
+			kind: 0,
+		},
+	],
+) == { anchor: -1, x: 58 * 256, y: 0 }
 
 ## The pull reaches its edge: a cow exactly 245 px east draws it.
 expect Wish.wish(cow_me, [nb(1, Bool.False, 2, 245 * 256, 0)]) == { anchor: -1, x: 203 * 256, y: 0 }
