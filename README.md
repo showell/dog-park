@@ -34,6 +34,72 @@ and 16 chickens. The world wraps around, top to bottom and side to side
 Each player gets their own park, kept on the server: close the tab, come
 back, and it's where you left it.
 
+## Changing the game in Roc
+
+**If you know Roc, start here.** The game's behaviour is Roc: what the
+world is, where everyone starts, what each critter does about the others,
+and how they all move each moment. Zig is the host: it runs the server,
+the page's WebAssembly and the unikernel, keeps the books (who stands in
+which cell, which poops are where), and checks the Roc's work. You can
+change the game without reading the Zig.
+
+The Roc is in `roc/`, roughly in the order to read it:
+
+- **`World.roc`**: the world's numbers. Tile and world sizes, the park in
+  the middle, each kind of critter (`kinds`: its name, its square's size,
+  the colour the page draws it in when it has no picture), the breeds.
+  Change a size here and the whole game follows.
+- **`world.roc`**: the park laid out, by a rule per tile (`tile_spots`:
+  a dog of each breed in the corners, then a cow or two chickens by the
+  tile's colour), with `expect`s that hold any layout to the physics'
+  needs (nobody starts overlapping, everyone inside the park). It prints
+  the layout for the Zig and the page.
+- **`Rules.roc`**: what a critter does about each critter it sees moving.
+  A rule is `Ignore`, `Keep(distance)`, `Herd({ inner, outer })` or
+  `Close(distance)`; a critter's `Sees` record says its rule for kin,
+  dogs, cows and chickens, and its pace. The chickens' foraging and the
+  herd's poop are here too. This is the file to play with first.
+- **`Wish.roc`**: a critter's wish, the step it wants, from the moving
+  critters around it, by the rules. Its `expect`s read as the rules'
+  worked examples.
+- **`Walk.roc`**: one pixel-tick: the leashed dog's step, then everyone
+  else's walk out from it (who moves, the nudge, the shove, the
+  sidestep). This is the hot path, written for speed: numbers in its
+  loops rather than tags, and each list owned by one variable
+  (`docs/ROC-SPEED.md` says why). Read it last.
+
+**To change something and see it:**
+
+    zig build roc        # print the world and rules for the Zig, and build the Roc for each target
+    zig build roc-test   # Roc's own expects
+    zig build play       # serve the game on port 9103; open it and drag a dog
+
+`zig build roc` needs `roc` on the PATH (a recent nightly of the new
+compiler), and it rewrites the checked-in `src/play/world.zon`,
+`src/play/rules.zon`, `solo/world.js` and the compiled physics in
+`roc/lib/`: commit them with your change. Every other build reads those,
+so building the game needs no Roc.
+
+**To know a change is right:** `zig build check` runs every Zig test, the
+physics compiled to WebAssembly, and the page's tests. The Zig tests hold
+the Roc to recordings of today's game (the golden runs), which step aside,
+saying so, when the world or the rules change. A change that should leave
+behaviour alone (a refactor, a speed-up) keeps
+`zig build physics-bench -- lines` the same, byte for byte: its 14,800
+lines are every move of a full drag with each dog leashed in turn (on
+the park as laid out, and moved across the world's edge), a drag through
+poop the chickens eat as they go, and a packed herd. And
+`zig build walk-judge` runs those drags, and again with steps of uneven
+length, with every pixel-tick of the Roc checked against a plain Zig
+reference that shares none of its code (`src/play/walk_reference.zig`),
+stopping at the first difference; about 11 s once compiled.
+
+**What isn't Roc yet.** A new *kind* of critter still needs Zig changes
+today (the board and the page know the three kinds by name); work is under
+way so that a new kind is made in Roc alone. The chickens' turn and where
+a poop lands are next to move. The rules [docs/PHYSICS.md](docs/PHYSICS.md)
+gives in full are the spec either way.
+
 ## How it works
 
 The page runs the physics itself: the same Zig code as the server,
@@ -102,29 +168,13 @@ Every build needs its sibling checkouts beside this one:
 Zig runs a path dependency's build at every configure, so even a plain
 `zig build` needs all three.
 
-The tools: zig 0.16 (`build.zig.zon`), and node for the node tests.
-Roc (a nightly of the new compiler) only for `zig build roc`, which
-prints the world again from `roc/world.roc` (its size, the park in it and
-where every critter starts) into `src/play/world.zon` and `solo/world.js`,
-and the rules from `roc/Rules.roc` (what critters do about each other) into
-`src/play/rules.zon`; and builds the physics' own Roc, the walk
-(`roc/Walk.roc`: who moves each pixel-tick, the nudge, the shove, the
-sidestep, the herd's pooper) and the critters' wish in it (`roc/Wish.roc`),
-through `roc/physics.roc`, into `roc/lib/` for each target the physics
-runs on (x86-64 Linux, wasm32, the kernel's freestanding x86-64), which
-every build links (`src/play/roc_physics.zig` is the seam: the lists the
-Zig lends Roc, which Roc changes in place; neither side allocates).
-Every other build reads the checked-in files; `zig build roc-test` runs
-Roc's own tests of the world, the rules, the wish and the walk. The Zig
-tests hold the whole physics, the Roc walk in it, to its recordings (the
-golden runs).
-Any world and rules that fit their types will play: Zig refuses at compile
-time only what the physics can't take (a critter outside the world, a
-park past its edge, poop slots not a power of two), and the tests of the
-physics hold under any of them. The recordings of today's game (the
-golden runs and the worked example in docs/PHYSICS.md) step aside under
-another configuration, saying so; record them anew with
-`physics_golden_test.zig`'s `print`. The
+The tools: zig 0.16 (`build.zig.zon`), and node for the node tests; Roc
+only to change the game's Roc ("Changing the game in Roc", above). Any
+world and rules that fit their types will play: Zig refuses at compile
+time only what the physics can't take (a critter outside the world, a park
+past its edge, poop slots not a power of two). The golden runs (today's
+game, recorded) step aside under another configuration, saying so;
+record them anew with `physics_golden_test.zig`'s `print`. The
 QEMU gate and the image also need qemu with KVM, sgdisk, mtools and
 fsck.fat, and python3 (zig-metal-unikernel's `droplet/app_image.py`).
 

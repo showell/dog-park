@@ -34,6 +34,8 @@ const layout = @import("layout.zig");
 const world_file = @import("world.zig").world;
 const rules = @import("rules.zig");
 const roc = @import("roc_physics.zig");
+const walk_reference = @import("walk_reference.zig");
+const walk_judge = @import("physics_options").walk_judge;
 
 /// **THE KINDS OF CRITTER** are the world's (world.zon's `kinds`, which
 /// roc/World.roc says): the physics names none. Kind k is the kth there,
@@ -1119,10 +1121,16 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
     const w = &sc.roc_walk;
     const before = sc.board.walked[sc.seen[0].who.n];
     lendCrits(sc);
-    const r = w.run(switch (axis) {
+    const axis_n: i32 = switch (axis) {
         .x => 0,
         .y => 1,
-    }, inc, before, sc.board.laid);
+    };
+    // **THE WALK'S JUDGE** (-Dwalk-judge, walk_reference.zig): the same
+    // pixel-tick in plain Zig, compared field by field.
+    var judge: if (walk_judge) walk_reference.Judge(critter_count, walk_most + 1) else void = undefined;
+    if (walk_judge) judge.before(w.crits.slice(), w.from.slice(), w.poops.slice(), span_cells, axis_n, inc, before, sc.board.laid);
+    const r = w.run(axis_n, inc, before, sc.board.laid);
+    if (walk_judge) judge.after(w.crits.slice(), w.cells.slice(), @TypeOf(w.*).words, w.moving.slice(), r);
     takeCrits(sc);
     const step: Point = .{ .x = r.step_x, .y = r.step_y };
     if (step.x != 0 or step.y != 0) {
@@ -1139,8 +1147,6 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
     } };
 }
 
-/// What a pixel-tick did to the leashed dog: its net step, how far it
-/// walked (each of its moves by its larger axis), and what it bumped.
 /// The seen critters and the poops for Roc (roc_physics.zig's `Walk`):
 /// the poops by tile, again if they changed; each critter, where it stands
 /// and its cell, what it is, its kin, and its key (the leashed dog, seen
@@ -1171,6 +1177,9 @@ fn takeCrits(sc: *Scene) void {
     }
 }
 
+/// What a pixel-tick did to the leashed dog: its net step, how far it
+/// walked (each of its moves by its larger axis), the poop it laid if one
+/// came due, and what it bumped.
 const Stepped = struct { step: Point, walked: u32, poop: ?Laid, bumped: ?Bumped };
 /// A poop the walk laid: its slot, and where (roc/Walk.roc's `Laid`).
 const Laid = struct { slot: u16, at: Point };

@@ -2,6 +2,28 @@
 // edit that and print it again. Read by src/play/rules.zig.
 .{
     .wary = 158,
+    .movers = .{
+        .{ .gathers = .each, .pace = .{ .num = 1, .den = 1 } },
+        .{ .gathers = .nearest, .pace = .{ .num = 1, .den = 2 } },
+        null,
+    },
+    .answers = .{
+        .{
+            .{ .kin = .{ .herd = .{ .inner = 42, .outer = 70 } }, .other = .{ .keep = 158 } },
+            .{ .kin = .{ .keep = 63 }, .other = .{ .keep = 63 } },
+            .{ .kin = .ignore, .other = .ignore },
+        },
+        .{
+            .{ .kin = .{ .keep = 158 }, .other = .{ .keep = 158 } },
+            .{ .kin = .{ .close = 245 }, .other = .{ .close = 245 } },
+            .{ .kin = .ignore, .other = .ignore },
+        },
+        .{
+            .{ .kin = .ignore, .other = .ignore },
+            .{ .kin = .ignore, .other = .ignore },
+            .{ .kin = .ignore, .other = .ignore },
+        },
+    },
     .chickens = .{ .sight = 500, .step = 8, .pace = .{ .num = 1, .den = 2 }, .home_band = 32 },
     .poop = .{ .every = 700, .back = 30, .reach = 200, .grid = 4, .slots = 2048 },
     .limits = .{ .most = 48, .nudge_most = 8, .dead_zone = 1 },

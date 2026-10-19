@@ -8,6 +8,29 @@
 //! the seam: a rules.zon that does not fit them does not compile.
 //! Distances here are in whole pixels.
 
+/// One critter's answer to another it sees moving.
+pub const Rule = union(enum) {
+    /// Nothing.
+    ignore,
+    /// Keep this far: away from it, by the shortfall inside the reach.
+    keep: u16,
+    /// The nearest one such is its anchor: it stays between `inner` and
+    /// `outer` of it, moving away inside and closing in outside.
+    herd: struct { inner: u16, outer: u16 },
+    /// Close in to touching, from within this; from farther, nothing.
+    close: u16,
+};
+
+/// Every moving critter's answer summed, or the nearest one's alone (ties
+/// to the lower index).
+pub const Gathers = enum { each, nearest };
+
+/// How a kind moves in the walk: how it takes what it sees, and its pace.
+pub const Mover = struct { gathers: Gathers, pace: Share };
+
+/// A kind's answer to a kind it sees, when the two are kin and when not.
+pub const Answer = struct { kin: Rule, other: Rule };
+
 /// A share of a step, `num` over `den`, rounded toward zero.
 pub const Share = struct { num: u16, den: u16 };
 
@@ -28,9 +51,11 @@ pub const Poop = struct { every: u16, back: u16, reach: u16, grid: u16, slots: u
 pub const Limits = struct { most: u16, nudge_most: u16, dead_zone: u16 };
 
 /// The distance a dog keeps from a dog of another breed and a cow from any
-/// dog (the tests' `wary`; the answers themselves, by pair of kinds, are
-/// roc/Rules.roc's `rule`, which the wish applies in Roc), the chickens'
-/// forage, the poop and the walk's limits.
-pub const Rules = struct { wary: u16, chickens: Chickens, poop: Poop, limits: Limits };
+/// dog (the tests' `wary`); how each kind moves in the walk (`movers`, by
+/// kind number; null, never in motion there) and each kind's answer to
+/// each (`answers[wisher][seen]`), roc/Rules.roc's `mover` and `rule`,
+/// which the wish applies in Roc and the walk's judge reads here; the
+/// chickens' forage, the poop and the walk's limits.
+pub const Rules = struct { wary: u16, movers: []const ?Mover, answers: []const []const Answer, chickens: Chickens, poop: Poop, limits: Limits };
 
 pub const rules: Rules = @import("rules.zon");

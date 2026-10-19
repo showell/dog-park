@@ -27,7 +27,10 @@ pub fn build(b: *std.Build) void {
     // **THE PHYSICS HASH, ONCE** (physics_wire.zig): a CRC-32 over the
     // files src/play/physics_sources.zon lists, read here at configure
     // time and handed to every module that compiles the physics.
-    const physics_mod = physicsOptions(b);
+    // **-Dwalk-judge**: every walk run beside src/play/walk_reference.zig and
+    // compared (`zig build walk-judge`); off by default.
+    const walk_judge = b.option(bool, "walk-judge", "judge every Roc walk against the plain Zig reference (walk_reference.zig), panicking at a difference") orelse false;
+    const physics_mod = physicsOptions(b, walk_judge);
     // **WHICH COMMIT THIS IS** (`dogpark_build`), for /version: the
     // checkout's, `+dirty` when it has uncommitted changes.
     const build_mod = buildOptions(b, stamp);
@@ -251,6 +254,24 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| physics_bench_run.addArgs(args);
     b.step("physics-bench", "Time a physics tick natively (ReleaseSafe); -- herd, busiest, strewn or rerun: that one alone, for a profiler").dependOn(&physics_bench_run.step);
 
+    // **THE WALK'S JUDGE**: the bench's `-- judge` (its `lines` workload:
+    // every dog leashed in turn on two parks, the strewn drag, the packed
+    // herd; then again under a drag of uneven length) with every walk judged
+    // against walk_reference.zig; its output discarded, it passes only if
+    // nothing differed (a difference panics).
+    const judged_bench = b.addExecutable(.{ .name = "physics_bench_judged", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_bench.zig"),
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .imports = &.{.{ .name = "physics_options", .module = physicsOptions(b, true) }},
+    }) });
+    linkRoc(b, judged_bench.root_module, null);
+    const judged_run = b.addRunArtifact(judged_bench);
+    judged_run.addArg("judge");
+    _ = judged_run.captureStdOut(.{});
+    judged_run.expectExitCode(0);
+    b.step("walk-judge", "Run the bench's `-- lines` with every Roc walk judged against the plain Zig reference (src/play/walk_reference.zig)").dependOn(&judged_run.step);
+
     // A 16-tick report's round trip through POST /report, in process
     // (ReleaseSafe): the route, the judge's re-run, the log's append.
     const webbox_rs = b.dependency("webbox", .{ .target = target, .optimize = .ReleaseSafe });
@@ -389,9 +410,10 @@ fn commitOf(b: *std.Build, dir: []const u8) []const u8 {
 }
 
 /// The physics' build options, `physics_options`: its hash.
-fn physicsOptions(b: *std.Build) *std.Build.Module {
+fn physicsOptions(b: *std.Build, walk_judge: bool) *std.Build.Module {
     const options = b.addOptions();
     options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play")));
+    options.addOption(bool, "walk_judge", walk_judge);
     return options.createModule();
 }
 
