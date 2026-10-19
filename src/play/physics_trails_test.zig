@@ -215,6 +215,20 @@ test "the newest poop blocks a chicken's step: it goes around it" {
     try overlapsNone(&b);
 }
 
+test "a chicken in a chicken's step blocks it: it goes around it, as round a poop" {
+    // Chicken 1 touches chicken 0's east side, on chicken 0's way to a
+    // ripe poop; chicken 0 goes first, in seen order.
+    var b = leashedAt(nearHome(0, 400));
+    b.place(.chicken(0), home);
+    b.place(.chicken(1), nearHome(20, 0));
+    poopAt(&b, 0, nearHome(100, 0));
+    b.laid = 7;
+    _ = ticked(&b, 1, &.{}, &.{d(10, 0)});
+    // Blocked east, it sidesteps the whole 5 px south (on the line, +).
+    try testing.expectEqual(nearHome(0, 5), b.chickens[0]);
+    try overlapsNone(&b);
+}
+
 test "a chicken eats every ripe poop its square overlaps, and the eaten slot is a line" {
     // Proves rule 10: 20 px off, a 5 px step overlaps it (16 is touching).
     var b = leashedAt(nearHome(0, 400));
