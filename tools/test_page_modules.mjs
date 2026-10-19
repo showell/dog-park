@@ -127,6 +127,10 @@ test("a critter of a kind the page draws by `kinds` alone is its emoji, or with 
   const objects = scene.nearScene(viewport, [], [], { kind: "none" }, scene.still, new Map(), { chickens: [], poops: [], others, labels: "hidden" });
   assert.deepEqual(objects.find((o) => o.id === "goat:4"), { id: "goat:4", shape: "glyph", x: 300, y: 200, w: goat.px, h: goat.px, text: "🐐", fill: "#000", role: "scenery" });
   assert.deepEqual(objects.find((o) => o.id === `${bare.name}:5`), { id: `${bare.name}:5`, shape: "rect", x: 400 - bare.px / 2, y: 250 - bare.px / 2, w: bare.px, h: bare.px, fill: bare.colour, role: "scenery" });
+  // Mid-tick, a goat is drawn between where it stood and where it stands, as every critter is.
+  const was = { ...scene.still.was, others: new Map([["goat:4", { parkX: 280, parkY: 200 }]]) };
+  const mid = scene.nearScene(viewport, [], [], { kind: "none" }, { alpha: 0.5, was }, new Map(), { chickens: [], poops: [], others, labels: "hidden" });
+  assert.equal(mid.find((o) => o.id === "goat:4").x, 290);
   assert.deepEqual(scene.drawn_kinds, ["dog", "cow", "chicken"]);
   // The cow's and chicken's art are World.roc's too.
   assert.equal(scene.cow_emoji, scene.kinds.find((k) => k.name === "cow").emoji);
