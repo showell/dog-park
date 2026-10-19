@@ -25,6 +25,18 @@ Wish := [].{
 	## so a kind added is one the compiler shows every rule missing.
 	Kind : [Dog, Cow, Chicken]
 
+	## A kind's forage (Rules.roc's `Forage`), or none: it stays put in the
+	## forage turn (Walk.roc's `forage_turn`). By kind, with no `_`: a kind
+	## added is one the compiler asks this of.
+	Foraging : [Forages(Rules.Forage), Stays]
+
+	forage_of : U8 -> Foraging
+	forage_of = |kind| match kind_of(kind) {
+		Dog => Stays
+		Cow => Stays
+		Chicken => Forages(Rules.chickens)
+	}
+
 	kind_of : U8 -> Kind
 	kind_of = |code| match code {
 		0 => Dog

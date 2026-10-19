@@ -68,15 +68,17 @@ Rules := [].{
 		pace: { num: 1, den: 2 },
 	}
 
-	## THE CHICKENS' TURN (decision 31): once a tick, after the drag, each
-	## chicken steps toward the nearest ripe poop it sees within `sight`;
-	## with none, home, when it is more than `home_band` from it. It steps at
-	## most `step`, and at most `pace` of the leashed dog's net move over the
-	## tick (so a still dog stills them), then eats the ripe poop it stands
-	## on. A chicken heeds no critter.
-	Chickens : { sight : I64, step : I64, pace : Share, home_band : I64 }
+	## **THE FORAGE** (decision 31), a behaviour a kind may have (Wish.roc's
+	## `forage_of` says which do: today the chickens): once a tick, after
+	## the drag, a forager steps toward the nearest ripe poop it sees within
+	## `sight`; with none, home, when it is more than `home_band` from it. It
+	## steps at most `step`, and at most `pace` of the leashed dog's net move
+	## over the tick (so a still dog stills it), then eats the ripe poop it
+	## stands on. A forager heeds no critter.
+	Forage : { sight : I64, step : I64, pace : Share, home_band : I64 }
 
-	chickens : Chickens
+	## The chickens' forage.
+	chickens : Forage
 	chickens = { sight: 500, step: 8, pace: { num: 1, den: 2 }, home_band: 32 }
 
 	## POOP (decision 29): the herd poops each time the leashed dog has walked

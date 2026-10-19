@@ -1069,29 +1069,13 @@ fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
 /// order and the poop it laid, if one came due. Neither side allocates.
 fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
     const w = &sc.roc_walk;
-    if (sc.poops_changed) sc.lendPoops();
     const before = sc.board.walked[sc.seen[0].who.n];
-    w.crits.len = 0;
-    w.cellsClear();
-    for (sc.list(), sc.at[0..sc.len], 0..) |o, p, j| {
-        w.cellPut(sc.seen_cell[j], j);
-        w.crits.push(.{
-            .x = p.x,
-            .y = p.y,
-            .cell = sc.seen_cell[j],
-            .half = o.half,
-            .kind = @intFromEnum(o.who.kind),
-            .kin = kinOf(o.who) orelse roc.no_kin,
-            .key = if (j == 0) roc.visited else roc.not_lined_up,
-        });
-    }
+    lendCrits(sc);
     const r = w.run(switch (axis) {
         .x => 0,
         .y => 1,
     }, inc, before, sc.board.laid);
-    for (w.crits.slice(), 0..) |c, j| {
-        if (c.x != sc.at[j].x or c.y != sc.at[j].y) sc.put(j, .{ .x = c.x, .y = c.y });
-    }
+    takeCrits(sc);
     const step: Point = .{ .x = r.step_x, .y = r.step_y };
     if (step.x != 0 or step.y != 0) {
         const moving = w.moving.slice();
@@ -1109,89 +1093,39 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
 
 /// What a pixel-tick did to the leashed dog: its net step, how far it
 /// walked (each of its moves by its larger axis), and what it bumped.
+/// The seen critters and the poops for Roc (roc_physics.zig's `Walk`):
+/// the poops by tile, again if they changed; each critter, where it stands
+/// and its cell, what it is, its kin, and its key (the leashed dog, seen
+/// index 0, visited: the walk starts from it); and the cells' sets of them.
+fn lendCrits(sc: *Scene) void {
+    const w = &sc.roc_walk;
+    if (sc.poops_changed) sc.lendPoops();
+    w.crits.len = 0;
+    w.cellsClear();
+    for (sc.list(), sc.at[0..sc.len], 0..) |o, p, j| {
+        w.cellPut(sc.seen_cell[j], j);
+        w.crits.push(.{
+            .x = p.x,
+            .y = p.y,
+            .cell = sc.seen_cell[j],
+            .half = o.half,
+            .kind = @intFromEnum(o.who.kind),
+            .kin = kinOf(o.who) orelse roc.no_kin,
+            .key = if (j == 0) roc.visited else roc.not_lined_up,
+        });
+    }
+}
+
+/// Each critter Roc moved, put where it left it.
+fn takeCrits(sc: *Scene) void {
+    for (sc.roc_walk.crits.slice(), 0..) |c, j| {
+        if (c.x != sc.at[j].x or c.y != sc.at[j].y) sc.put(j, .{ .x = c.x, .y = c.y });
+    }
+}
+
 const Stepped = struct { step: Point, walked: u32, poop: ?Laid, bumped: ?Bumped };
 /// A poop the walk laid: its slot, and where (roc/Walk.roc's `Laid`).
 const Laid = struct { slot: u16, at: Point };
-
-/// `pace` of `v`, rounded toward zero; known at compile time, so a share of
-/// one is `v` itself and a half is `@divTrunc(v, 2)`.
-inline fn share(comptime pace: rules.Share, v: anytype) @TypeOf(v) {
-    if (comptime pace.num == pace.den) return v;
-    return @divTrunc(v * pace.num, pace.den);
-}
-
-/// The step a total of wishes comes to, at most `most` on its larger axis:
-/// none inside the dead zone; the total itself within `most`; else scaled
-/// to it.
-pub fn stepAtMost(total: Point, most: i32) Point {
-    const t = measure(total);
-    if (t < dead_zone) return .{ .x = 0, .y = 0 };
-    if (t <= most) return total;
-    return .{
-        .x = @intCast(@divTrunc(@as(i64, total.x) * most, t)),
-        .y = @intCast(@divTrunc(@as(i64, total.y) * most, t)),
-    };
-}
-
-/// Why a step was vetoed: nothing (it went), a critter it may
-/// not press (or a chicken, `chicken`: one it can't shove), or a poop; and
-/// for the sidestep, where the critter that was blocked stood, and its
-/// blocker.
-pub const Veto = struct {
-    why: Why = .none,
-    at: Point = .{ .x = 0, .y = 0 },
-    blocker: Point = .{ .x = 0, .y = 0 },
-
-    pub const Why = enum { none, critter, chicken, poop };
-};
-
-/// **A CHICKEN'S STEP** (decisions 30, 31), the one step left in Zig (the
-/// leashed dog's and the walk's are roc/Walk.roc's): seen chicken `i`
-/// takes `step` whole, or not at all. A chicken shoves nobody and has no
-/// kin, so any critter it would overlap vetoes it (`chicken` for another
-/// chicken, which the sidestep goes round, `critter` for a dog or a cow),
-/// and so does a poop, of which only the newest blocks it (it isn't ripe).
-fn stepWhole(sc: *Scene, i: usize, step: Point) Veto {
-    if (step.x == 0 and step.y == 0) return .{};
-    std.debug.assert(sc.seen[i].who.kind == .chicken);
-    const from = sc.pos(i);
-    const to = plus(from, step);
-    const h = sc.seen[i].half;
-    if (poopUnder(sc, to, h, .eats_ripe)) |q| return .{ .why = .poop, .at = from, .blocker = q };
-    var near = sc.critters(to, h + cow_half);
-    var it = near.iterator(.{});
-    while (it.next()) |j| {
-        const o = sc.seen[j];
-        if (j == i or !squaresOverlap(to, h, sc.pos(j), o.half)) continue;
-        return .{ .why = if (o.who.kind == .chicken) .chicken else .critter, .at = from, .blocker = sc.pos(j) };
-    }
-    sc.put(i, to);
-    return .{};
-}
-
-fn plus(p: Point, v: Point) Point {
-    return .{ .x = p.x + v.x, .y = p.y + v.y };
-}
-
-/// **THE SIDESTEP** (decision 30): critter `i` takes `step` (`stepWhole`);
-/// vetoed by a poop, or by a chicken it can't shove, it tries once more
-/// with `sidestep`'s step.
-fn stepAround(sc: *Scene, i: usize, step: Point) void {
-    const v = stepWhole(sc, i, step);
-    if (sidestep(v, step)) |again| _ = stepWhole(sc, i, again);
-}
-
-/// The step that goes around a veto's poop or chicken: `step` with the
-/// axis on which the blocker is farther off zeroed (a tie zeroes x), and
-/// on the other its own part kept, or, that part zero, the step's whole
-/// size away from the blocker (on the line, +). Null for any other veto.
-fn sidestep(v: Veto, step: Point) ?Point {
-    if (v.why != .poop and v.why != .chicken) return null;
-    const d = delta(v.at, v.blocker);
-    const size: i32 = @intCast(measure(step));
-    if (mag(d.x) >= mag(d.y)) return .{ .x = 0, .y = if (step.y != 0) step.y else if (d.y > 0) -size else size };
-    return .{ .x = if (step.x != 0) step.x else if (d.x > 0) -size else size, .y = 0 };
-}
 
 /// **RIPE** (decision 31): every poop but the park's newest, the one in
 /// slot `laid` − 1 (mod `poop_count`; with no poop yet, an empty slot).
@@ -1200,25 +1134,14 @@ pub fn ripe(laid: u32, n: u16) bool {
     return n != (laid -% 1) % poop_count;
 }
 
-/// The place of a poop the physics sees that a square of half `h` at `p`
-/// overlaps (poop is an obstacle to dogs and cows), if any, the lowest
-/// slot's; for a chicken's step (`only_newest`), only the newest counts.
-fn poopUnder(sc: *const Scene, p: Point, h: i32, mover: Eater) ?Point {
-    var poops = sc.near(p, h + poop_half);
-    var under: ?u16 = null;
-    while (poops.next()) |n| {
-        if (mover == .eats_ripe and ripe(sc.board.laid, n)) continue;
-        if (squaresOverlap(p, h, sc.board.poops[n], poop_half) and (under == null or n < under.?)) under = n;
-    }
-    return if (under) |n| sc.board.poops[n] else null;
-}
-
-/// Whether a step's mover eats what it steps onto: a chicken walks onto
-/// ripe poop (and eats it), so only the newest blocks it.
-const Eater = enum { eats_ripe, eats_none };
-
+/// Whether a square of half `h` at `p` overlaps a poop the physics sees
+/// (the invariant's check, `onPoops`).
 fn onPoop(sc: *const Scene, p: Point, h: i32) bool {
-    return poopUnder(sc, p, h, .eats_none) != null;
+    var poops = sc.near(p, h + poop_half);
+    while (poops.next()) |m| {
+        if (squaresOverlap(p, h, sc.board.poops[m], poop_half)) return true;
+    }
+    return false;
 }
 
 /// Who nudges whom: cows are one kin, each breed of dog another; a
@@ -1243,60 +1166,27 @@ fn placePoop(sc: *Scene, slot: u16, q: Point) void {
 }
 
 /// **THE CHICKENS' TURN** (decision 31): once a tick, after the drag, and
-/// only if the leashed dog's net move over it is more than nothing. Each
-/// chicken the physics sees, by number, steps at most half that move and
-/// at most `chicken_step`:
-/// - toward the nearest ripe poop it sees within `chicken_sight` (ties to
-///   the lower slot), going around what's in its way (`stepAround`);
-/// - with none, toward its home (`layout.chickenHome`) when more than
-///   `home_band` from it, whole or not at all: blocked, it waits;
-/// - else it stays put, and writes no line.
-/// Then it eats every ripe poop its square overlaps. It heeds no critter
-/// and plans nothing: three chickens chase the one poop till it's gone.
+/// only if the leashed dog's net move over it is more than nothing, in Roc
+/// (roc/Walk.roc's `forage_turn`): each critter whose kind forages (today
+/// the chickens, roc/Wish.roc's `forage_of`), by seen index, steps toward
+/// the nearest ripe poop it sees, or home (`layout.chickenHome`, lent by
+/// seen index), and eats the ripe poop it then stands on, which is taken
+/// off the park here. The buckets are checked after the whole turn (they
+/// were after each chicken's step, when the turn was Zig's).
 fn chickensTurn(sc: *Scene) void {
     const net = measure(delta(sc.seen[0].start, sc.pos(0)));
     if (net == 0) return;
-    const most: i32 = @intCast(@min(share(rules.rules.chickens.pace, net), chicken_step));
-    for (sc.list(), 0..) |o, i| {
-        if (o.who.kind != .chicken) continue;
-        const p = sc.pos(i);
-        if (nearestRipe(sc, p)) |q| {
-            stepAround(sc, i, stepAtMost(delta(p, q), most));
-        } else {
-            const home = delta(p, layout.chickenHome(o.who.n));
-            if (measure(home) <= home_band) continue;
-            _ = stepWhole(sc, i, stepAtMost(home, most));
-        }
-        if (builtin.is_test) std.debug.assert(sc.bucketsHold());
-        const now = sc.pos(i);
-        var poops = sc.near(now, chicken_half + poop_half);
-        while (poops.next()) |n| {
-            if (ripe(sc.board.laid, n) and squaresOverlap(now, chicken_half, sc.board.poops[n], poop_half)) sc.eat(n);
-        }
-    }
-}
-
-/// The nearest ripe poop the physics sees within `chicken_sight` of `p`,
-/// ties to the lower slot.
-fn nearestRipe(sc: *const Scene, p: Point) ?Point {
-    var best: ?u16 = null;
-    var best_d: i64 = 0;
-    var poops = sc.near(p, chicken_sight);
-    while (poops.next()) |n| {
-        if (!ripe(sc.board.laid, n)) continue;
-        const d = measure(delta(p, sc.board.poops[n]));
-        if (d > chicken_sight) continue;
-        if (best == null or d < best_d or (d == best_d and n < best.?)) {
-            best = n;
-            best_d = d;
-        }
-    }
-    return if (best) |n| sc.board.poops[n] else null;
-}
-
-fn add(total: *Point, w: Point) void {
-    total.x += w.x;
-    total.y += w.y;
+    const w = &sc.roc_walk;
+    lendCrits(sc);
+    w.homes.len = 0;
+    for (sc.list()) |o| w.homes.push(if (o.who.kind == .chicken) home: {
+        const h = layout.chickenHome(o.who.n);
+        break :home .{ .x = h.x, .y = h.y };
+    } else .{ .x = 0, .y = 0 });
+    const eaten = w.forage(@intCast(net), sc.board.laid);
+    takeCrits(sc);
+    for (eaten) |n| sc.eat(n);
+    if (builtin.is_test) std.debug.assert(sc.bucketsHold());
 }
 
 /// Every overlapping pair among the critters the physics sees, by the

@@ -968,6 +968,286 @@ Walk := [].{
 		}
 	}
 
+	## **THE FORAGE TURN** (decision 31): once a tick, after the drag, when
+	## the leashed dog's net move over it, `net`, is more than nothing. Each
+	## critter whose kind forages (Wish.roc's `forage_of`; today the
+	## chickens), in seen order, steps at most its forage's `pace` of `net`
+	## and at most its `step`:
+	## - toward the nearest ripe poop it sees within `sight` (ties to the
+	##   lower slot), going round what's in its way (`forage_around`);
+	## - with none, toward its home (`homes`, by seen index) when more than
+	##   `home_band` from it, whole or not at all: blocked, it waits;
+	## - else it stays put, and eats nothing.
+	## Then it eats every ripe poop its square overlaps: `eaten`, lent empty
+	## with room, which the physics' Zig takes off the park after. Ripe is
+	## every poop but the newest, slot `laid` - 1, which only blocks. A
+	## forager heeds no critter and plans nothing.
+	##
+	## Its step is its own (`forage_step`), not the walk's `step_whole`: a
+	## forager shoves nobody and nudges no kin, and the walk's hot helpers
+	## take no caller outside it (docs/ROC-SPEED.md).
+	Turned : { eaten : List(U16), park : Park }
+
+	forage_turn : Lent, Park, List(Pt), List(U16), I32, U32 -> Turned
+	forage_turn = |lent, park0, homes, eaten0, net, laid| {
+		s = {
+			from: lent.from,
+			poops: lent.poops,
+			words: park0.cells.len() // (side * side).to_u64_wrap(),
+		}
+		{ cells: c0, crits: k0 } = park0
+		newest = ((laid.to_u64() + poop_slots - 1) % poop_slots).to_u16_wrap()
+		var $cells = c0
+		var $crits = k0
+		var $eaten = eaten0
+		var $j = 0
+		n = if (net == 0) 0 else k0.len()
+		while $j < n {
+			me = get_c($crits, $j)
+			match Wish.forage_of(me.kind) {
+				Stays => {}
+				Forages(f) => {
+					share_of = (net.to_i64() * f.pace.num // f.pace.den).to_i32_wrap()
+					step_most = (f.step * 256).to_i32_wrap()
+					most = if (share_of < step_most) share_of else step_most
+					p = pt(me)
+					sight = (f.sight * 256).to_i32_wrap()
+					near = nearest_ripe(s, $eaten, p, sight, newest)
+					if near.slot >= 0 {
+						{ cells: c1, crits: k1 } = forage_around(s, { cells: $cells, crits: $crits }, $j, forage_at_most(delta(p, near.at), most), newest)
+						$cells = c1
+						$crits = k1
+						$eaten = eat_under(s, $eaten, pt(get_c($crits, $j)), me.half, newest)
+					} else {
+						home = delta(p, get_pt(homes, $j))
+						if measure(home) > (f.home_band * 256).to_i32_wrap() {
+							{ park: { cells: c1, crits: k1 }, veto: _ } = forage_step(s, { cells: $cells, crits: $crits }, $j, forage_at_most(home, most), newest)
+							$cells = c1
+							$crits = k1
+							$eaten = eat_under(s, $eaten, pt(get_c($crits, $j)), me.half, newest)
+						} else {
+							{}
+						}
+					}
+				}
+			}
+			$j = $j + 1
+		}
+		{ eaten: $eaten, park: { cells: $cells, crits: $crits } }
+	}
+
+	## The nearest ripe poop not yet eaten within `sight` of `p` (its slot,
+	## -1 for none, and where), ties to the lower slot.
+	nearest_ripe : Seen, List(U16), Pt, I32, U16 -> { at : Pt, slot : I32 }
+	nearest_ripe = |s, eaten, p, sight, newest| {
+		cols = span(p.x, sight, tile, tiles)
+		rows = span(p.y, sight, tile, tiles)
+		var $best = -1
+		var $best_d = 0
+		var $at = { x: 0, y: 0 }
+		var $r = 0
+		while $r < rows.n {
+			row = (rows.lo + $r).mod_by(tiles)
+			var $c = 0
+			while $c < cols.n {
+				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				var $k = (get_u16(s.from, t)).to_u64()
+				stop = (get_u16(s.from, t + 1)).to_u64()
+				while $k < stop {
+					q = get_poop(s, $k)
+					d = measure(delta(p, { x: q.x, y: q.y }))
+					slot = q.slot.to_i32()
+					if q.slot != newest and d <= sight and !eaten.contains(q.slot) and ($best < 0 or d < $best_d or (d == $best_d and slot < $best)) {
+						$best = slot
+						$best_d = d
+						$at = { x: q.x, y: q.y }
+					} else {
+						{}
+					}
+					$k = $k + 1
+				}
+				$c = $c + 1
+			}
+			$r = $r + 1
+		}
+		{ at: $at, slot: $best }
+	}
+
+	## Every ripe poop not yet eaten a square of half `h` at `p` overlaps,
+	## after those in `eaten`.
+	eat_under : Seen, List(U16), Pt, I32, U16 -> List(U16)
+	eat_under = |s, eaten0, p, h, newest| {
+		reach = h + poop_half
+		cols = span(p.x, reach, tile, tiles)
+		rows = span(p.y, reach, tile, tiles)
+		var $eaten = eaten0
+		var $r = 0
+		while $r < rows.n {
+			row = (rows.lo + $r).mod_by(tiles)
+			var $c = 0
+			while $c < cols.n {
+				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				var $k = (get_u16(s.from, t)).to_u64()
+				stop = (get_u16(s.from, t + 1)).to_u64()
+				while $k < stop {
+					q = get_poop(s, $k)
+					if q.slot != newest and overlap(p, h, { x: q.x, y: q.y }, poop_half) and !$eaten.contains(q.slot) {
+						$eaten = $eaten.append(q.slot)
+					} else {
+						{}
+					}
+					$k = $k + 1
+				}
+				$c = $c + 1
+			}
+			$r = $r + 1
+		}
+		$eaten
+	}
+
+	## A forager's step toward what it wants, at most `most` (the walk's
+	## `step_at_most`, its own copy: none inside the dead zone).
+	forage_at_most : Pt, I32 -> Pt
+	forage_at_most = |total, most| {
+		t = measure(total)
+		if t < dead_zone {
+			{ x: 0, y: 0 }
+		} else if t <= most {
+			total
+		} else {
+			{
+				x: (total.x.to_i64() * most.to_i64() // t.to_i64()).to_i32_wrap(),
+				y: (total.y.to_i64() * most.to_i64() // t.to_i64()).to_i32_wrap(),
+			}
+		}
+	}
+
+	## **A FORAGER'S STEP** (decisions 30, 31): seen critter `j` takes
+	## `step` whole, or not at all. It shoves nobody and has no kin, so any
+	## critter it would overlap vetoes it (`why_chicken` for another
+	## forager, which the sidestep goes round; `why_pressed` for any other),
+	## the first by seen index; and so does the newest poop, the only one it
+	## would not eat (`why_poop`).
+	forage_step : Seen, Park, U64, Pt, U16 -> { park : Park, veto : Veto }
+	forage_step = |s, park, j, step, newest| {
+		if step.x == 0 and step.y == 0 {
+			{ park, veto: went }
+		} else {
+			{ cells, crits } = park
+			me = get_c(crits, j)
+			from = pt(me)
+			to = plus(from, step)
+			h = me.half
+			newest_at = poop_in(s, newest, to, h)
+			if newest_at.slot >= 0 {
+				{ park: { cells, crits }, veto: { at: from, blocker: newest_at.at, why: why_poop } }
+			} else {
+				var $k = 0
+				var $veto = went
+				while $veto.why == why_went and $k < crits.len() {
+					o = get_c(crits, $k)
+					if $k != j and overlap(to, h, pt(o), o.half) {
+						why = match Wish.forage_of(o.kind) {
+							Forages(_) => why_chicken
+							Stays => why_pressed
+						}
+						$veto = { at: from, blocker: pt(o), why }
+					} else {
+						{}
+					}
+					$k = $k + 1
+				}
+				if $veto.why == why_went {
+					{ park: forage_move(s, { cells, crits }, j, wrapped(to)), veto: went }
+				} else {
+					{ park: { cells, crits }, veto: $veto }
+				}
+			}
+		}
+	}
+
+	## The poop in `slot`, if the physics sees it and a square of half `h`
+	## at `p` overlaps it (slot -1, not).
+	poop_in : Seen, U16, Pt, I32 -> { at : Pt, slot : I32 }
+	poop_in = |s, slot, p, h| {
+		reach = h + poop_half
+		cols = span(p.x, reach, tile, tiles)
+		rows = span(p.y, reach, tile, tiles)
+		var $found = { at: { x: 0, y: 0 }, slot: -1 }
+		var $r = 0
+		while $r < rows.n {
+			row = (rows.lo + $r).mod_by(tiles)
+			var $c = 0
+			while $c < cols.n {
+				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				var $k = (get_u16(s.from, t)).to_u64()
+				stop = (get_u16(s.from, t + 1)).to_u64()
+				while $k < stop {
+					q = get_poop(s, $k)
+					if q.slot == slot and overlap(p, h, { x: q.x, y: q.y }, poop_half) {
+						$found = { at: { x: q.x, y: q.y }, slot: q.slot.to_i32() }
+					} else {
+						{}
+					}
+					$k = $k + 1
+				}
+				$c = $c + 1
+			}
+			$r = $r + 1
+		}
+		$found
+	}
+
+	## **THE FORAGER'S SIDESTEP** (decision 30): `step` (`forage_step`);
+	## vetoed by a poop or another forager, once more with the step that
+	## goes round it: the axis on which the blocker is farther off zeroed (a
+	## tie zeroes x), on the other its own part kept, or, that part zero,
+	## the step's size away from the blocker (on the line, +).
+	forage_around : Seen, Park, U64, Pt, U16 -> Park
+	forage_around = |s, park0, j, step, newest| {
+		{ park: park1, veto: v } = forage_step(s, park0, j, step, newest)
+		if v.why == why_poop or v.why == why_chicken {
+			d = delta(v.at, v.blocker)
+			size = measure(step)
+			again = if d.x.abs() >= d.y.abs() {
+				{ x: 0, y: if (step.y != 0) step.y else if (d.y > 0) 0 - size else size }
+			} else {
+				{ x: if (step.x != 0) step.x else if (d.x > 0) 0 - size else size, y: 0 }
+			}
+			{ park: park2, veto: _ } = forage_step(s, park1, j, again, newest)
+			park2
+		} else {
+			park1
+		}
+	}
+
+	## Seen critter `j` to `p` (wrapped), and to its cell's set (the walk's
+	## `move_to`, the forager's own copy).
+	forage_move : Seen, Park, U64, Pt -> Park
+	forage_move = |s, park, j, p| {
+		{ cells, crits: crits0 } = park
+		c = get_c(crits0, j)
+		now_in = ((p.y // cell) * side + p.x // cell).to_u16_wrap()
+		crits = put(crits0, j, { ..c, x: p.x, y: p.y, cell: now_in })
+		if now_in == c.cell {
+			{ cells, crits }
+		} else {
+			bit = (1).shl_wrap((j % 64).to_u8_wrap())
+			was = c.cell.to_u64() * s.words + j // 64
+			now = now_in.to_u64() * s.words + j // 64
+			left = get_u64(cells, was).bitwise_and(bit.bitwise_not())
+			cells1 = put(cells, was, left)
+			came = get_u64(cells1, now).bitwise_or(bit)
+			{ crits, cells: put(cells1, now, came) }
+		}
+	}
+
+	get_pt : List(Pt), U64 -> Pt
+	get_pt = |l, j| match l.get(j) {
+		Ok(v) => v
+		Err(_) => crash "Walk: no home there"
+	}
+
 	## Where a critter stands.
 	pt : Crit -> Pt
 	pt = |c| { x: c.x, y: c.y }
@@ -1397,3 +1677,50 @@ expect lay_of([dog(1000, 1000)], [{ slot: 0, x: 1030, y: 1000 }], 14, lone) == {
 ## A critter blocks: a cow on the spot (half 21 px, the poop's 6) leaves
 ## free only ring 28 px, from its north-west corner.
 expect lay_of([dog(1000, 1000), crit(1, 4, 1030, 1000)], [], 14, lone) == { slot: 0, x: 1002 * 256, y: 972 * 256 }
+
+## The forage turn of crits `cs` with poops `ps` (each with its slot) all
+## on tile `t`, each critter's home `away` px west of where it stands.
+turn_of = |cs, ps, t, net, laid, away| {
+	from = List.repeat(0, t + 1).concat(List.repeat(ps.len().to_u16_wrap(), 36 - t))
+	poops = ps.map(|q| { slot: q.slot, x: q.x * 256, y: q.y * 256 })
+	park = park_of(cs)
+	Walk.forage_turn({ from, poops, side: Walk.side }, park, park.crits.map(|c| { x: c.x - away * 256, y: c.y }), [], net, laid)
+}
+
+hen = |x, y| crit(2, 255, x, y)
+
+## A chicken on a ripe poop eats it, but only when the leashed dog moved
+## (`net`): a still dog stills the turn.
+expect turn_of([dog(500, 500), hen(1000, 1000)], [{ slot: 0, x: 1000, y: 1000 }], 14, 0, 2, 0).eaten == []
+expect turn_of([dog(500, 500), hen(1000, 1000)], [{ slot: 0, x: 1000, y: 1000 }], 14, 512, 2, 0).eaten == [0]
+
+## The newest poop (slot `laid` - 1) is never eaten: a hen bound home
+## (100 px west) steps off it, its sidestep tried, and eats nothing.
+expect turn_of([dog(500, 500), hen(1000, 1000)], [{ slot: 1, x: 1000, y: 1000 }], 14, 512, 2, 100).eaten == []
+
+## Its home past the band (32 px): a hen with nothing to eat walks home
+## 1 px (half the dog's 2 px); within the band it stays put.
+expect {
+	r = turn_of([dog(500, 500), hen(1000, 1000)], [], 14, 512, 2, 100)
+	match r.park.crits.get(1) {
+		Ok(c) => Walk.pt(c) == { x: 999 * 256, y: 1000 * 256 }
+		Err(_) => Bool.False
+	}
+}
+expect {
+	r = turn_of([dog(500, 500), hen(1000, 1000)], [], 14, 512, 2, 32)
+	match r.park.crits.get(1) {
+		Ok(c) => Walk.pt(c) == { x: 1000 * 256, y: 1000 * 256 }
+		Err(_) => Bool.False
+	}
+}
+
+## Toward a ripe poop 100 px east: at most half the dog's net move (here
+## 4 px of 8) and at most its step (8 px).
+expect {
+	r = turn_of([dog(500, 500), hen(1000, 1000)], [{ slot: 0, x: 1100, y: 1000 }], 14, 8 * 256, 2, 0)
+	match r.park.crits.get(1) {
+		Ok(c) => Walk.pt(c) == { x: 1004 * 256, y: 1000 * 256 }
+		Err(_) => Bool.False
+	}
+}

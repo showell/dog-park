@@ -25,7 +25,7 @@ zon_share = |sh| ".{ .num = ${sh.num.to_str()}, .den = ${sh.den.to_str()} }"
 zon_sees : Rules.Sees -> Str
 zon_sees = |s| ".{ .gathers = ${zon_gathers(s.gathers)}, .kin = ${zon_rule(s.kin)}, .dog = ${zon_rule(s.dog)}, .cow = ${zon_rule(s.cow)}, .chicken = ${zon_rule(s.chicken)}, .pace = ${zon_share(s.pace)} }"
 
-zon_chickens : Rules.Chickens -> Str
+zon_chickens : Rules.Forage -> Str
 zon_chickens = |c| ".{ .sight = ${c.sight.to_str()}, .step = ${c.step.to_str()}, .pace = ${zon_share(c.pace)}, .home_band = ${c.home_band.to_str()} }"
 
 zon_poop : Rules.Poop -> Str
