@@ -23,7 +23,7 @@ platform ""
 			inputs: [app],
 			output: Archive,
 		},
-		x64elf: {
+		x64v1elf: {
 			inputs: [app],
 			output: Archive,
 		},

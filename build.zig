@@ -98,7 +98,7 @@ pub fn build(b: *std.Build) void {
     });
     metal_app.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
     // The kernel's: x86-64, freestanding (the module takes the kernel's target).
-    linkRoc(roc_lib, metal_app, .x64elf);
+    linkRoc(roc_lib, metal_app, .x64v1elf);
     // **THE KERNEL, BESIDE THIS REPO**: ../zig-metal-unikernel, a path
     // dependency. Zig runs a path dependency's build at every configure,
     // lazy or not (measured: `zig build --help` runs its git and python
@@ -405,8 +405,11 @@ fn pageWasm(b: *std.Build, wasm32: std.Build.ResolvedTarget, optimize: std.built
 }
 
 /// The physics' Roc: an archive for each target the physics compiles for,
-/// built from `roc_inputs` (src/play/roc_physics.zig is its seam).
-const RocTarget = enum { x64musl, wasm32, x64elf };
+/// built from `roc_inputs` (src/play/roc_physics.zig is its seam). The
+/// kernel's is `x64v1elf`, x86-64's baseline: SSE2 and no AVX, which
+/// zig-metal-unikernel enables at boot (its build.zig, `bareTarget`); Roc's
+/// `x64elf` uses AVX, an invalid-opcode fault on metal.
+const RocTarget = enum { x64musl, wasm32, x64v1elf };
 const RocLib = std.EnumArray(RocTarget, std.Build.LazyPath);
 const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/World.roc", "roc/Rules.roc", "roc/platform/main.roc" };
 
@@ -440,7 +443,7 @@ fn linkRoc(lib: RocLib, m: *std.Build.Module, as: ?RocTarget) void {
     const t: RocTarget = as orelse blk: {
         const r = m.resolved_target.?.result;
         if (r.cpu.arch.isWasm()) break :blk .wasm32;
-        if (r.cpu.arch == .x86_64 and r.os.tag == .freestanding) break :blk .x64elf;
+        if (r.cpu.arch == .x86_64 and r.os.tag == .freestanding) break :blk .x64v1elf;
         if (r.cpu.arch == .x86_64) break :blk .x64musl;
         std.process.fatal("the physics' Roc: no archive for {t} (it is built for x86-64 and wasm32)", .{r.cpu.arch});
     };
