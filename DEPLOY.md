@@ -160,6 +160,11 @@ check.
    the image's name. An image built before `/version` existed answers 404;
    check the image's name on the droplet's page instead.
 
+4. Tag the commit served, the next `vN` after the last (`git tag -a vN
+   <commit> -m "..."`, then `git push origin vN`): a release is a tag, as
+   the kernel's are. `v1` is the first image (ab222a2, 2026-10-16), `v2`
+   the one after (5f98101).
+
 The private address stays, so Caddy needs nothing. Accounts and games start
 over.
 
