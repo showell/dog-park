@@ -75,7 +75,7 @@ The Roc is in `roc/`, roughly in the order to read it:
 
 **To change something and see it:**
 
-    zig build roc        # print the world and rules for the Zig, and build the Roc for each target
+    zig build roc        # print the world and rules for the Zig and the page (every build builds the physics' Roc)
     zig build roc-test   # Roc's own expects, and `roc fmt --check roc`
     zig build play       # serve the game on port 9103; open it and drag a dog
 

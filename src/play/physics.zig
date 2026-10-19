@@ -1040,7 +1040,8 @@ fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
 }
 
 /// **THE WALK** (decisions 20-22, 31): out from the leashed dog (seen
-/// index 0), shortest link first, dogs and cows only (a chicken takes its
+/// index 0), shortest link first, the kinds that walk only (roc/Rules.roc's
+/// `walks`: dogs, cows and goats; a chicken takes its
 /// turn after the drag, `chickensTurn`). The leashed dog lines up its
 /// 3 nearest (roc/Walk.roc's `walk_fan`), each waiting keyed by its distance from the critter
 /// that lined it up; the walk visits the least key (ties to the lower

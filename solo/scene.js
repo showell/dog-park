@@ -277,7 +277,7 @@ export function between(was, cur, alpha) {
 }
 
 // Where everything is drawn as it is: no tick under way.
-export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), cows: new Map(), chickens: new Map() } };
+export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), cows: new Map(), chickens: new Map(), others: new Map() } };
 
 // The park near: the tiles on screen (each a square of its shade, its name
 // in its middle), then each poop (a brown dot), each chicken, each cow,
@@ -286,8 +286,8 @@ export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), co
 // ended: a bump turns it red). `dogs`
 // and `cows` in the order they are drawn; `motion` = { alpha, was } (the
 // engine's view: was.viewport a park point, was.dogs, was.cows and
-// was.chickens Maps of
-// them by id), each drawn `between` there and here, the leashed dog too.
+// was.chickens Maps of them by id, was.others by `kind:id`), each drawn
+// `between` there and here, the leashed dog too.
 // Across the seam, each thing is drawn at its copy nearest the viewport's
 // centre, and each tile's copy on screen. `more.labels` ("hidden", or
 // "shown" in the page's debugging mode, "d") says whether a dog's number and
@@ -334,7 +334,8 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
   // its square in its colour (World.roc's `kinds`).
   for (const o of more.others ?? []) {
     const look = kinds.find((k) => k.name === o.kind);
-    out.push(critterShape(`${o.kind}:${o.id}`, onScreen(o), look, look.emoji || undefined, "scenery"));
+    const drawn = between(was.others?.get(`${o.kind}:${o.id}`), o, alpha);
+    out.push(critterShape(`${o.kind}:${o.id}`, onScreen(drawn), look, look.emoji || undefined, "scenery"));
   }
   for (const c of more.chickens) {
     sprite(`chicken:${c.id}`, c, between(was.chickens.get(c.id), c, alpha), chicken_emoji, chicken_px, "scenery");

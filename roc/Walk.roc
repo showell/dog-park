@@ -1,6 +1,7 @@
 ## THE WALK (docs/PHYSICS.md, decisions 20-25, 30), in Roc: one
 ## pixel-tick's, after the leashed dog's step. Out from the leashed dog
-## (seen index 0), shortest link first, dogs and cows only, at most
+## (seen index 0), shortest link first, the kinds that walk only
+## (Rules.roc's `walks`: dogs, cows and goats), at most
 ## `walk_most`: each critter visited wishes (Wish.roc) from the critters in
 ## motion, steps at most its pace of the leashed dog's step, whole or not at
 ## all (the veto, the nudge of its kin, the shove of a chicken), or once

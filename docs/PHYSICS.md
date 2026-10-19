@@ -121,7 +121,7 @@ answer to each kind it sees (keep a distance, herd against the nearest,
 close in, or nothing), and whether it sums every answer or takes its
 nearest moving critter's alone.
 - **A dog** keeps `wary` (158 px) from each moving dog of another breed,
-  `cow_room` (63 px) from each moving cow, and its place in the herd: its
+  63 px from each moving cow, and its place in the herd: its
   **anchor** is the nearest moving dog of its own breed (the leashed dog
   leads its breed). Past the band's outer edge (70 px) it wants to close
   the excess; inside the inner edge (42 px) to open the shortfall; in the
@@ -132,8 +132,8 @@ nearest moving critter's alone.
   keeps `wary` from it (decision 24). Cows are, in effect, a slower breed
   that follows its nearest kin instead of the leashed dog.
 - **A goat** heeds only its nearest moving critter too, and is bold: a
-  dog within 120 px, it closes the gap to touching (a dog keeps
-  `cow_room`, 63 px, from a moving goat, as from a cow, so a goat that
+  dog within 120 px, it closes the gap to touching (a dog keeps 63 px
+  from a moving goat, as from a cow, so a goat that
   reaches the herd pushes dogs about); a goat, it herds against it, 35 to
   120 px off. It heeds no cow, and no cow or chicken heeds it.
 
@@ -248,8 +248,8 @@ constants in `physics.zig`.
 | herd band | 42 to 70 px |
 | a dog's room from a cow | 63 px |
 | a cow closes on its nearest moving cow | to touching, only within `cow_pull` 245 px |
-| a goat closes on its nearest moving dog | to touching, only within 120 px |
-| a goat's band from its nearest moving goat | 35 to 120 px |
+| a goat whose nearest moving critter is a dog closes on it | to touching, only within 120 px |
+| a goat whose nearest moving critter is a goat herds against it | 35 to 120 px |
 | a dog's room from a goat | 63 px |
 | the nudge | `nudge_most` 8 critters, kin only |
 | dead zone | 1 px |

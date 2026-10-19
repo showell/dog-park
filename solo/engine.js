@@ -109,6 +109,9 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   let wasDogs = new Map();
   let wasCows = new Map();
   let wasChickens = new Map();
+  // The others by `kind:id`, as they stood a tick ago.
+  let wasOthers = new Map();
+  const byKey = (os) => new Map(os.map((o) => [`${o.kind}:${o.id}`, o]));
   const wasViewport = { parkX: 0, parkY: 0 };
   let lastLeashed = { kind: "none" };
 
@@ -325,6 +328,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     wasDogs = dogs;
     wasCows = cows;
     wasChickens = chickens;
+    wasOthers = byKey(others);
     if (status.kind !== "playing") return;
     if (cursor < record.length) {
       resume();
@@ -455,6 +459,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
       wasDogs = dogs;
       wasCows = cows;
       wasChickens = chickens;
+      wasOthers = byKey(others);
     }
   }
 
@@ -838,7 +843,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
         lastLeashed: { ...lastLeashed },
         tick: lastTick(),
         alpha,
-        was: { viewport: { ...wasViewport }, dogs: points(wasDogs), cows: points(wasCows), chickens: points(wasChickens) },
+        was: { viewport: { ...wasViewport }, dogs: points(wasDogs), cows: points(wasCows), chickens: points(wasChickens), others: points(wasOthers) },
         status: { ...status },
         // Seconds until the turn may be ours, while another player holds it.
         waitingS: waiting === null ? null : Math.max(0, Math.ceil((waiting.untilMs - now()) / 1000)),
