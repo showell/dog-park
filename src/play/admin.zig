@@ -278,9 +278,9 @@ pub fn game(req: *Request, io: Io, alloc: Alloc, v: View) !void {
         });
         const herd = largestHerd(&k.board);
         try b.print(alloc, "<tr><td>{d}</td><td>{s}</td><td>{s}</td><td>{d}</td><td>{d}</td><td{s}>{d} of {d}</td><td>{d}</td><td>{s}</td><td{s}>{s}</td></tr>", .{
-            slot,                                  ago,                          leash,                      k.tick, g.epoch,
-            if (herd == physics.cow_count) " class=\"bad\"" else "", herd, physics.cow_count, poops,
-            try html.htmlEscape(alloc, logs),     if (f.overlaps > 0 or g.stuck != null) " class=\"bad\"" else "", try html.htmlEscape(alloc, findings),
+            slot,                                                            ago,                                  leash,             k.tick, g.epoch,
+            if (herd == physics.cow_count) " class=\"bad\"" else "",         herd,                                 physics.cow_count, poops,  try html.htmlEscape(alloc, logs),
+            if (f.overlaps > 0 or g.stuck != null) " class=\"bad\"" else "", try html.htmlEscape(alloc, findings),
         });
     }
     try b.appendSlice(alloc, "</table>\n");
