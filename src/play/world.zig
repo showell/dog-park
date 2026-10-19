@@ -22,6 +22,9 @@ pub const World = struct {
     sizes: struct { dog_px: u16, cow_px: u16, chicken_px: u16, poop_px: u16 },
     /// Dog n is of breed n mod `breeds`.
     breeds: u8,
+    /// The critters are kept by cells, a tile cut `cell_per_tile` ways on
+    /// each axis.
+    cell_per_tile: u8,
     /// Each kind in its own numbering: dog n is `dogs[n]`. A chicken's spot
     /// is its home too (docs/PHYSICS.md, "Poop and chickens").
     dogs: []const Spot,

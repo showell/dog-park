@@ -89,6 +89,16 @@ Rules := [].{
 	poop : Poop
 	poop = { every: 700, back: 30, reach: 200, grid: 4, slots: 2048 }
 
+	## THE WALK'S LIMITS (decisions 20, 25): one pixel-tick's walk visits
+	## at most `most` critters; one step moves at most `nudge_most` together
+	## (the stepper and the kin it nudges) and shoves at most as many
+	## chickens; a wish shorter than `dead_zone` pixels is no step. The
+	## physics' Zig sizes its walk's room by these (rules.zon).
+	Limits : { most : I64, nudge_most : I64, dead_zone : I64 }
+
+	limits : Limits
+	limits = { most: 48, nudge_most: 8, dead_zone: 1 }
+
 	## The physics counts poops laid in 32 bits and takes slots in turn, so the
 	## slots are a power of two (the count's wrap keeps their order).
 	is_power_of_two : I64 -> Bool

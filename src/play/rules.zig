@@ -45,8 +45,13 @@ pub const Chickens = struct { sight: u16, step: u16, pace: Share, home_band: u16
 /// `reach`; the park keeps `slots` of them.
 pub const Poop = struct { every: u16, back: u16, reach: u16, grid: u16, slots: u16 };
 
+/// **THE WALK'S LIMITS** (decisions 20, 25): one pixel-tick's walk visits at
+/// most `most` critters; one step moves at most `nudge_most` together and
+/// shoves at most as many chickens; a wish under `dead_zone` px is no step.
+pub const Limits = struct { most: u16, nudge_most: u16, dead_zone: u16 };
+
 /// A dog's and a cow's answers (a chicken is never in the walk), the
-/// chickens' turn and the poop.
-pub const Rules = struct { dog: Sees, cow: Sees, chickens: Chickens, poop: Poop };
+/// chickens' turn, the poop and the walk's limits.
+pub const Rules = struct { dog: Sees, cow: Sees, chickens: Chickens, poop: Poop, limits: Limits };
 
 pub const rules: Rules = @import("rules.zon");

@@ -30,6 +30,8 @@ poop_px = World.poop_px
 
 breeds = World.breeds
 
+cell_per_tile = World.cell_per_tile
+
 corner_in = World.corner_in
 
 chicken_off = World.chicken_off
@@ -168,6 +170,7 @@ zon =
 	\\    .park = .{ .first = ${park_first.to_str()}, .tiles = ${park_tiles.to_str()} },
 	\\    .sizes = .{ .dog_px = ${dog_px.to_str()}, .cow_px = ${cow_px.to_str()}, .chicken_px = ${chicken_px.to_str()}, .poop_px = ${poop_px.to_str()} },
 	\\    .breeds = ${breeds.to_str()},
+	\\    .cell_per_tile = ${cell_per_tile.to_str()},
 	\\    .dogs = .{
 	\\${points(Dog)}    },
 	\\    .cows = .{

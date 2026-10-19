@@ -31,6 +31,9 @@ zon_chickens = |c| ".{ .sight = ${c.sight.to_str()}, .step = ${c.step.to_str()},
 zon_poop : Rules.Poop -> Str
 zon_poop = |p| ".{ .every = ${p.every.to_str()}, .back = ${p.back.to_str()}, .reach = ${p.reach.to_str()}, .grid = ${p.grid.to_str()}, .slots = ${p.slots.to_str()} }"
 
+zon_limits : Rules.Limits -> Str
+zon_limits = |l| ".{ .most = ${l.most.to_str()}, .nudge_most = ${l.nudge_most.to_str()}, .dead_zone = ${l.dead_zone.to_str()} }"
+
 zon : Str
 zon =
 	\\// THE RULES, printed by roc/rules.roc (`zig build roc`): do not edit;
@@ -40,6 +43,7 @@ zon =
 	\\    .cow = ${zon_sees(Rules.cow)},
 	\\    .chickens = ${zon_chickens(Rules.chickens)},
 	\\    .poop = ${zon_poop(Rules.poop)},
+	\\    .limits = ${zon_limits(Rules.limits)},
 	\\}
 	\\
 

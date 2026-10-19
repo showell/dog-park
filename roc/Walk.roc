@@ -72,7 +72,7 @@ Walk := [].{
 	## (src/play/physics.zig's `Scene.seen_cells`), and says how many a
 	## side it keeps (`Lent`), which the walk checks.
 	cell_per_tile : I32
-	cell_per_tile = 2
+	cell_per_tile = World.cell_per_tile.to_i32_wrap()
 
 	side : I32
 	side = tiles * cell_per_tile
@@ -108,7 +108,7 @@ Walk := [].{
 	Walked : { anchor : I32, pooper : I32, work : Work }
 
 	walk_most : U64
-	walk_most = 48
+	walk_most = Rules.limits.most.to_u64_wrap()
 
 	## How many each visited critter lines up: three (`Three`).
 	walk_fan : U64
@@ -117,11 +117,11 @@ Walk := [].{
 	## The most critters one step moves together, the stepper and the kin
 	## it nudges; and the most chickens it shoves. Each a lane of a `Lanes`.
 	nudge_most : U64
-	nudge_most = 8
+	nudge_most = Rules.limits.nudge_most.to_u64_wrap()
 
-	## A wish shorter than this is no step: a pixel.
+	## A wish shorter than this is no step (Rules.roc's, in 256ths).
 	dead_zone : I32
-	dead_zone = 256
+	dead_zone = (Rules.limits.dead_zone * 256).to_i32_wrap()
 
 	## The walk after the leashed dog's step of size `most`.
 	walk : Lent, Work, I32 -> Walked

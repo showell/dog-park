@@ -77,7 +77,7 @@ pub const dog_half: i32 = px(dog_px / 2);
 pub const cow_half: i32 = px(cow_px / 2);
 pub const chicken_half: i32 = px(chicken_px / 2);
 /// A wish shorter than this is no step.
-pub const dead_zone: i32 = px(1);
+pub const dead_zone: i32 = px(rules.rules.limits.dead_zone);
 /// **THE RULES' DISTANCES**, by the names the docs and tests use: the
 /// rules' (rules.zig, which roc/Rules.roc says), which the wish applies.
 /// A dog keeps `wary` from a moving dog of another breed; a cow from any
@@ -100,10 +100,10 @@ pub const breeds: comptime_int = world_file.breeds;
 /// **THE WALK**: the most critters a pixel-tick moves, the leashed dog
 /// aside: roc/Walk.roc's `walk_most`, which the room the physics lends the
 /// walk is sized by (a walk that needed more would be a panic, `roc_alloc`).
-pub const walk_most = 48;
+pub const walk_most = rules.rules.limits.most;
 /// **THE NUDGE**: the most critters one step moves together, the stepper
 /// and the kin it nudges (decision 25).
-pub const nudge_most = 8;
+pub const nudge_most = rules.rules.limits.nudge_most;
 /// **POOP** (decision 29): the herd poops each time the leashed
 /// dog has walked another `poop_every` (each step counted by its larger
 /// axis): the deepest dog of its breed in that pixel-tick's walk, `poop_back`
@@ -914,7 +914,7 @@ pub const SeenSet = std.StaticBitSet(critter_count);
 
 /// **A CELL OF THE SEEN CRITTERS' BUCKETS**: a tile cut `cell_per_tile`
 /// ways on each axis, a side a few critters wide.
-pub const cell_per_tile = 2;
+pub const cell_per_tile = world_file.cell_per_tile;
 pub const cell: i32 = @divExact(tile, cell_per_tile);
 pub const span_cells: usize = span_tiles * cell_per_tile;
 

@@ -34,6 +34,11 @@ World := [].{
 	poop_px : I64
 	poop_px = 12
 
+	## The critters are kept by cells: a tile cut `cell_per_tile` ways on
+	## each axis (the physics' `Scene` and the walk both).
+	cell_per_tile : I64
+	cell_per_tile = 2
+
 	## Dog n is of breed n mod `breeds`, and stands in its tile's corner of
 	## that number: so there are as many breeds as a tile has corners.
 	breeds : I64
