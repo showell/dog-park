@@ -61,7 +61,13 @@ Walk := [].{
 	poop_half = (World.poop_px // 2 * 256).to_i32_wrap()
 
 	biggest_half : I32
-	biggest_half = (larger(larger(World.dog_px, World.cow_px), World.chicken_px) // 2 * 256).to_i32_wrap()
+	biggest_half = {
+		var $most = 0
+		for k in World.kinds {
+			$most = larger($most, k.px)
+		}
+		($most // 2 * 256).to_i32_wrap()
+	}
 
 	larger : I64, I64 -> I64
 	larger = |a, b| if (a > b) a else b
@@ -619,7 +625,7 @@ Walk := [].{
 							while $bits != 0 {
 								j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 								o = get_c(crits, j)
-								if o.key != visited and Wish.kind_of(o.kind) != Chicken {
+								if o.key != visited and Wish.walks(o.kind) {
 									$t = nearer($t, measure(delta(pt(o), p)), j.to_i64_wrap())
 								} else {
 									{}

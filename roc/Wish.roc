@@ -94,6 +94,11 @@ Wish := [].{
 	start : State
 	start = { a_ax: 0, a_ay: 0, a_tx: 0, a_ty: 0, anchor: -1, anchor_d: 0, b_ax: 0, b_ay: 0, b_d: -1, b_half: 0, b_j: 0, b_kin: Bool.False, b_kind: 0, b_tx: 0, b_ty: 0, inner: 0, outer: 0, x: 0, y: 0 }
 
+	## Whether a kind takes part in the walk: one that moves in it (Rules.roc's
+	## `mover`); one never in motion there is never lined up.
+	walks : U8 -> Bool
+	walks = |kind| Rules.walks(kind_of(kind))
+
 	## How a wisher of kind `kind` moves (Rules.roc's `mover`). A kind never
 	## in motion in the walk never wishes.
 	mover_of : U8 -> Rules.Mover

@@ -54,6 +54,16 @@ Rules := [].{
 		Chicken => Still
 	}
 
+	## Whether a kind moves in the walk (`mover` says how), as a match of its
+	## own: the walk asks it of every critter it lines up, and a record built
+	## there costs (docs/ROC-SPEED.md).
+	walks : Kind -> Bool
+	walks = |kind| match kind {
+		Dog => Bool.True
+		Cow => Bool.True
+		Chicken => Bool.False
+	}
+
 	## **THE RULES BY PAIR OF KINDS**: the answer of a moving critter of kind
 	## `wisher` to one of kind `seen` it sees moving, `kin` when the two are
 	## kin (World.roc's `kin`: a dog of its own breed; every cow to every
@@ -129,6 +139,14 @@ Rules := [].{
 expect Rules.is_power_of_two(Rules.poop.slots) and Rules.poop.slots <= 65536
 expect Rules.poop.grid > 0 and Rules.poop.reach % Rules.poop.grid == 0
 expect Rules.chickens.pace.den > 0
+expect [Dog, Cow, Chicken].map(
+	|k| Rules.walks(k) == (
+		match Rules.mover(k) {
+			Moves(_) => Bool.True
+			Still => Bool.False
+		}
+	),
+) == [Bool.True, Bool.True, Bool.True]
 expect [Dog, Cow, Chicken].map(
 	|k| match Rules.mover(k) {
 		Moves(m) => m.pace.den > 0
