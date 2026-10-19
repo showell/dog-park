@@ -49,7 +49,7 @@
 //   engine.debug()        the protocol's state, for tests and the console
 
 import { LIVE, KEPT, SCRATCH, flag } from "./physics.js";
-import { tileKey, subscription, world_px, most_tiles, wrappedPoint, offset, dog_looks } from "./scene.js";
+import { tileKey, subscription, world_px, most_tiles, wrappedPoint, offset, dog_looks, kinds, drawn_kinds } from "./scene.js";
 import { edgeScroll } from "./pointer.js";
 import { bumpedKind } from "./quips.js";
 
@@ -103,6 +103,9 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   let cows = new Map();
   let chickens = new Map();
   let poops = [];
+  // Every critter of a kind the page has no art for (a kind World.roc adds
+  // before the page knows it): { kind, id, parkX, parkY }.
+  let others = [];
   let wasDogs = new Map();
   let wasCows = new Map();
   let wasChickens = new Map();
@@ -447,6 +450,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     cows = new Map(c.cows.map((d) => [d.id, { id: d.id, parkX: px(d.x), parkY: px(d.y) }]));
     chickens = new Map(c.chickens.map((d) => [d.id, { id: d.id, parkX: px(d.x), parkY: px(d.y) }]));
     poops = c.poops.map((d) => ({ id: d.id, parkX: px(d.x), parkY: px(d.y) }));
+    others = kinds.filter((k) => !drawn_kinds.includes(k.name)).flatMap((k) => c[`${k.name}s`].map((d) => ({ kind: k.name, id: d.id, parkX: px(d.x), parkY: px(d.y) })));
     if (snap) {
       wasDogs = dogs;
       wasCows = cows;
@@ -828,6 +832,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
         cows: [...cows.values()].map((c) => ({ ...c })),
         chickens: [...chickens.values()].map((c) => ({ ...c })),
         poops: poops.map((p) => ({ ...p })),
+        others: others.map((o) => ({ ...o })),
         subscribed: new Set(view.tiles.keys()),
         leashed,
         lastLeashed: { ...lastLeashed },

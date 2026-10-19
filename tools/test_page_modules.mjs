@@ -119,6 +119,15 @@ test("a critter with art is its glyph; a kind with none, a square of its colour,
   for (const k of scene.kinds) assert.match(k.colour, /^#[0-9a-f]{6}$/);
 });
 
+test("a critter of a kind the page has no art for is drawn as its kind's square, where it stands", () => {
+  const viewport = { parkX: 0, parkY: 0, width: 800, height: 600 };
+  const goats = [{ kind: scene.kinds[1].name, id: 4, parkX: 300, parkY: 200 }];
+  const objects = scene.nearScene(viewport, [], [], { kind: "none" }, scene.still, new Map(), { chickens: [], poops: [], others: goats, labels: "hidden" });
+  const square = objects.find((o) => o.id === `${goats[0].kind}:4`);
+  assert.deepEqual(square, { id: `${goats[0].kind}:4`, shape: "rect", x: 300 - scene.kinds[1].px / 2, y: 200 - scene.kinds[1].px / 2, w: scene.kinds[1].px, h: scene.kinds[1].px, fill: scene.kinds[1].colour, role: "scenery" });
+  assert.deepEqual(scene.drawn_kinds, ["dog", "cow", "chicken"]);
+});
+
 test("the overview frame: the whole world once, a square window as large as fits, its top-left anywhere round the torus", () => {
   const W = scene.world_px;
   // 1040 x 700: a 660 px square, centred across: the world at 660 / W.

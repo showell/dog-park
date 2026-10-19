@@ -13,6 +13,9 @@
 import { dog_px, cow_px, chicken_px, poop_px, breeds, kinds } from "./world.js";
 export { dog_px, cow_px, chicken_px, poop_px, breeds, kinds };
 export const cow_emoji = "🐄";
+// The kinds the page draws with art (and plays with by name); any other
+// kind World.roc says is drawn as its square (`critterShape`).
+export const drawn_kinds = ["dog", "cow", "chicken"];
 // Full-bodied.
 export const chicken_emoji = "🐓";
 // A dog's poop: a little brown circle, under every critter.
@@ -298,7 +301,7 @@ export function critterShape(id, at, look, emoji, role) {
   return { id, shape: "rect", x: at.viewportX - look.px / 2, y: at.viewportY - look.px / 2, w: look.px, h: look.px, fill: look.colour, role };
 }
 
-export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map(), more = { chickens: [], poops: [], labels: "hidden" }) {
+export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map(), more = { chickens: [], poops: [], others: [], labels: "hidden" }) {
   const { alpha, was } = motion;
   const viewport = { ...viewportNow, ...between(was.viewport, viewportNow, alpha) };
   const out = [];
@@ -325,6 +328,11 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
   for (const p of more.poops) {
     const at = onScreen(p);
     out.push({ id: `poop:${p.id}`, shape: "dot", x: at.viewportX, y: at.viewportY, w: poop_px, h: poop_px, fill: poop_fill, role: "scenery" });
+  }
+  // A kind with no art: its square, in its colour (World.roc's `kinds`).
+  for (const o of more.others ?? []) {
+    const look = kinds.find((k) => k.name === o.kind);
+    out.push(critterShape(`${o.kind}:${o.id}`, onScreen(o), look, undefined, "scenery"));
   }
   for (const c of more.chickens) {
     sprite(`chicken:${c.id}`, c, between(was.chickens.get(c.id), c, alpha), chicken_emoji, chicken_px, "scenery");
