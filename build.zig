@@ -322,6 +322,18 @@ pub fn build(b: *std.Build) void {
         roc_write.addCopyFileToSource(archive, b.fmt("roc/lib/physics-{t}.a", .{t}));
     }
     b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js, and build the physics' Roc into roc/lib/ (needs roc; -Droc=<path>)").dependOn(&roc_write.step);
+    // **A FOURTH KIND, IN ROC ALONE** (metal-vmm QUEUE 240): a copy of this
+    // repository with test/fourth_kind/goat.patch (roc/*.roc only) applied,
+    // its world and rules printed and its archives built there by `zig
+    // build roc`, and src/play/fourth_kind_test.zig run against the same
+    // Zig (tools/fourth_kind.sh). The test alone, in this world, steps
+    // aside: it has no goats.
+    const fourth_test = b.step("fourth-kind-test", "The fourth kind's test against this checkout's world (it steps aside without a goat; zig build fourth-kind makes one)");
+    fourth_test.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = units.module("src/play/fourth_kind_test.zig", target, optimize, fuzz) })).step);
+    const fourth = b.addSystemCommand(&.{ "sh", "tools/fourth_kind.sh", roc });
+    fourth.setCwd(b.path("."));
+    fourth.has_side_effects = true;
+    b.step("fourth-kind", "A fourth kind made in Roc alone: goat.patch on a copy, its world built, the same Zig judged with it (needs roc; -Droc=<path>)").dependOn(&fourth.step);
     // Roc's own tests of the world, the rules, the wish and the walk
     // (`expect`s).
     const roc_test_step = b.step("roc-test", "Roc's own tests: roc/world.roc, roc/Rules.roc, roc/Wish.roc and roc/Walk.roc's expects (needs roc; -Droc=<path>)");

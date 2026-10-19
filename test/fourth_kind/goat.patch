@@ -1,0 +1,130 @@
+diff --git a/roc/Rules.roc b/roc/Rules.roc
+index f57e47c..c21b69a 100644
+--- a/roc/Rules.roc
++++ b/roc/Rules.roc
+@@ -32,7 +32,7 @@ Rules := [].{
+ 
+ 	## The kinds, by the tags the rules name them with: World.roc's `kinds`,
+ 	## in its order (Wish.roc's `kind_of` numbers them so).
+-	Kind : [Dog, Cow, Chicken]
++	Kind : [Dog, Cow, Chicken, Goat]
+ 
+ 	## A dog keeps this from a moving dog of another breed; a cow from any
+ 	## moving dog.
+@@ -52,6 +52,7 @@ Rules := [].{
+ 		Dog => Moves({ gathers: Each, pace: { num: 1, den: 1 } })
+ 		Cow => Moves({ gathers: Nearest, pace: { num: 1, den: 2 } })
+ 		Chicken => Still
++		Goat => Moves({ gathers: Each, pace: { num: 1, den: 2 } })
+ 	}
+ 
+ 	## Whether a kind moves in the walk (`mover` says how), as a match of its
+@@ -62,6 +63,7 @@ Rules := [].{
+ 		Dog => Bool.True
+ 		Cow => Bool.True
+ 		Chicken => Bool.False
++		Goat => Bool.True
+ 	}
+ 
+ 	## **THE RULES BY PAIR OF KINDS**: the answer of a moving critter of kind
+@@ -89,6 +91,13 @@ Rules := [].{
+ 		(Chicken, Dog) => Ignore
+ 		(Chicken, Cow) => Ignore
+ 		(Chicken, Chicken) => Ignore
++		(Dog, Goat) => Keep(63)
++		(Cow, Goat) => Ignore
++		(Chicken, Goat) => Ignore
++		(Goat, Dog) => Keep(wary)
++		(Goat, Cow) => Ignore
++		(Goat, Chicken) => Ignore
++		(Goat, Goat) => Herd({ inner: 40, outer: 90 })
+ 	}
+ 
+ 	## **THE FORAGE** (decision 31), a behaviour a kind may have (Wish.roc's
+diff --git a/roc/Wish.roc b/roc/Wish.roc
+index 08beb27..2364c65 100644
+--- a/roc/Wish.roc
++++ b/roc/Wish.roc
+@@ -35,6 +35,7 @@ Wish := [].{
+ 		Dog => Stays
+ 		Cow => Stays
+ 		Chicken => Forages(Rules.chickens)
++		Goat => Stays
+ 	}
+ 
+ 	kind_of : U8 -> Kind
+@@ -42,6 +43,7 @@ Wish := [].{
+ 		0 => Dog
+ 		1 => Cow
+ 		2 => Chicken
++		3 => Goat
+ 		_ => crash "a kind physics.zig's Kind does not number"
+ 	}
+ 
+diff --git a/roc/World.roc b/roc/World.roc
+index 81ef51e..837e029 100644
+--- a/roc/World.roc
++++ b/roc/World.roc
+@@ -54,6 +54,7 @@ World := [].{
+ 		{ name: "dog", px: dog_px, colour: "#a0522d", rank: 1, kin: Breed, leash: Bool.True },
+ 		{ name: "cow", px: cow_px, colour: "#555555", rank: 0, kin: Herd, leash: Bool.False },
+ 		{ name: "chicken", px: chicken_px, colour: "#d4a017", rank: 2, kin: NoKin, leash: Bool.False },
++		{ name: "goat", px: 30, colour: "#8a8a8a", rank: 3, kin: Herd, leash: Bool.False },
+ 	]
+ 
+ 	## The critters are kept by cells: a tile cut `cell_per_tile` ways on
+diff --git a/roc/world.roc b/roc/world.roc
+index 9504f57..738be36 100644
+--- a/roc/world.roc
++++ b/roc/world.roc
+@@ -48,7 +48,7 @@ expect breeds == 4
+ px : I64 -> I64
+ px = |n| n * 256
+ 
+-Kind : [Dog, Cow, Chicken]
++Kind : [Dog, Cow, Chicken, Goat]
+ 
+ Spot : { kind : Kind, x : I64, y : I64 }
+ 
+@@ -65,6 +65,7 @@ tile_spots = |col, row| {
+ 		{ kind: Dog, x: far, y: corner_in },
+ 		{ kind: Dog, x: corner_in, y: far },
+ 		{ kind: Dog, x: far, y: far },
++		{ kind: Goat, x: mid, y: corner_in },
+ 	]
+ 	if (col + row) % 2 == 0 {
+ 		dogs.concat([{ kind: Cow, x: mid, y: mid }])
+@@ -111,6 +112,7 @@ half = |kind| match kind {
+ 	Dog => dog_px // 2
+ 	Cow => cow_px // 2
+ 	Chicken => chicken_px // 2
++	Goat => 15
+ }
+ 
+ ## The short way between two coordinates round the torus, its length.
+@@ -160,6 +162,8 @@ tag_of = |name| {
+ 		Cow
+ 	} else if name == "chicken" {
+ 		Chicken
++	} else if name == "goat" {
++		Goat
+ 	} else {
+ 		crash "world.roc: a kind World.kinds names that the park does not lay out"
+ 	}
+@@ -196,6 +200,7 @@ expect {
+ 		Dog => "dog"
+ 		Cow => "cow"
+ 		Chicken => "chicken"
++		Goat => "goat"
+ 	}
+ 	var $names = []
+ 	var $n = 0
+@@ -210,7 +215,7 @@ expect {
+ expect World.kinds.keep_if(|k| k.leash).len() == 1
+ expect World.kinds.map(|k| k.rank).len() == World.kinds.len() and World.kinds.keep_if(|k| k.rank < 0 or k.rank >= World.kinds.len().to_i64_wrap()).len() == 0
+ 
+-expect World.kinds.len() == 3
++expect World.kinds.len() == 4
+ expect half(Dog) * 2 == dog_px and half(Cow) * 2 == cow_px and half(Chicken) * 2 == chicken_px
+ expect !no_overlap([{ kind: Dog, x: 10, y: 10 }, { kind: Cow, x: 40, y: 30 }])
+ 

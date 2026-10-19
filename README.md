@@ -94,11 +94,22 @@ length, with every pixel-tick of the Roc checked against a plain Zig
 reference that shares none of its code (`src/play/walk_reference.zig`),
 stopping at the first difference; about 11 s once compiled.
 
-**What isn't Roc yet.** A new *kind* of critter still needs Zig changes
-today (the board and the page know the three kinds by name); work is under
-way so that a new kind is made in Roc alone. The chickens' turn and where
-a poop lands are next to move. The rules [docs/PHYSICS.md](docs/PHYSICS.md)
-gives in full are the spec either way.
+**A new kind of critter is Roc's alone.** The Zig names no kind: its kinds,
+their sizes, ranks, kin and who is leashed are `roc/World.roc`'s `kinds`,
+and their moves and answers to each other are `roc/Rules.roc`'s `mover` and
+`rule`, by pair of kinds. To add one, say it in World.roc (a name, a size, a
+colour, a rank, its kin), lay it out in `roc/world.roc`, give it its tag,
+its number (`roc/Wish.roc`'s `kind_of`) and its pairs (the compiler lists
+the ones missing), and run `zig build roc`. The page draws a kind it has
+no art for as a square of its colour. `zig build fourth-kind` proves it:
+`test/fourth_kind/goat.patch` adds goats touching nothing but `roc/*.roc`,
+and the same Zig, byte for byte, plays them (`src/play/fourth_kind_test.zig`
+and the walk's judge).
+
+**What isn't Roc yet.** The board's lookup tables (its cells and its poops
+by tile) and placing and eating a poop, and the independent checks
+(`overlaps`, `onPoops`, the walk's judge), are Zig. The rules
+[docs/PHYSICS.md](docs/PHYSICS.md) gives in full are the spec either way.
 
 ## How it works
 
