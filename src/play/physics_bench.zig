@@ -197,13 +197,14 @@ fn shifted(b: Board, by: i32) Board {
     return out;
 }
 
-/// **EVERY LINE OF MANY TICKS**, for a diff:
+/// **EVERY LINE OF MANY TICKS**, for a diff (`uneven`, in 256ths, is added
+/// to the strewn drag's steps: 0 for `lines`, a remainder for `judge`):
 /// - each dog of the laid-out park leashed in turn, one full drag, on the
 ///   park as laid out and on the park moved across the world's seam;
 /// - the busiest spot strewn with poop, 96 ticks of a drag that turns,
 ///   each tick from the last (poops laid, eaten, slots reused);
 /// - the packed herd's full drag; the busiest spot's 8-tick report.
-fn printLines(io: std.Io, full: physics.Capped) !void {
+fn printLines(io: std.Io, full: physics.Capped, uneven: i32) !void {
     var buf: [1 << 16]u8 = undefined;
     var ow = std.Io.File.stdout().writer(io, &buf);
     const out = &ow.interface;
@@ -231,7 +232,7 @@ fn printLines(io: std.Io, full: physics.Capped) !void {
     var t: physics.Tick = 1;
     while (t <= 96) : (t += 1) {
         const turn: i32 = @intCast(t % 12);
-        const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(10 * (turn - 6)), .dy = physics.px(if (t % 24 < 12) 40 else -40) }});
+        const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(10 * (turn - 6)) + uneven, .dy = physics.px(if (t % 24 < 12) 40 else -40) - uneven }});
         const humans: []const physics.Human = if (strewn.hold == .leashed and strewn.hold.leashed.drag != .on) &.{.grab} else &.{};
         if (strewn.hold == .none) strewn.hold = .{ .leashed = .{ .dog = spot.dog, .drag = .on } };
         _ = physics.tick(&strewn, t, humans, drag.slice(), &lines);
@@ -256,6 +257,16 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const full = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = physics.cap }});
     const args = try init.minimal.args.toSlice(init.arena.allocator());
+    // **FOR THE WALK'S JUDGE** (`-- judge`, `zig build walk-judge`): the
+    // `lines` workload, then again under a drag of uneven length, so each
+    // pixel-tick's step has a remainder and critters stand between pixels:
+    // the leashed dog then sweeps part of a step and slides the rest, which
+    // whole-pixel drags never do.
+    if (args.len > 1 and std.mem.eql(u8, args[1], "judge")) {
+        try printLines(io, full, 0);
+        const uneven = physics.mergeAndCap(&.{.{ .dx = physics.cap - 77, .dy = -(physics.cap - 133) }});
+        return printLines(io, uneven, 77);
+    }
     // **FOR A PROFILER** (`-- herd`): the packed herd's full drag, 20 runs,
     // nothing else, so a profile is that tick's.
     if (args.len > 1 and std.mem.eql(u8, args[1], "herd")) {
@@ -300,7 +311,7 @@ pub fn main(init: std.process.Init) !void {
     // `-- lines`: every line of many ticks, in the wire's text, for a
     // before-and-after diff of a change that must not change what the
     // physics does (metal-vmm QUEUE 210).
-    if (args.len > 1 and std.mem.eql(u8, args[1], "lines")) return printLines(io, full);
+    if (args.len > 1 and std.mem.eql(u8, args[1], "lines")) return printLines(io, full, 0);
     if (args.len > 1 and std.mem.eql(u8, args[1], "rerun")) {
         var report: [65536]u8 = undefined;
         var w: wire.Text = .{ .buf = &report };

@@ -254,8 +254,9 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| physics_bench_run.addArgs(args);
     b.step("physics-bench", "Time a physics tick natively (ReleaseSafe); -- herd, busiest, strewn or rerun: that one alone, for a profiler").dependOn(&physics_bench_run.step);
 
-    // **THE WALK'S JUDGE**: the bench's `-- lines` (every dog leashed in turn
-    // on two parks, the strewn drag, the packed herd) with every walk judged
+    // **THE WALK'S JUDGE**: the bench's `-- judge` (its `lines` workload:
+    // every dog leashed in turn on two parks, the strewn drag, the packed
+    // herd; then again under a drag of uneven length) with every walk judged
     // against walk_reference.zig; its output discarded, it passes only if
     // nothing differed (a difference panics).
     const judged_bench = b.addExecutable(.{ .name = "physics_bench_judged", .root_module = b.createModule(.{
@@ -266,7 +267,7 @@ pub fn build(b: *std.Build) void {
     }) });
     linkRoc(b, judged_bench.root_module, null);
     const judged_run = b.addRunArtifact(judged_bench);
-    judged_run.addArg("lines");
+    judged_run.addArg("judge");
     _ = judged_run.captureStdOut(.{});
     judged_run.expectExitCode(0);
     b.step("walk-judge", "Run the bench's `-- lines` with every Roc walk judged against the plain Zig reference (src/play/walk_reference.zig)").dependOn(&judged_run.step);
