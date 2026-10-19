@@ -852,7 +852,10 @@ pub const Scene = struct {
         return s.at[i];
     }
 
-    /// Seen critter `i` to `to`, wrapped into the world.
+    /// Seen critter `i` to `to`, wrapped into the world. After a walk
+    /// (`takeCrits`) Roc has already moved its bit in the lent cells, so
+    /// the grid's `move` sets what is set and clears what is clear, and
+    /// brings `cell_of` up to date.
     pub fn put(s: *Scene, i: usize, to: Point) void {
         const p = wrapped(to);
         s.at[i] = p;
