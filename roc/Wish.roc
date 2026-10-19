@@ -9,8 +9,8 @@ import Rules
 
 Wish := [].{
 
-	## One moving critter the wisher sees. `kind`: 0 a dog, 1 a cow, 2 a
-	## chicken (physics.zig's `Kind`); `kin`: a dog of the wisher's own
+	## One moving critter the wisher sees. `kind`: its `Kind` as physics.zig
+	## numbers it (`kind_of` names it); `kin`: a dog of the wisher's own
 	## breed, and the wisher a dog; `j`: its seen index, for ties (to the
 	## lower); `half`: its square's half side; `ax, ay`: from it to the
 	## wisher (away), `tx, ty`: from the wisher to it (toward). The two are
@@ -19,6 +19,19 @@ Wish := [].{
 
 	## The wisher: its kind, as `Near`'s, and its square's half side.
 	Me : { half : I32, kind : U8 }
+
+	## A critter's kind. It crosses from the host as physics.zig's `Kind`
+	## numbers it, and is named here, once: every rule by kind is a `match`,
+	## so a kind added is one the compiler shows every rule missing.
+	Kind : [Dog, Cow, Chicken]
+
+	kind_of : U8 -> Kind
+	kind_of = |code| match code {
+		0 => Dog
+		1 => Cow
+		2 => Chicken
+		_ => crash "a kind physics.zig's Kind does not number"
+	}
 
 	## What it wants: a step `x, y`, and its anchor, the `j` of the critter a
 	## `Herd` answer chose, or -1.
@@ -69,13 +82,24 @@ Wish := [].{
 	start : State
 	start = { a_ax: 0, a_ay: 0, a_tx: 0, a_ty: 0, anchor: -1, anchor_d: 0, b_ax: 0, b_ay: 0, b_d: -1, b_half: 0, b_j: 0, b_kin: Bool.False, b_kind: 0, b_tx: 0, b_ty: 0, inner: 0, outer: 0, x: 0, y: 0 }
 
-	## The rules of a wisher of kind `kind`.
+	## The rules of a wisher of kind `kind`. A chicken is never in motion in
+	## the walk, so it never wishes.
 	sees_of : U8 -> Rules.Sees
-	sees_of = |kind| if (kind == 1) Rules.cow else Rules.dog
+	sees_of = |kind| match kind_of(kind) {
+		Dog => Rules.dog
+		Cow => Rules.cow
+		Chicken => crash "a chicken has no wish: it is never in motion in the walk"
+	}
 
 	## The rule, as numbers, for who `n` is to the wisher.
 	pick : Rules.Sees, Near -> Flat
-	pick = |sees, n| flat(if (n.kind == 0 and n.kin) sees.kin else if (n.kind == 0) sees.dog else if (n.kind == 1) sees.cow else sees.chicken)
+	pick = |sees, n| flat(
+		match kind_of(n.kind) {
+			Dog => if (n.kin) sees.kin else sees.dog
+			Cow => sees.cow
+			Chicken => sees.chicken
+		},
+	)
 
 	## One moving critter, `n`, taken in.
 	add : Me, State, Near -> State
@@ -195,6 +219,9 @@ dog_me = { half: 14 * 256, kind: 0 }
 cow_me = { half: 21 * 256, kind: 1 }
 
 nb = |kind, kin, j, x, y| { ax: -x, ay: -y, half: if (kind == 1) 21 * 256 else 14 * 256, tx: x, ty: y, j: j, kin: kin, kind: kind }
+
+## The kinds as physics.zig's `Kind` numbers them.
+expect Wish.kind_of(0) == Dog and Wish.kind_of(1) == Cow and Wish.kind_of(2) == Chicken
 
 ## Alone, a critter wants nothing.
 expect Wish.wish(dog_me, []) == { anchor: -1, x: 0, y: 0 }
