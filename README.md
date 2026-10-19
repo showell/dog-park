@@ -88,7 +88,11 @@ behaviour alone (a refactor, a speed-up) keeps
 `zig build physics-bench -- lines` the same, byte for byte: its 14,800
 lines are every move of a full drag with each dog leashed in turn (on
 the park as laid out, and moved across the world's edge), a drag through
-poop the chickens eat as they go, and a packed herd.
+poop the chickens eat as they go, and a packed herd. And
+`zig build walk-judge` runs those drags, and again with steps of uneven
+length, with every pixel-tick of the Roc checked against a plain Zig
+reference that shares none of its code (`src/play/walk_reference.zig`),
+stopping at the first difference; about 11 s once compiled.
 
 **What isn't Roc yet.** A new *kind* of critter still needs Zig changes
 today (the board and the page know the three kinds by name); work is under
