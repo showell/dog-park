@@ -11,3 +11,9 @@ export const cow_px = 42;
 export const chicken_px = 20;
 export const poop_px = 12;
 export const breeds = 4;
+// Each kind of critter, its number its place here (roc/World.roc).
+export const kinds = [
+  { name: "dog", px: 28, colour: "#a0522d" },
+  { name: "cow", px: 42, colour: "#555555" },
+  { name: "chicken", px: 20, colour: "#d4a017" },
+];

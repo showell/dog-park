@@ -13,6 +13,7 @@
 
 ## The world's numbers are roc/World.roc's.
 import World
+import Wish
 
 tile_px = World.tile_px
 
@@ -149,6 +150,43 @@ no_overlap = |spots| {
 }
 
 expect no_overlap(park)
+
+## Each kind's look, in kind-number order: a line of world.zon's `.kinds`
+## (`zon`) or of world.js's `kinds` (`js`).
+looks : [Zon, Js] -> Str
+looks = |form| {
+	var $out = ""
+	for k in World.kinds {
+		$out = $out.concat(
+			match form {
+				Zon => "        .{ .name = \"${k.name}\", .px = ${k.px.to_str()}, .colour = \"${k.colour}\" },\n"
+				Js => "  { name: \"${k.name}\", px: ${k.px.to_str()}, colour: \"${k.colour}\" },\n"
+			},
+		)
+	}
+	$out
+}
+
+## Wish.kind_of numbers the kinds as `World.kinds` does: kind n is the nth
+## there, every one named. (Here, not in Wish.roc, so the physics' Roc
+## does not import the kinds' looks.)
+expect {
+	name_of = |k| match k {
+		Dog => "dog"
+		Cow => "cow"
+		Chicken => "chicken"
+	}
+	var $names = []
+	var $n = 0
+	while $n < World.kinds.len() {
+		$names = $names.append(name_of(Wish.kind_of($n.to_u8_wrap())))
+		$n = $n + 1
+	}
+	$names == World.kinds.map(|l| l.name)
+}
+
+expect World.kinds.len() == 3
+expect half(Dog) * 2 == dog_px and half(Cow) * 2 == cow_px and half(Chicken) * 2 == chicken_px
 expect !no_overlap([{ kind: Dog, x: 10, y: 10 }, { kind: Cow, x: 40, y: 30 }])
 
 points : Kind -> Str
@@ -169,6 +207,8 @@ zon =
 	\\    .world_tiles = ${world_tiles.to_str()},
 	\\    .park = .{ .first = ${park_first.to_str()}, .tiles = ${park_tiles.to_str()} },
 	\\    .sizes = .{ .dog_px = ${dog_px.to_str()}, .cow_px = ${cow_px.to_str()}, .chicken_px = ${chicken_px.to_str()}, .poop_px = ${poop_px.to_str()} },
+	\\    .kinds = .{
+	\\${looks(Zon)}    },
 	\\    .breeds = ${breeds.to_str()},
 	\\    .cell_per_tile = ${cell_per_tile.to_str()},
 	\\    .dogs = .{
@@ -195,6 +235,9 @@ js =
 	\\export const chicken_px = ${chicken_px.to_str()};
 	\\export const poop_px = ${poop_px.to_str()};
 	\\export const breeds = ${breeds.to_str()};
+	\\// Each kind of critter, its number its place here (roc/World.roc).
+	\\export const kinds = [
+	\\${looks(Js)}];
 	\\
 
 main! = |args| {

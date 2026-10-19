@@ -5,6 +5,11 @@
     .world_tiles = 6,
     .park = .{ .first = 1, .tiles = 4 },
     .sizes = .{ .dog_px = 28, .cow_px = 42, .chicken_px = 20, .poop_px = 12 },
+    .kinds = .{
+        .{ .name = "dog", .px = 28, .colour = "#a0522d" },
+        .{ .name = "cow", .px = 42, .colour = "#555555" },
+        .{ .name = "chicken", .px = 20, .colour = "#d4a017" },
+    },
     .breeds = 4,
     .cell_per_tile = 2,
     .dogs = .{

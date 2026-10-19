@@ -34,6 +34,20 @@ World := [].{
 	poop_px : I64
 	poop_px = 12
 
+	## THE KINDS OF CRITTER, each said here once. A kind's number is its
+	## place in `kinds`: the number physics.zig's `Kind` and the walk's
+	## `Wish.kind_of` cross with. `name` is what the formats and the page
+	## call it, `px` its square's side, and `colour` how the page draws a
+	## kind it has no art for: a square of that colour, `px` across.
+	Look : { name : Str, px : I64, colour : Str }
+
+	kinds : List(Look)
+	kinds = [
+		{ name: "dog", px: dog_px, colour: "#a0522d" },
+		{ name: "cow", px: cow_px, colour: "#555555" },
+		{ name: "chicken", px: chicken_px, colour: "#d4a017" },
+	]
+
 	## The critters are kept by cells: a tile cut `cell_per_tile` ways on
 	## each axis (the physics' `Scene` and the walk both).
 	cell_per_tile : I64

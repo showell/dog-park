@@ -9,6 +9,8 @@
 /// makes of it).
 pub const Spot = struct { x: i32, y: i32 };
 
+pub const Look = struct { name: []const u8, px: u16, colour: []const u8 };
+
 pub const World = struct {
     /// A tile's side, in pixels.
     tile_px: u16,
@@ -20,6 +22,10 @@ pub const World = struct {
     /// The critters' squares and a poop's, in whole pixels, as the physics
     /// moves them and the page draws them.
     sizes: struct { dog_px: u16, cow_px: u16, chicken_px: u16, poop_px: u16 },
+    /// Each kind of critter, its number its place here (roc/World.roc's
+    /// `kinds`): what it is called, its square's side in pixels, and the
+    /// colour the page draws a kind it has no art for.
+    kinds: []const Look,
     /// Dog n is of breed n mod `breeds`.
     breeds: u8,
     /// The critters are kept by cells, a tile cut `cell_per_tile` ways on

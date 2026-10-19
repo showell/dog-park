@@ -29,6 +29,17 @@ fn fuzzed(full: usize) usize {
 /// seam unless they mean it.
 const mid: i32 = tiles.world_px / 2;
 
+test "physics.zig's Kind numbers the kinds as World.roc's kinds does, each its size" {
+    const kinds = @import("world.zig").world.kinds;
+    const fields = @typeInfo(physics.Kind).@"enum".fields;
+    try testing.expectEqual(fields.len, kinds.len);
+    inline for (fields) |f| {
+        try testing.expectEqualStrings(f.name, kinds[f.value].name);
+        const half = physics.Critter.half(.{ .kind = @enumFromInt(f.value), .n = 0 });
+        try testing.expectEqual(physics.px(kinds[f.value].px / 2), half);
+    }
+}
+
 fn px(x: i32, y: i32) Point {
     return .{ .x = physics.px(x), .y = physics.px(y) };
 }

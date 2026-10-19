@@ -7,10 +7,11 @@
 // it is on the screen, from the screen's top-left. The viewport's own
 // top-left is a park point; north is smaller parkY.
 
-// The critters' squares and a poop's, in CSS pixels, and the breeds:
-// world.js's, which roc/world.roc prints, as it prints the physics' world.
-import { dog_px, cow_px, chicken_px, poop_px, breeds } from "./world.js";
-export { dog_px, cow_px, chicken_px, poop_px, breeds };
+// The critters' squares and a poop's, in CSS pixels, the breeds, and the
+// kinds of critter: world.js's, which roc/world.roc prints, as it prints
+// the physics' world.
+import { dog_px, cow_px, chicken_px, poop_px, breeds, kinds } from "./world.js";
+export { dog_px, cow_px, chicken_px, poop_px, breeds, kinds };
 export const cow_emoji = "🐄";
 // Full-bodied.
 export const chicken_emoji = "🐓";
@@ -288,6 +289,15 @@ export const still = { alpha: 1, was: { viewport: undefined, dogs: new Map(), co
 // "shown" in the page's debugging mode, "d") says whether a dog's number and
 // the critters' places in the last walk are drawn; a tile's coordinates are
 // always shown.
+//
+// A critter as drawn, centred on `at`: its art, `emoji`, where the page has
+// some; else a square of its kind's colour, the kind's `px` across (roc/
+// World.roc's `kinds`: a kind made there is drawn before it has art).
+export function critterShape(id, at, look, emoji, role) {
+  if (emoji !== undefined) return { id, shape: "glyph", x: at.viewportX, y: at.viewportY, w: look.px, h: look.px, text: emoji, fill: "#000", role };
+  return { id, shape: "rect", x: at.viewportX - look.px / 2, y: at.viewportY - look.px / 2, w: look.px, h: look.px, fill: look.colour, role };
+}
+
 export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visits = new Map(), more = { chickens: [], poops: [], labels: "hidden" }) {
   const { alpha, was } = motion;
   const viewport = { ...viewportNow, ...between(was.viewport, viewportNow, alpha) };
@@ -308,8 +318,7 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
   const shown = more.labels === "shown";
   const sprite = (id, critter, drawn, emoji, size, role, label = "none") => {
     const at = onScreen(drawn);
-    out.push({ id, shape: "glyph", x: at.viewportX, y: at.viewportY, w: size, h: size,
-      text: emoji, fill: "#000", role });
+    out.push(critterShape(id, at, { px: size }, emoji, role));
     if (label !== "none" && label !== "") out.push({ id: `${id}:label`, shape: "text", x: at.viewportX, y: at.viewportY + size * 0.85, w: 0, h: 0,
       text: label, font: "12px monospace", fill: "#333", role: "scenery" });
   };
