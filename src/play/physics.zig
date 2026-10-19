@@ -265,7 +265,8 @@ pub inline fn quotientAlong(c: i32, length: i32, l: i64) i32 {
     return if ((c < 0) != (length < 0)) -%r else r;
 }
 
-pub const Kind = enum(u8) { dog, cow, chicken };
+/// Numbered as roc/Wish.roc's `kind_of` reads them across the boundary.
+pub const Kind = enum(u8) { dog = 0, cow = 1, chicken = 2 };
 
 /// A critter, by kind and number.
 pub const Critter = struct {

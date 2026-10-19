@@ -160,11 +160,11 @@ Walk := [].{
 				$moving = m1
 				$moving = $moving.append(iu.to_u16_wrap())
 				$count = $count + 1
-				pace = if (me.kind == 1) Rules.cow.pace else Rules.dog.pace
+				pace = Wish.sees_of(me.kind).pace
 				{ cells: c2, crits: k2 } = step_around(s, { cells: $cells, crits: $crits }, iu, step_at_most({ x: wished.x, y: wished.y }, share(pace, most)))
 				$cells = c2
 				$crits = k2
-				if me.kind == 0 and me.kin == herd and wished.anchor >= 0 {
+				if Wish.kind_of(me.kind) == Dog and me.kin == herd and wished.anchor >= 0 {
 					a = wished.anchor.to_u64_wrap()
 					d = get_u16($depth, a) + 1
 					$depth = put($depth, iu, d)
@@ -256,7 +256,7 @@ Walk := [].{
 							while $bits != 0 {
 								j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 								o = get_c(crits, j)
-								if o.key != -2 and o.kind != 2 {
+								if o.key != -2 and Wish.kind_of(o.kind) != Chicken {
 									$t = nearer($t, measure(delta(pt(o), p)), j.to_i64_wrap())
 								} else {
 									{}
@@ -327,7 +327,7 @@ Walk := [].{
 					tx,
 					ty,
 					j,
-					kin: me.kind == 0 and o.kind == 0 and o.kin == me.kin,
+					kin: Wish.kind_of(me.kind) == Dog and Wish.kind_of(o.kind) == Dog and o.kin == me.kin,
 					kind: o.kind,
 				},
 			)
@@ -458,7 +458,7 @@ Walk := [].{
 							j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 							o = get_c(park.crits, j)
 							if overlap(to, h, pt(o), o.half) and !in_move($g, j) {
-								if o.kind == 2 {
+								if Wish.kind_of(o.kind) == Chicken {
 									if $g.ns == nudge_most {
 										$g = { ..$g, veto: { at: from, blocker: pt(o), why: 2 } }
 									} else {
