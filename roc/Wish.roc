@@ -23,7 +23,7 @@ Wish := [].{
 	## A critter's kind. It crosses from the host as physics.zig's `Kind`
 	## numbers it, and is named here, once: every rule by kind is a `match`,
 	## so a kind added is one the compiler shows every rule missing.
-	Kind : [Dog, Cow, Chicken]
+	Kind : Rules.Kind
 
 	## A kind's forage (Rules.roc's `Forage`), or none: it stays put in the
 	## forage turn (Walk.roc's `forage_turn`). By kind, with no `_`: a kind
@@ -94,34 +94,28 @@ Wish := [].{
 	start : State
 	start = { a_ax: 0, a_ay: 0, a_tx: 0, a_ty: 0, anchor: -1, anchor_d: 0, b_ax: 0, b_ay: 0, b_d: -1, b_half: 0, b_j: 0, b_kin: Bool.False, b_kind: 0, b_tx: 0, b_ty: 0, inner: 0, outer: 0, x: 0, y: 0 }
 
-	## The rules of a wisher of kind `kind`. A chicken is never in motion in
-	## the walk, so it never wishes.
-	sees_of : U8 -> Rules.Sees
-	sees_of = |kind| match kind_of(kind) {
-		Dog => Rules.dog
-		Cow => Rules.cow
-		Chicken => crash "a chicken has no wish: it is never in motion in the walk"
+	## How a wisher of kind `kind` moves (Rules.roc's `mover`). A kind never
+	## in motion in the walk never wishes.
+	mover_of : U8 -> Rules.Mover
+	mover_of = |kind| match Rules.mover(kind_of(kind)) {
+		Moves(m) => m
+		Still => crash "a kind never in motion in the walk has no wish"
 	}
 
-	## The rule, as numbers, for who `n` is to the wisher.
-	pick : Rules.Sees, Near -> Flat
-	pick = |sees, n| flat(
-		match kind_of(n.kind) {
-			Dog => if (n.kin) sees.kin else sees.dog
-			Cow => sees.cow
-			Chicken => sees.chicken
-		},
-	)
+	## The rule, as numbers, for who `n` is to a wisher of kind `kind`
+	## (Rules.roc's `rule`, by pair of kinds).
+	pick : U8, Near -> Flat
+	pick = |kind, n| flat(Rules.rule(kind_of(kind), kind_of(n.kind), n.kin))
 
 	## One moving critter, `n`, taken in.
 	add : Me, State, Near -> State
 	add = |me, s, n| {
-		sees = sees_of(me.kind)
+		m = mover_of(me.kind)
 		ax = n.ax.to_i64()
 		ay = n.ay.to_i64()
 		d = measure(ax, ay)
-		match sees.gathers {
-			Each => answer(s, pick(sees, n), me.half.to_i64(), n, d)
+		match m.gathers {
+			Each => answer(s, pick(me.kind, n), me.half.to_i64(), n, d)
 			Nearest => {
 				if s.b_d < 0 or d < s.b_d or (d == s.b_d and n.j < s.b_j) {
 					{ ..s, b_ax: ax, b_ay: ay, b_d: d, b_half: n.half, b_j: n.j, b_kin: n.kin, b_kind: n.kind, b_tx: n.tx.to_i64(), b_ty: n.ty.to_i64() }
@@ -172,7 +166,7 @@ Wish := [].{
 			s0
 		} else {
 			n = { ax: s0.b_ax.to_i32_wrap(), ay: s0.b_ay.to_i32_wrap(), half: s0.b_half, tx: s0.b_tx.to_i32_wrap(), ty: s0.b_ty.to_i32_wrap(), j: s0.b_j, kin: s0.b_kin, kind: s0.b_kind }
-			answer(s0, pick(sees_of(me.kind), n), me.half.to_i64(), n, s0.b_d)
+			answer(s0, pick(me.kind, n), me.half.to_i64(), n, s0.b_d)
 		}
 		band = if s.anchor < 0 {
 			{ x: 0, y: 0 }

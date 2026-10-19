@@ -30,42 +30,55 @@ Rules := [].{
 	## A share of a step, `num` over `den`, rounded toward zero.
 	Share : { num : I64, den : I64 }
 
-	## A critter's answers by who it sees: `kin`, a dog of its own breed (a
-	## dog's only: a cow has no breed, and sees every dog as `dog`); `dog`, any
-	## other dog; `cow`; `chicken`. And its pace: in each pixel-tick of the
-	## walk, it steps at most this share of the leashed dog's step.
-	Sees : { gathers : Gathers, kin : Rule, dog : Rule, cow : Rule, chicken : Rule, pace : Share }
+	## The kinds, by the tags the rules name them with: World.roc's `kinds`,
+	## in its order (Wish.roc's `kind_of` numbers them so).
+	Kind : [Dog, Cow, Chicken]
 
 	## A dog keeps this from a moving dog of another breed; a cow from any
 	## moving dog.
 	wary : I64
 	wary = 158
 
-	## A dog: room from every moving dog of another breed and every moving cow,
-	## and its place in the herd, against its anchor (the nearest moving dog of
-	## its breed). A chicken is never in motion in the walk.
-	dog : Sees
-	dog = {
-		gathers: Each,
-		kin: Herd({ inner: 42, outer: 70 }),
-		dog: Keep(wary),
-		cow: Keep(63),
-		chicken: Ignore,
-		pace: { num: 1, den: 1 },
+	## **HOW A KIND MOVES IN THE WALK**: how it takes what it sees, and its
+	## pace (in each pixel-tick of the walk it steps at most this share of
+	## the leashed dog's step); or it is never in motion there (`Still`).
+	## - A dog takes every moving critter's answer, and keeps pace.
+	## - A cow takes its nearest moving critter's alone, at half the pace.
+	## - A chicken is never in motion in the walk (it forages, after it).
+	Mover : { gathers : Gathers, pace : Share }
+
+	mover : Kind -> [Moves(Mover), Still]
+	mover = |kind| match kind {
+		Dog => Moves({ gathers: Each, pace: { num: 1, den: 1 } })
+		Cow => Moves({ gathers: Nearest, pace: { num: 1, den: 2 } })
+		Chicken => Still
 	}
 
-	## A cow: its nearest moving critter alone decides. A dog, it keeps `wary`
-	## from it; a cow within 245 px (70% of a tile, the first layout's spacing
-	## between neighbouring cows, so cows as laid out no longer draw together
-	## on their own: Steve, 2026-10-15), it closes in to touching.
-	cow : Sees
-	cow = {
-		gathers: Nearest,
-		kin: Keep(wary),
-		dog: Keep(wary),
-		cow: Close(245),
-		chicken: Ignore,
-		pace: { num: 1, den: 2 },
+	## **THE RULES BY PAIR OF KINDS**: the answer of a moving critter of kind
+	## `wisher` to one of kind `seen` it sees moving, `kin` when the two are
+	## kin (World.roc's `kin`: a dog of its own breed; every cow to every
+	## cow). Every pair is said, with no `_`: a kind added is a set of pairs
+	## the compiler lists to fill.
+	## - A dog: its place in the herd against its anchor, the nearest moving
+	##   dog of its breed; room `wary` from a dog of another breed, and 63 px
+	##   from a cow.
+	## - A cow: `wary` from a dog; a cow within 245 px (70% of a tile, the
+	##   first layout's spacing between neighbouring cows, so cows as laid
+	##   out no longer draw together on their own: Steve, 2026-10-15), it
+	##   closes in to touching.
+	## - Neither heeds a chicken, and a chicken (never in motion in the walk)
+	##   answers nobody.
+	rule : Kind, Kind, Bool -> Rule
+	rule = |wisher, seen, kin| match (wisher, seen) {
+		(Dog, Dog) => if (kin) Herd({ inner: 42, outer: 70 }) else Keep(wary)
+		(Dog, Cow) => Keep(63)
+		(Dog, Chicken) => Ignore
+		(Cow, Dog) => Keep(wary)
+		(Cow, Cow) => Close(245)
+		(Cow, Chicken) => Ignore
+		(Chicken, Dog) => Ignore
+		(Chicken, Cow) => Ignore
+		(Chicken, Chicken) => Ignore
 	}
 
 	## **THE FORAGE** (decision 31), a behaviour a kind may have (Wish.roc's
@@ -115,4 +128,10 @@ Rules := [].{
 
 expect Rules.is_power_of_two(Rules.poop.slots) and Rules.poop.slots <= 65536
 expect Rules.poop.grid > 0 and Rules.poop.reach % Rules.poop.grid == 0
-expect Rules.chickens.pace.den > 0 and Rules.dog.pace.den > 0 and Rules.cow.pace.den > 0
+expect Rules.chickens.pace.den > 0
+expect [Dog, Cow, Chicken].map(
+	|k| match Rules.mover(k) {
+		Moves(m) => m.pace.den > 0
+		Still => Bool.True
+	},
+) == [Bool.True, Bool.True, Bool.True]

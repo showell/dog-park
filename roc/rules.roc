@@ -5,25 +5,8 @@
 
 import Rules
 
-zon_rule : Rules.Rule -> Str
-zon_rule = |rule| match rule {
-	Ignore => ".ignore"
-	Keep(reach) => ".{ .keep = ${reach.to_str()} }"
-	Herd({ inner, outer }) => ".{ .herd = .{ .inner = ${inner.to_str()}, .outer = ${outer.to_str()} } }"
-	Close(reach) => ".{ .close = ${reach.to_str()} }"
-}
-
-zon_gathers : Rules.Gathers -> Str
-zon_gathers = |g| match g {
-	Each => ".each"
-	Nearest => ".nearest"
-}
-
 zon_share : Rules.Share -> Str
 zon_share = |sh| ".{ .num = ${sh.num.to_str()}, .den = ${sh.den.to_str()} }"
-
-zon_sees : Rules.Sees -> Str
-zon_sees = |s| ".{ .gathers = ${zon_gathers(s.gathers)}, .kin = ${zon_rule(s.kin)}, .dog = ${zon_rule(s.dog)}, .cow = ${zon_rule(s.cow)}, .chicken = ${zon_rule(s.chicken)}, .pace = ${zon_share(s.pace)} }"
 
 zon_chickens : Rules.Forage -> Str
 zon_chickens = |c| ".{ .sight = ${c.sight.to_str()}, .step = ${c.step.to_str()}, .pace = ${zon_share(c.pace)}, .home_band = ${c.home_band.to_str()} }"
@@ -39,8 +22,7 @@ zon =
 	\\// THE RULES, printed by roc/rules.roc (`zig build roc`): do not edit;
 	\\// edit that and print it again. Read by src/play/rules.zig.
 	\\.{
-	\\    .dog = ${zon_sees(Rules.dog)},
-	\\    .cow = ${zon_sees(Rules.cow)},
+	\\    .wary = ${Rules.wary.to_str()},
 	\\    .chickens = ${zon_chickens(Rules.chickens)},
 	\\    .poop = ${zon_poop(Rules.poop)},
 	\\    .limits = ${zon_limits(Rules.limits)},

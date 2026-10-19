@@ -400,9 +400,9 @@ test "the invariant: seeded drags through the laid-out park, and no two critters
 /// Whether chicken `n` at `c` has no step of its own to take: at home and
 /// no ripe poop within its sight.
 fn idleChicken(b: *const Board, c: Point, n: u16) bool {
-    if (physics.measure(physics.delta(c, @import("layout.zig").home(.of(.chicken, n)))) > physics.home_band) return false;
+    if (physics.measure(physics.delta(c, @import("layout.zig").home(.of(.chicken, n)))) > physics.px(@import("rules.zig").rules.chickens.home_band)) return false;
     for (b.poops, b.poop_known, 0..) |p, k, slot| {
-        if (k == .present and physics.ripe(b.laid, @intCast(slot)) and physics.measure(physics.delta(c, p)) <= physics.chicken_sight) return false;
+        if (k == .present and physics.ripe(b.laid, @intCast(slot)) and physics.measure(physics.delta(c, p)) <= physics.px(@import("rules.zig").rules.chickens.sight)) return false;
     }
     return true;
 }

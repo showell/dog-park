@@ -165,7 +165,7 @@ pub const dead_zone: i32 = px(rules.rules.limits.dead_zone);
 /// rules' (rules.zig, which roc/Rules.roc says), which the wish applies.
 /// A dog keeps `wary` from a moving dog of another breed; a cow from any
 /// moving dog.
-pub const wary: i32 = px(rules.rules.dog.dog.keep);
+pub const wary: i32 = px(rules.rules.wary);
 /// A drag's internal steps, the PIXEL-TICKS: at most 1 px. After each, the
 /// walk's dogs step at most as far as the leashed dog did, its cows half.
 pub const step_most: i32 = px(1);
@@ -211,13 +211,6 @@ comptime {
 // Where a poop lands (`poop_back` behind its dog, else on rings
 // `poop_grid` apart out to `poop_reach`) is roc/Walk.roc's `lay`, after the
 // pixel-tick's walk; Zig places it (`placePoop`).
-/// **THE CHICKENS' TURN** (decision 31): a chicken sees ripe poop this far
-/// off; it steps at most half the leashed dog's net move in the tick, and
-/// at most `chicken_step`; with nothing to forage it walks home when it is
-/// more than `home_band` from it.
-pub const chicken_sight: i32 = px(rules.rules.chickens.sight);
-pub const chicken_step: i32 = px(rules.rules.chickens.step);
-pub const home_band: i32 = px(rules.rules.chickens.home_band);
 
 pub const Tick = u64;
 

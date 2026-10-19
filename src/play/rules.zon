@@ -1,8 +1,7 @@
 // THE RULES, printed by roc/rules.roc (`zig build roc`): do not edit;
 // edit that and print it again. Read by src/play/rules.zig.
 .{
-    .dog = .{ .gathers = .each, .kin = .{ .herd = .{ .inner = 42, .outer = 70 } }, .dog = .{ .keep = 158 }, .cow = .{ .keep = 63 }, .chicken = .ignore, .pace = .{ .num = 1, .den = 1 } },
-    .cow = .{ .gathers = .nearest, .kin = .{ .keep = 158 }, .dog = .{ .keep = 158 }, .cow = .{ .close = 245 }, .chicken = .ignore, .pace = .{ .num = 1, .den = 2 } },
+    .wary = 158,
     .chickens = .{ .sight = 500, .step = 8, .pace = .{ .num = 1, .den = 2 }, .home_band = 32 },
     .poop = .{ .every = 700, .back = 30, .reach = 200, .grid = 4, .slots = 2048 },
     .limits = .{ .most = 48, .nudge_most = 8, .dead_zone = 1 },

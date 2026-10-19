@@ -8,31 +8,8 @@
 //! the seam: a rules.zon that does not fit them does not compile.
 //! Distances here are in whole pixels.
 
-/// One critter's answer to another it sees moving.
-pub const Rule = union(enum) {
-    /// Nothing.
-    ignore,
-    /// Keep this far: away from it, by the shortfall inside the reach.
-    keep: u16,
-    /// The nearest one such is its anchor: it stays between `inner` and
-    /// `outer` of it, moving away inside and closing in outside.
-    herd: struct { inner: u16, outer: u16 },
-    /// Close in to touching, from within this; from farther, nothing.
-    close: u16,
-};
-
-/// Every moving critter's answer summed, or the nearest one's alone (ties
-/// to the lower rank).
-pub const Gathers = enum { each, nearest };
-
 /// A share of a step, `num` over `den`, rounded toward zero.
 pub const Share = struct { num: u16, den: u16 };
-
-/// A critter's answers by who it sees: `kin`, a dog of its own breed (a
-/// dog's only); `dog`, any other dog; `cow`; `chicken`. Its `pace`: each
-/// pixel-tick of the walk, it steps at most that share of the leashed
-/// dog's step.
-pub const Sees = struct { gathers: Gathers, kin: Rule, dog: Rule, cow: Rule, chicken: Rule, pace: Share };
 
 /// **THE CHICKENS' TURN** (decision 31): a chicken sees ripe poop `sight`
 /// off; it steps at most `step`, and at most `pace` of the leashed dog's net
@@ -50,8 +27,10 @@ pub const Poop = struct { every: u16, back: u16, reach: u16, grid: u16, slots: u
 /// shoves at most as many chickens; a wish under `dead_zone` px is no step.
 pub const Limits = struct { most: u16, nudge_most: u16, dead_zone: u16 };
 
-/// A dog's and a cow's answers (a chicken is never in the walk), the
-/// chickens' turn, the poop and the walk's limits.
-pub const Rules = struct { dog: Sees, cow: Sees, chickens: Chickens, poop: Poop, limits: Limits };
+/// The distance a dog keeps from a dog of another breed and a cow from any
+/// dog (the tests' `wary`; the answers themselves, by pair of kinds, are
+/// roc/Rules.roc's `rule`, which the wish applies in Roc), the chickens'
+/// forage, the poop and the walk's limits.
+pub const Rules = struct { wary: u16, chickens: Chickens, poop: Poop, limits: Limits };
 
 pub const rules: Rules = @import("rules.zon");

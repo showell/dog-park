@@ -249,7 +249,7 @@ test "a chicken sees ripe poop out to chicken_sight, and no farther: at it, it g
     for ([_]i32{ 0, 1 }) |past| {
         var b = leashedAt(nearHome(0, 400));
         b.place(.of(.chicken, 0), home);
-        poopAt(&b, 0, .{ .x = home.x + physics.chicken_sight + past, .y = home.y });
+        poopAt(&b, 0, .{ .x = home.x + physics.px(@import("rules.zig").rules.chickens.sight) + past, .y = home.y });
         b.laid = 7;
         _ = ticked(&b, 1, &.{}, &.{d(10, 0)});
         if (past == 0) try testing.expect(b.of(.chicken)[0].x > home.x) else try testing.expectEqual(home, b.of(.chicken)[0]);
