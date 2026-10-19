@@ -17,6 +17,7 @@
     "grid.zig",
     "../../roc/physics.roc",
     "../../roc/platform/main.roc",
+    "../../roc/roc-version",
     "../../roc/Walk.roc",
     "../../roc/Wish.roc",
     "../../roc/World.roc",

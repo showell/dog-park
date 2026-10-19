@@ -18,6 +18,8 @@ pub fn build(b: *std.Build) void {
     // built from Roc is checked in. So every build needs Roc, and without
     // it the build stops while it is configured, saying so (`rocCompiler`).
     const roc = rocCompiler(b);
+    // **THE ROC IS PINNED** (roc/roc-version): a release is built by one
+    // known Roc, said in /version and covered by the physics hash.
     const roc_lib = rocArchives(b, roc);
 
     // webbox is two modules: `webbox`, portable, what the application's code
@@ -413,14 +415,26 @@ const RocTarget = enum { x64musl, wasm32, x64v1elf };
 const RocLib = std.EnumArray(RocTarget, std.Build.LazyPath);
 const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/World.roc", "roc/Rules.roc", "roc/platform/main.roc" };
 
+/// The Roc the physics is built by: roc/roc-version, one line, as `roc
+/// version` ends (a nightly's name). Moving it is a decision: a new Roc
+/// is new archives, so judge them (the physics hash covers this file).
+const roc_pin = std.mem.trim(u8, @embedFile("roc/roc-version"), " \n");
+
 /// The Roc compiler: -Droc=<path> (from the build root), or `roc` on the
-/// PATH. **Every build needs one**, to build the physics: with none, the
-/// build stops here, while it is configured, saying so.
+/// PATH. **Every build needs one, and the pinned one** (`roc_pin`): with
+/// none, or another, the build stops here, while it is configured, saying
+/// so.
 fn rocCompiler(b: *std.Build) []const u8 {
-    const named = b.option([]const u8, "roc", "the Roc compiler (default: `roc` on the PATH); every build needs one, to build the physics") orelse "roc";
-    const none = "Dog Park's physics is built from Roc, and there is no Roc compiler at `{s}`: put a Roc nightly's `roc` on the PATH, or name one with -Droc=<path>";
-    if (std.mem.indexOfScalar(u8, named, '/') == null) return b.findProgram(&.{named}, &.{}) catch std.process.fatal(none, .{named});
-    return b.build_root.handle.realPathFileAlloc(b.graph.io, named, b.allocator) catch std.process.fatal(none, .{named});
+    const named = b.option([]const u8, "roc", "the Roc compiler (default: `roc` on the PATH); every build needs one, the version roc/roc-version pins") orelse "roc";
+    const none = "Dog Park's physics is built from Roc, and there is no Roc compiler at `{s}`: put Roc {s} (roc/roc-version) on the PATH, or name it with -Droc=<path>";
+    const found = if (std.mem.indexOfScalar(u8, named, '/') == null)
+        b.findProgram(&.{named}, &.{}) catch std.process.fatal(none, .{ named, roc_pin })
+    else
+        b.build_root.handle.realPathFileAlloc(b.graph.io, named, b.allocator) catch std.process.fatal(none, .{ named, roc_pin });
+    const said = std.mem.trim(u8, b.run(&.{ found, "version" }), " \n");
+    const version = if (std.mem.lastIndexOfScalar(u8, said, ' ')) |i| said[i + 1 ..] else said;
+    if (!std.mem.eql(u8, version, roc_pin)) std.process.fatal("Dog Park's physics is pinned to Roc {s} (roc/roc-version), and `{s}` is {s}: put the pinned one on the PATH or name it with -Droc=<path>, or move the pin on purpose (a new Roc is new archives: judge them)", .{ roc_pin, found, version });
+    return found;
 }
 
 /// The physics' Roc built for each target, into the cache. The compiler is
@@ -460,6 +474,7 @@ fn buildOptions(b: *std.Build, stamp: Stamp) *std.Build.Module {
         .on => commitOf(b, b.pathFromRoot(".")),
         .off => "unstamped",
     });
+    options.addOption([]const u8, "roc", roc_pin);
     return options.createModule();
 }
 
