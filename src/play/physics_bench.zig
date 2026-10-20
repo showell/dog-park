@@ -254,6 +254,31 @@ fn printLines(io: std.Io, full: physics.Capped, uneven: i32) !void {
 /// The park's middle is this many tiles from the world's origin.
 const tiles_from_middle = @divExact(physics.room.world_tiles, 2);
 
+/// Level One's dogs, each leashed in turn on its first layout and dragged
+/// 60 ticks east-south-east, about 25 px a tick so each crosses the world's
+/// seam (Level One's is 1,400 px), whole pixels then a drag of uneven length,
+/// grabbed again after a bump; the walk's judge (built in) checks each
+/// pixel-tick, and nobody may overlap.
+fn levelOneJudged() !void {
+    var lines: physics.Lines = .{};
+    var found: [8][2]physics.Critter = undefined;
+    for ([_]i32{ 0, 77 }) |uneven| {
+        for (0..physics.countOf(.dog)) |dog| {
+            var b = physics.Board.laidOutAt(0);
+            if (b.knownOf(.dog)[dog] != .present) continue;
+            if (physics.tick(&b, 1, &.{.{ .leash = @intCast(dog) }}, &.{}, &lines)) |r| std.debug.panic("level one: dog {d} not leashed: {t}", .{ dog, r });
+            var t: physics.Tick = 2;
+            while (t < 62) : (t += 1) {
+                const turn: i32 = if (t % 20 < 10) 1 else -1;
+                const drag = [1]physics.Disp{.{ .dx = physics.px(25) + uneven, .dy = turn * (physics.px(7) - uneven), .ms = 62 }};
+                const humans: []const physics.Human = if (b.hold == .leashed and b.hold.leashed.drag != .on) &.{.grab} else &.{};
+                if (physics.tick(&b, t, humans, &drag, &lines)) |r| std.debug.panic("level one: dog {d} tick {d} refused: {t}", .{ dog, t, r });
+                if (physics.overlaps(&b, &found) != 0) std.debug.panic("level one: dog {d} tick {d}: an overlap", .{ dog, t });
+            }
+        }
+    }
+}
+
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const full = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = physics.cap }});
@@ -263,10 +288,14 @@ pub fn main(init: std.process.Init) !void {
     // pixel-tick's step has a remainder and critters stand between pixels:
     // the leashed dog then sweeps part of a step and slides the rest, which
     // whole-pixel drags never do.
+    // Then Level One (its 4 x 4-tile world), each dog leashed in turn and
+    // dragged, whole and uneven, so the judge follows the walk in another
+    // level's world.
     if (args.len > 1 and std.mem.eql(u8, args[1], "judge")) {
         try printLines(io, full, 0);
         const uneven = physics.mergeAndCap(&.{.{ .dx = physics.cap - 77, .dy = -(physics.cap - 133) }});
-        return printLines(io, uneven, 77);
+        try printLines(io, uneven, 77);
+        return levelOneJudged();
     }
     // **FOR A PROFILER** (`-- herd`): the packed herd's full drag, 20 runs,
     // nothing else, so a profile is that tick's.

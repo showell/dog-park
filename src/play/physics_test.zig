@@ -464,3 +464,50 @@ test "the nudge stops at a critter not kin: a cow pressed against a dog vetoes t
     try testing.expectEqual(c0, b.of(.cow)[0]);
     try testing.expectEqual(c1, b.of(.cow)[1]);
 }
+
+/// **LEVEL ONE PLAYS** (Level One is 0): each of its 16 dogs leashed in
+/// turn on its first layout and dragged in a seeded wander, grabbed again
+/// when a bump ends the drag. Nobody ever overlaps anybody, everyone stays
+/// in its 4 x 4-tile world, and the cows are moved.
+pub fn levelOneDrags(ticks_each: physics.Tick, seed: u64) !struct { cow_moves: usize, ticks: usize } {
+    var prng: std.Random.DefaultPrng = .init(seed);
+    const rand = prng.random();
+    var lines: Lines = .{};
+    var found: [8][2]Critter = undefined;
+    var cow_moves: usize = 0;
+    var n: usize = 0;
+    const g = Board.laidOutAt(0).geometry();
+    for (0..physics.countOf(.dog)) |dog| {
+        var b = Board.laidOutAt(0);
+        if (b.knownOf(.dog)[dog] != .present) continue;
+        if (physics.tick(&b, 1, &.{.{ .leash = @intCast(dog) }}, &.{}, &lines)) |r| std.debug.panic("level one: dog {d} not leashed: {t}", .{ dog, r });
+        var heading: [2]i32 = .{ 10, 4 };
+        var t: physics.Tick = 2;
+        while (t < ticks_each) : (t += 1) {
+            if (rand.uintLessThan(u32, 12) == 0) heading = .{ rand.intRangeAtMost(i32, -12, 12), rand.intRangeAtMost(i32, -12, 12) };
+            const drag = [1]physics.Disp{.{ .dx = physics.px(heading[0] + rand.intRangeAtMost(i32, -3, 3)), .dy = physics.px(heading[1] + rand.intRangeAtMost(i32, -3, 3)), .ms = 62 }};
+            const humans: []const physics.Human = if (b.hold == .leashed and b.hold.leashed.drag != .on) &.{.grab} else &.{};
+            if (physics.tick(&b, t, humans, &drag, &lines)) |r| std.debug.panic("level one: dog {d} tick {d} refused: {t}", .{ dog, t, r });
+            if (physics.overlaps(&b, &found) != 0) std.debug.panic("level one: dog {d} tick {d}: {any} overlap", .{ dog, t, found[0] });
+            for (lines.slice()) |l| switch (l) {
+                .critter => |c| if (c.who.kind == .cow) {
+                    cow_moves += 1;
+                },
+                else => {},
+            };
+            n += 1;
+        }
+        for (0..physics.critter_count) |i| {
+            const c = physics.ranked[i];
+            if (b.known(c) != .present) continue;
+            const p = b.at(c);
+            if (p.x < 0 or p.y < 0 or p.x >= g.world or p.y >= g.world) std.debug.panic("level one: {any} at ({d}, {d}), outside its world", .{ c, p.x, p.y });
+        }
+    }
+    return .{ .cow_moves = cow_moves, .ticks = n };
+}
+
+test "Level One plays: each dog leashed in turn and dragged, nobody overlaps, everyone in its world, and the cows move" {
+    const r = try levelOneDrags(if (fuzz == .full) 400 else 120, 0x1e7e1);
+    try testing.expect(r.cow_moves > 0);
+}
