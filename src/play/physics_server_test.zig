@@ -888,6 +888,23 @@ test "a snapshot reads back what it wrote" {
     try testing.expectError(error.SnapshotDoesNotRead, plog.readSnapshot(text[0 .. text.len - 4]));
 }
 
+test "a snapshot keeps the board's level, and the critters it does not lay out stay absent; another version does not read" {
+    var k: judge.Kept = .{ .tick = 12, .board = Board.laidOutAt(0) };
+    k.board.ofMut(.cow)[1].y += 5;
+    const s: plog.Snapshot = .{ .physics = 0x0102_0304, .started = t0, .log_started = t0, .log_offset = 0, .kept = k };
+    const text = try plog.writeSnapshot(testing.allocator, &s);
+    defer testing.allocator.free(text);
+    const back = try plog.readSnapshot(text);
+    try testing.expectEqual(k.board.level, back.kept.board.level);
+    try testing.expectEqualSlices(physics.Known, &k.board.known_at, &back.kept.board.known_at);
+    try testing.expectEqualSlices(physics.Point, k.board.of(.cow), back.kept.board.of(.cow));
+    try testing.expect(back.kept.board.knownOf(.goat)[0] == .absent);
+    const old = try testing.allocator.dupe(u8, text);
+    defer testing.allocator.free(old);
+    old["dogpark snapshot ".len] = '3';
+    try testing.expectError(error.SnapshotDoesNotRead, plog.readSnapshot(old));
+}
+
 // ── the worked example, through the real route ──────────────────────────────
 
 const app = @import("app.zig");
@@ -945,6 +962,85 @@ test "the worked example through POST /report: the doc's report in, req 4 kept 1
     const big = try a.alloc(u8, 64 * 1024 + 1);
     @memset(big, 'x');
     try testing.expectEqualStrings("413", (try post(io, a, &hub, "/report", big)).status);
+}
+
+// ── levels, through the real routes ─────────────────────────────────────────
+
+/// The value of the answer's `level ` line.
+fn levelOf(answer: []const u8) ![]const u8 {
+    return (try field(answer, "level ")) orelse error.NoLevelLine;
+}
+
+test "levels: a new game is Level One; the next is refused until its cows are one herd, then played on its own board; going back finds Level One as it was; a reset touches only the level played" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &tmp.sub_path });
+    const data = try std.fs.path.join(a, &.{ root, "data" });
+    _ = try app.setup(io, a, .{ .data_dir = data, .auth_dir = try std.fs.path.join(a, &.{ root, "auth" }) });
+    var hub = webbox.bus.Hub.init(io, testing.allocator);
+    defer hub.entries.deinit(testing.allocator);
+    const load_line = try std.fmt.allocPrint(a, "dogpark {d} physics {x:0>8} load 1280x800\n", .{ wire.language, wire.physics_hash });
+    const levels_file = try std.fs.path.join(a, &.{ data, "game-0", "level" });
+
+    // A new game: Level One, its first layout, and the file says so.
+    const first = try post(io, a, &hub, "/load", load_line);
+    try testing.expectEqualStrings("200", first.status);
+    try testing.expectEqualStrings("1 of 1", try levelOf(first.body));
+    try testing.expectEqualStrings("1 1\n", try webbox.store.read(io, a, levels_file, .limited(64)));
+    const one = try app.game(io, 0);
+    try testing.expectEqual(@as(u32, 1), one.level());
+    try testing.expectEqualSlices(physics.Known, Board.laidOutAt(0).knownOf(.chicken), one.kept.board.knownOf(.chicken));
+
+    // Level Two before a win: refused; the level stays.
+    var got = try post(io, a, &hub, "/level", "level 2\n");
+    try testing.expectEqualStrings("409", got.status);
+    try testing.expectEqualStrings("refused not_won\n", got.body);
+    try testing.expectEqualStrings("refused unreadable\n", (try post(io, a, &hub, "/level", "level two\n")).body);
+    try testing.expectEqualStrings("1 1\n", try webbox.store.read(io, a, levels_file, .limited(64)));
+
+    // Level One's two cows touching: a win, and Level Two opens.
+    const cow = physics.px(physics.pxOf(.cow));
+    const herd = [2]physics.Point{ .{ .x = physics.px(40), .y = physics.px(40) }, .{ .x = physics.px(40) + cow, .y = physics.px(40) } };
+    @memcpy(one.kept.board.ofMut(.cow)[0..2], &herd);
+    got = try post(io, a, &hub, "/level", "level 2\n");
+    try testing.expectEqualStrings("200", got.status);
+    try testing.expectEqualStrings("level 2 of 2\n", got.body);
+    try testing.expectEqualStrings("2 2\n", try webbox.store.read(io, a, levels_file, .limited(64)));
+    const two_load = try post(io, a, &hub, "/load", load_line);
+    try testing.expectEqualStrings("2 of 2", try levelOf(two_load.body));
+    const two = try app.game(io, 0);
+    try testing.expectEqual(@as(u32, 2), two.level());
+    const laid_two = Board.laidOut();
+    try testing.expectEqualSlices(physics.Point, laid_two.of(.dog), two.kept.board.of(.dog));
+    try testing.expectEqualSlices(physics.Known, laid_two.knownOf(.goat), two.kept.board.knownOf(.goat));
+    // Something to tell Level Two's game by.
+    two.kept.board.ofMut(.dog)[0].x += physics.px(1);
+    const moved = two.kept.board.of(.dog)[0];
+
+    // Back to Level One, as it was left: its herd, its absent critters.
+    got = try post(io, a, &hub, "/level", "level 1\n");
+    try testing.expectEqualStrings("level 1 of 2\n", got.body);
+    try testing.expectEqualStrings("1 of 2", try levelOf((try post(io, a, &hub, "/load", load_line)).body));
+    const back = try app.game(io, 0);
+    try testing.expectEqual(@as(u32, 1), back.level());
+    try testing.expectEqualSlices(physics.Point, &herd, back.kept.board.of(.cow)[0..2]);
+    try testing.expectEqualSlices(physics.Known, Board.laidOutAt(0).knownOf(.cow), back.kept.board.knownOf(.cow));
+    try testing.expectEqualSlices(physics.Known, Board.laidOutAt(0).knownOf(.chicken), back.kept.board.knownOf(.chicken));
+
+    // Start over: Level One's first layout; Level Two's game untouched.
+    try testing.expectEqualStrings("200", (try post(io, a, &hub, "/reset", "")).status);
+    try testing.expectEqualStrings("1 of 2", try levelOf((try post(io, a, &hub, "/load", load_line)).body));
+    try testing.expectEqualSlices(physics.Point, Board.laidOutAt(0).of(.cow), (try app.game(io, 0)).kept.board.of(.cow));
+    try testing.expectEqualStrings("level 2 of 2\n", (try post(io, a, &hub, "/level", "level 2\n")).body);
+    try testing.expectEqualStrings("2 of 2", try levelOf((try post(io, a, &hub, "/load", load_line)).body));
+    try testing.expectEqual(moved, (try app.game(io, 0)).kept.board.of(.dog)[0]);
+    try testing.expectEqualStrings("409", (try post(io, a, &hub, "/level", "level 3\n")).status);
 }
 
 /// The logs in the rig's physics folder, by start.
