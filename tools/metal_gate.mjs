@@ -215,9 +215,10 @@ async function adminGame(port, claimed, keptTick) {
   const row = /<tr><td>0<\/td>(.*?)<\/tr>/.exec(games);
   expect(row, `/admin/game has no row for account 0:\n${page.text.slice(0, 1200)}`);
   const cells = [...row[1].matchAll(/<td[^>]*>(.*?)<\/td>/g)].map((m) => m[1]);
-  // account, last request, leash, kept tick, epoch, herd, poops, logs, findings: the row less its first cell.
-  expect(Number(cells[2]) === keptTick, `/admin/game's kept tick ${cells[2]}, the page's ${keptTick}`);
-  expect(/^0 overlaps, 0 idle drags, 0 unreadable, 0 trips$/.test(cells[7]), `/admin/game finds: ${cells[7]}`);
+  // account, level, last request, leash, kept tick, epoch, herd, poops, logs, findings: the row less its first cell.
+  expect(cells[0] === "1 of 1", `/admin/game's level ${cells[0]}: a new game is Level One`);
+  expect(Number(cells[3]) === keptTick, `/admin/game's kept tick ${cells[3]}, the page's ${keptTick}`);
+  expect(/^0 overlaps, 0 idle drags, 0 unreadable, 0 trips$/.test(cells[8]), `/admin/game finds: ${cells[8]}`);
   expect(!/class="bad"/.test(page.text), `/admin/game marks something bad:\n${row[0]}`);
   status(await request(port, "GET", "/admin/game"), 403, "/admin/game without the key");
   status(await request(port, "GET", "/admin/game", { headers: { authorization: `Bearer ${"0".repeat(64)}` } }), 403, "/admin/game with a wrong key");
@@ -288,7 +289,7 @@ async function backgroundRun(port) {
 
 /** The physics logs' start times (log-<ms>) on the disk, ascending. */
 function logStarts() {
-  return diskNames("data/game-0/physics").map((n) => /^log-(\d+)$/.exec(n)).filter(Boolean).map((m) => Number(m[1])).sort((a, b) => a - b);
+  return diskNames("data/game-0/level-1/physics").map((n) => /^log-(\d+)$/.exec(n)).filter(Boolean).map((m) => Number(m[1])).sort((a, b) => a - b);
 }
 
 async function gate() {

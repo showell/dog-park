@@ -605,7 +605,7 @@ const the_dog: u16 = 25;
 /// board, written as one report; the judge's `Kept` ready for it (the
 /// region's tiles sent, as a load's tile lines would have).
 fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
-    reset();
+    reset(physics.last_level);
     boards[live] = physics.Board.laidOut();
     boards[kept] = boards[live];
     k.* = .{ .tick = 0, .board = physics.Board.laidOut() };
@@ -630,7 +630,7 @@ fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
 }
 
 test "regionTiles: the region is the world, every tile named once, wherever the leashed dog stands" {
-    reset();
+    reset(physics.last_level);
     boards[live] = physics.Board.laidOut();
     boards[live].place(.of(.dog, the_dog), .{ .x = physics.px(200), .y = physics.px(200) });
     _ = human(live, @intFromEnum(HumanKind.leash), 1, the_dog);
@@ -700,7 +700,7 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
     try testing.expectEqual(@as(f64, 9), lineTick());
     try testing.expectEqual(@as(i32, -1), readInput(putLine("input view 9 1x1")));
 
-    reset();
+    reset(physics.last_level);
     boards[live].place(.of(.dog, 2), .{ .x = 5, .y = 5 });
     try testing.expectEqual(@as(i32, 2), readTile(putLine("tile 2,2 dog 0 355.00,361.00 dog 2 1.00,1.00"), 0b011));
     try testing.expectEqual(physics.Point{ .x = 5, .y = 5 }, boards[live].of(.dog)[2]);
@@ -712,7 +712,7 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
 }
 
 test "a refused input leaves the board and writes nothing" {
-    reset();
+    reset(physics.last_level);
     boards[live] = physics.Board.laidOut();
     try testing.expectEqual(@as(i32, -1 - @as(i32, @intFromEnum(physics.Refusal.grab_unleashed))), human(live, @intFromEnum(HumanKind.grab), 1, 0));
     try testing.expect(human(live, @intFromEnum(HumanKind.leash), 1, 4) > 0);
