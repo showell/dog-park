@@ -164,7 +164,7 @@ check.
    <commit> -m "..."`, then `git push origin vN`): a release is a tag, as
    the kernel's are. `v1` is the first image (ab222a2, 2026-10-16), `v2`
    the one after (5f98101), `v3` the goats and the Roc on metal (9b4067c,
-   2026-10-19).
+   2026-10-19), `v4` the levels and the landing's goal (bd07472, 2026-10-20).
 
 The private address stays, so Caddy needs nothing. Accounts and games start
 over.
