@@ -9,6 +9,7 @@
   main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 16px; box-sizing: border-box; text-align: center; }
   h1 { margin: 0; font-size: 40px; }
   p { margin: 0; max-width: 32em; line-height: 1.5; }
+  p.goal { font-size: 24px; font-weight: 600; }
   button { font: inherit; font-size: 28px; font-weight: 600; color: white; background: #1f6fd1; border: 0; border-radius: 14px; padding: 22px 48px; cursor: pointer; box-shadow: 0 4px 0 #154f96; }
   button:hover { background: #2a7ee6; }
   button:active { transform: translateY(2px); box-shadow: 0 2px 0 #154f96; }
@@ -17,7 +18,9 @@
 <body>
 <main>
   <h1>🐕 Dog Park 🐄</h1>
-  <p>Leash a dog and drag it around the park. Dogs of its breed follow it, the cows get out of the way, the chickens tidy up after the herd, and the goats come to see what the fuss is about.</p>
+  <p class="goal">🎯 Your goal: herd all the cows into one group.</p>
+  <p>Leash a dog and drag it around the park. Cows move away from dogs, so use your dogs to push them together. Once every cow is in one herd, you win the level.</p>
+  <p>Dogs of the same breed follow yours. Later levels add chickens, who tidy up after the herd, and goats, who come to see what the fuss is about.</p>
   <form method="post" action="/begin"><button type="submit">Begin Game</button></form>
 </main>
 </body>
