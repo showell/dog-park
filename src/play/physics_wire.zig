@@ -441,10 +441,11 @@ pub fn parseHexPoint(s: []const u8, most: u32) ParseError!u32 {
     return @intCast(v);
 }
 
-/// A position in the world: `x,y`, each 0 to the world's side, less 1/256.
-pub fn parsePos(s: []const u8) ParseError!Point {
+/// A position in the board's level's world (`g`): `x,y`, each 0 to the
+/// world's side, less 1/256.
+pub fn parsePos(g: physics.Geometry, s: []const u8) ParseError!Point {
     const comma = find(s, ',') orelse return error.Malformed;
-    const most: u32 = physics.world - 1;
+    const most: u32 = @intCast(g.world - 1);
     return .{ .x = @intCast(try parseHexPoint(s[0..comma], most)), .y = @intCast(try parseHexPoint(s[comma + 1 ..], most)) };
 }
 
@@ -474,39 +475,47 @@ fn parseTick(s: []const u8) ParseError!Tick {
 
 fn parseCritter(kind: []const u8, n: []const u8) ParseError!Critter {
     const k = std.meta.stringToEnum(physics.Kind, kind) orelse return error.Malformed;
-    return .of(k, @intCast(try parseDec(n, physics.countOf(k) - 1)));
+    return .of(k, try parseNumber(n, physics.countOf(k)));
+}
+
+/// A critter's number among `count` of its kind: `0` to `count` - 1, and
+/// none when there are none.
+pub fn parseNumber(n: []const u8, count: u16) ParseError!u16 {
+    if (count == 0) return error.Malformed;
+    return @intCast(try parseDec(n, count - 1));
 }
 
 pub fn parsePoopNumber(n: []const u8) ParseError!u16 {
     return @intCast(try parseDec(n, physics.poop_count - 1));
 }
 
-fn parseTile(s: []const u8) ParseError!tiles.Tile {
+fn parseTile(g: physics.Geometry, s: []const u8) ParseError!tiles.Tile {
     const comma = find(s, ',') orelse return error.Malformed;
-    const top = tiles.world_tiles - 1;
+    const top: u64 = @intCast(g.world_tiles - 1);
     return .{ .col = @intCast(try parseDec(s[0..comma], top)), .row = @intCast(try parseDec(s[comma + 1 ..], top)) };
 }
 
 /// The rest of a line's words as a tile set: in the world, at most 64, none
 /// twice.
-fn parseTiles(w: *Words) ParseError!TileSet {
+fn parseTiles(g: physics.Geometry, w: *Words) ParseError!TileSet {
     var set: TileSet = .{};
     while (w.more()) {
-        const t = try parseTile(try w.next());
+        const t = try parseTile(g, try w.next());
         if (set.holds(t)) return error.Malformed;
         set.add(t) catch return error.Malformed;
     }
     return set;
 }
 
-/// **PARSES A LINE**, without its `\n`: canonical, and every field bounded.
-pub fn parse(text: []const u8) ParseError!Line {
+/// **PARSES A LINE**, without its `\n`: canonical, and every field bounded,
+/// positions and tiles by the board's level's world (`g`).
+pub fn parse(g: physics.Geometry, text: []const u8) ParseError!Line {
     if (text.len > 0 and text[0] == ' ') {
         var w: Words = .{ .rest = text[1..] };
         const kind = try w.next();
         if (std.mem.eql(u8, kind, "poop")) {
             const n = try parsePoopNumber(try w.next());
-            const at = try parsePos(try w.next());
+            const at = try parsePos(g, try w.next());
             try w.end();
             return .{ .poop = .{ .n = n, .at = at } };
         }
@@ -516,9 +525,9 @@ pub fn parse(text: []const u8) ParseError!Line {
             return .{ .eaten = n };
         }
         const who = try parseCritter(kind, try w.next());
-        const before = try parsePos(try w.next());
+        const before = try parsePos(g, try w.next());
         try w.expect(">");
-        const after = try parsePos(try w.next());
+        const after = try parsePos(g, try w.next());
         try w.end();
         return .{ .critter = .{ .who = who, .before = before, .after = after } };
     }
@@ -549,7 +558,7 @@ pub fn parse(text: []const u8) ParseError!Line {
     }
     if (std.mem.eql(u8, word, "leash") or std.mem.eql(u8, word, "release")) {
         const t = try parseTick(try w.next());
-        const dog: u16 = @intCast(try parseDec(try w.next(), physics.countOf(physics.leashed_kind) - 1));
+        const dog = try parseNumber(try w.next(), physics.countOf(physics.leashed_kind));
         try w.end();
         return if (word[0] == 'l') .{ .leash = .{ .tick = t, .dog = dog } } else .{ .release = .{ .tick = t, .dog = dog } };
     }
@@ -564,7 +573,7 @@ pub fn parse(text: []const u8) ParseError!Line {
     }
     if (std.mem.eql(u8, word, "held")) {
         const t = try parseTick(try w.next());
-        return .{ .held = .{ .tick = t, .tiles = try parseTiles(&w) } };
+        return .{ .held = .{ .tick = t, .tiles = try parseTiles(g, &w) } };
     }
     if (std.mem.eql(u8, word, "view")) {
         const t = try parseTick(try w.next());
@@ -572,7 +581,7 @@ pub fn parse(text: []const u8) ParseError!Line {
         const x = find(size, 'x') orelse return error.Malformed;
         const wide = try parseDec(size[0..x], 1 << 16);
         const high = try parseDec(size[x + 1 ..], 1 << 16);
-        return .{ .view = .{ .tick = t, .w = wide, .h = high, .tiles = try parseTiles(&w) } };
+        return .{ .view = .{ .tick = t, .w = wide, .h = high, .tiles = try parseTiles(g, &w) } };
     }
     if (std.mem.eql(u8, word, "bump")) {
         const t = try parseTick(try w.next());
@@ -624,17 +633,19 @@ pub const Entry = union(enum) {
 /// separated by single spaces.
 pub const Entries = struct {
     w: Words,
+    /// The board's level's geometry, which bounds the positions.
+    g: physics.Geometry,
 
-    pub fn of(rest: []const u8) Entries {
-        return .{ .w = .{ .rest = rest, .done = rest.len == 0 } };
+    pub fn of(g: physics.Geometry, rest: []const u8) Entries {
+        return .{ .w = .{ .rest = rest, .done = rest.len == 0 }, .g = g };
     }
     pub fn next(self: *Entries) ParseError!?Entry {
         if (!self.w.more()) return null;
         const kind = try self.w.next();
         const n = try self.w.next();
-        if (std.mem.eql(u8, kind, "poop")) return .{ .poop = .{ .n = try parsePoopNumber(n), .at = try parsePos(try self.w.next()) } };
+        if (std.mem.eql(u8, kind, "poop")) return .{ .poop = .{ .n = try parsePoopNumber(n), .at = try parsePos(self.g, try self.w.next()) } };
         const who = try parseCritter(kind, n);
-        const at = try parsePos(try self.w.next());
+        const at = try parsePos(self.g, try self.w.next());
         var walked: u32 = 0;
         if (who.kind == physics.leashed_kind and self.w.more() and std.mem.startsWith(u8, self.w.rest, "walked ")) {
             _ = try self.w.next();

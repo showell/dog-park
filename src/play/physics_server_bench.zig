@@ -66,11 +66,12 @@ pub fn main(init: std.process.Init) !void {
     var region: wire.TileSet = .{};
     var critter_lines: usize = 0;
     for (0..16) |i| {
-        const span = physics.TileSpan.of(physics.region(page.of(.dog)[dog]));
+        const g = page.geometry();
+        const span = physics.TileSpan.of(g, g.region(page.of(.dog)[dog]));
         var r = span.row_lo;
         while (r <= span.row_hi) : (r += 1) {
             var c = span.col_lo;
-            while (c <= span.col_hi) : (c += 1) try region.add(physics.TileSpan.at(c, r));
+            while (c <= span.col_hi) : (c += 1) try region.add(g.tileAt(c, r));
         }
         const t = s.kept.tick + 1 + i;
         const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(12), .dy = physics.px(3) }});

@@ -133,10 +133,145 @@ pub fn seconds(comptime n: comptime_int) comptime_int {
     return n * ticks_per_second;
 }
 
-/// The world's side, in 256ths.
-pub const world: i32 = px(tiles.world_px);
 /// A tile's side, in 256ths.
 pub const tile: i32 = px(tiles.tile_px);
+
+/// A level, by its place in the world's `levels` (Level One is 0).
+pub const Level = u8;
+pub const level_count: comptime_int = world_file.levels.len;
+/// The largest level, which sizes the physics' room (`room`); the level
+/// `Board.laidOut` lays out until a game names its own.
+pub const last_level: Level = level_count - 1;
+
+/// **A LEVEL'S GEOMETRY**: everything the physics derives from its world's
+/// size, the torus every difference and move goes round. A board carries its
+/// level (`Board.level`), and every derivation reads the board's
+/// `geometry`; the arrays are sized by the largest, `room`.
+pub const Geometry = struct {
+    level: Level,
+    /// The world, `world_tiles` by `world_tiles` tiles from tile (0, 0).
+    world_tiles: i32,
+    /// The world's side, in 256ths, and half of it.
+    world: i32,
+    half_world: i32,
+    /// The populated park: `park_tiles` by `park_tiles` tiles from tile
+    /// (`park_first`, `park_first`).
+    park_first: i32,
+    park_tiles: i32,
+    /// The region's tiles a side (the region is the world), and its cells.
+    span_tiles: usize,
+    span_cells: usize,
+
+    pub fn of(level: Level) Geometry {
+        return geometries[level];
+    }
+
+    /// A difference on one axis, the short way round: in [−world/2, world/2).
+    /// Two points in the world are less than a world apart, so one add or
+    /// subtract of the world brings it round; only a difference past that
+    /// (none the physics makes) takes the division. The same as
+    /// `@mod(d + half_world, world) - half_world` for every `d`. Most
+    /// differences are already short, and one unsigned compare says so.
+    pub inline fn shortWay(g: Geometry, d: i32) i32 {
+        const world = g.world;
+        const half_world = g.half_world;
+        if (@as(u32, @bitCast(d +% half_world)) < @as(u32, @intCast(world))) return d;
+        if (d >= half_world) {
+            if (d < world + half_world) return d - world;
+        } else if (d >= -half_world) {
+            return d;
+        } else if (d >= -half_world - world) return d + world;
+        return @mod(d + half_world, world) - half_world;
+    }
+
+    /// **THE ONE DIFFERENCE**: from `a` to `b`, per axis, the short way
+    /// round the torus: each axis in [−world/2, world/2) (decision 14).
+    /// Every centre-to-centre difference in the physics goes through here.
+    pub inline fn delta(g: Geometry, a: Point, b: Point) Point {
+        return .{ .x = g.shortWay(b.x - a.x), .y = g.shortWay(b.y - a.y) };
+    }
+
+    /// A point back in the world, [0, `world`) on each axis: where a move
+    /// that crossed the seam lands.
+    pub fn wrapped(g: Geometry, p: Point) Point {
+        return .{ .x = @mod(p.x, g.world), .y = @mod(p.y, g.world) };
+    }
+
+    /// `p` moved `by` along `axis`, wrapped into the world.
+    pub fn moved(g: Geometry, p: Point, axis: Axis, by: i32) Point {
+        return g.wrapped(switch (axis) {
+            .x => .{ .x = p.x + by, .y = p.y },
+            .y => .{ .x = p.x, .y = p.y + by },
+        });
+    }
+
+    /// Two squares overlap: |px − qx| < (a + b)/2 and |py − qy| < (a + b)/2.
+    pub fn squaresOverlap(g: Geometry, p: Point, ph: i32, q: Point, qh: i32) bool {
+        const d = g.delta(p, q);
+        return mag(d.x) < ph + qh and mag(d.y) < ph + qh;
+    }
+
+    /// **THE REGION IS THE WORLD** (Steve, 2026-10-15: single-player): the
+    /// physics sees every critter, wherever the leashed dog stands. The
+    /// tiles from (0, 0), every one once.
+    pub fn region(g: Geometry, _: Point) Rect {
+        return .{ .lo = .{ .x = 0, .y = 0 }, .hi = .{ .x = g.world, .y = g.world } };
+    }
+
+    /// The tile a point stands in, named in the world: the point wrapped
+    /// first.
+    pub fn tileOf(g: Geometry, p: Point) tiles.Tile {
+        return .{ .col = @divFloor(@mod(p.x, g.world), tile), .row = @divFloor(@mod(p.y, g.world), tile) };
+    }
+
+    /// The tile at `col`, `row`, named in the world (a span's `at`).
+    pub fn tileAt(g: Geometry, col: i32, row: i32) tiles.Tile {
+        return (tiles.Tile{ .col = col, .row = row }).wrapped(g.world_tiles);
+    }
+
+    /// Whether a tile is in the world: [0, `world_tiles`) on each axis.
+    pub fn holdsTile(g: Geometry, t: tiles.Tile) bool {
+        return t.col >= 0 and t.row >= 0 and t.col < g.world_tiles and t.row < g.world_tiles;
+    }
+
+    /// Whether a point is in the world: [0, `world`) on each axis.
+    pub fn holdsPoint(g: Geometry, p: Point) bool {
+        return p.x >= 0 and p.y >= 0 and p.x < g.world and p.y < g.world;
+    }
+};
+
+/// Each level's geometry, made once at compile time.
+const geometries: [level_count]Geometry = g: {
+    var out: [level_count]Geometry = undefined;
+    for (world_file.levels, &out, 0..) |lv, *geo, i| {
+        if (lv.park.first + lv.park.tiles > lv.world_tiles) @compileError("world.zon: a level's park runs past its world's edge");
+        if (lv.world_tiles > world_file.world_tiles) @compileError("world.zon: a level is larger than the room");
+        if (lv.spots.len != kind_count) @compileError("world.zon: a level's spots are not one list a kind");
+        const w = px(@as(i32, lv.world_tiles) * tiles.tile_px);
+        // The world is whole cells and tiles, and halves.
+        if (@mod(w, cell) != 0 or @mod(w, 2) != 0) @compileError("world.zon: a level's world is not whole cells");
+        geo.* = .{
+            .level = i,
+            .world_tiles = lv.world_tiles,
+            .world = w,
+            .half_world = @divExact(w, 2),
+            .park_first = lv.park.first,
+            .park_tiles = lv.park.tiles,
+            .span_tiles = lv.world_tiles,
+            .span_cells = @as(usize, lv.world_tiles) * cell_per_tile,
+        };
+    }
+    break :g out;
+};
+
+/// **THE ROOM**: the largest level's geometry (world.zon's top-level
+/// `world_tiles` and `park`), which every array is sized by.
+pub const room: Geometry = geometries[last_level];
+comptime {
+    if (room.world_tiles != world_file.world_tiles or room.park_first != world_file.park.first or room.park_tiles != world_file.park.tiles)
+        @compileError("world.zon: the room is not the last level's");
+    for (geometries) |g| if (g.world_tiles > room.world_tiles) @compileError("world.zon: a level is larger than the last");
+}
 
 // **THE KNOBS** (docs/PHYSICS.md), tuned by playing. **Distance is the
 // larger axis** (Chebyshev, decision 19): every reach is a square, as the
@@ -222,37 +357,6 @@ pub const Tick = u64;
 
 pub const Point = extern struct { x: i32, y: i32 };
 
-/// **THE ONE DIFFERENCE**: from `a` to `b`, per axis, the short way round
-/// the torus: each axis in [−world/2, world/2) (decision 14). Every
-/// centre-to-centre difference in the physics goes through here.
-pub inline fn delta(a: Point, b: Point) Point {
-    return .{ .x = shortWay(b.x - a.x), .y = shortWay(b.y - a.y) };
-}
-
-pub const half_world: i32 = @divExact(world, 2);
-
-/// A difference on one axis, the short way round: in [−world/2, world/2).
-/// Two points in the world are less than a world apart, so one add or
-/// subtract of the world brings it round; only a difference past that
-/// (none the physics makes) takes the division. The same as
-/// `@mod(d + half_world, world) - half_world` for every `d`. Most
-/// differences are already short, and one unsigned compare says so.
-pub fn shortWay(d: i32) i32 {
-    if (@as(u32, @bitCast(d +% half_world)) < world) return d;
-    if (d >= half_world) {
-        if (d < world + half_world) return d - world;
-    } else if (d >= -half_world) {
-        return d;
-    } else if (d >= -half_world - world) return d + world;
-    return @mod(d + half_world, world) - half_world;
-}
-
-/// A point back in the world, [0, `world`) on each axis: where a move that
-/// crossed the seam lands.
-pub fn wrapped(p: Point) Point {
-    return .{ .x = @mod(p.x, world), .y = @mod(p.y, world) };
-}
-
 pub const Axis = enum { x, y };
 
 pub fn on(p: Point, axis: Axis) i32 {
@@ -260,14 +364,6 @@ pub fn on(p: Point, axis: Axis) i32 {
         .x => p.x,
         .y => p.y,
     };
-}
-
-/// `p` moved `by` along `axis`, wrapped into the world.
-pub fn moved(p: Point, axis: Axis, by: i32) Point {
-    return wrapped(switch (axis) {
-        .x => .{ .x = p.x + by, .y = p.y },
-        .y => .{ .x = p.x, .y = p.y + by },
-    });
 }
 
 pub fn mag(v: i32) i32 {
@@ -338,21 +434,41 @@ pub const Board = struct {
     poop_known: [poop_count]Known,
     laid: u32 = 0,
     hold: Hold = .none,
+    /// The level the board plays: its world's size (`geometry`), its
+    /// layout and its homes.
+    level: Level,
 
-    /// No critters at all.
+    /// No critters at all, on Level Two (`emptyAt` for any level).
     pub fn empty() Board {
+        return emptyAt(last_level);
+    }
+
+    /// No critters at all, on `level`.
+    pub fn emptyAt(level: Level) Board {
         return .{
             .points = @splat(.{ .x = 0, .y = 0 }),
             .known_at = @splat(.absent),
             .walked = @splat(0),
             .poops = @splat(.{ .x = 0, .y = 0 }),
             .poop_known = @splat(.absent),
+            .level = level,
         };
     }
 
-    /// The first layout (layout.zig), every critter present.
+    /// Level Two's first layout (layout.zig), every critter present.
     pub fn laidOut() Board {
-        return layout.board();
+        return layout.board(last_level);
+    }
+
+    /// `level`'s first layout: its critters at its spots, every other
+    /// critter absent.
+    pub fn laidOutAt(level: Level) Board {
+        return layout.board(level);
+    }
+
+    /// The board's level's geometry.
+    pub inline fn geometry(self: *const Board) Geometry {
+        return Geometry.of(self.level);
     }
 
     pub fn at(self: *const Board, c: Critter) Point {
@@ -423,47 +539,37 @@ pub const Rect = struct {
     }
 };
 
-/// Two squares overlap: |px − qx| < (a + b)/2 and |py − qy| < (a + b)/2.
-pub fn squaresOverlap(p: Point, ph: i32, q: Point, qh: i32) bool {
-    const d = delta(p, q);
-    return mag(d.x) < ph + qh and mag(d.y) < ph + qh;
-}
-
-/// **THE REGION IS THE WORLD** (Steve, 2026-10-15: a 6 x 6-tile world,
-/// single-player): the physics sees every critter, wherever the leashed
-/// dog stands. The tiles from (0, 0), every one once.
-pub fn region(_: Point) Rect {
-    return .{ .lo = .{ .x = 0, .y = 0 }, .hi = .{ .x = world, .y = world } };
-}
-
 /// The tiles a rectangle meets, half-open: sharing some of a tile's
-/// interior. On the torus (decision 14): `col_lo` and `row_lo` are named in
-/// the world, [0, `world_tiles`), and `col_hi` and `row_hi` count on past
-/// its last tile across the seam (64 is tile 0), so `lo..hi` always counts
-/// up; `at` names a tile of the range in the world. A span is never wider
-/// than the world (the region's comptime check).
+/// interior. On the torus (decision 14) of a level's world, `world_tiles`
+/// a side: `col_lo` and `row_lo` are named in the world, [0,
+/// `world_tiles`), and `col_hi` and `row_hi` count on past its last tile
+/// across the seam (`world_tiles` is tile 0), so `lo..hi` always counts up;
+/// `Geometry.tileAt` names a tile of the range in the world. A span is
+/// never wider than the world (the region is the world).
 pub const TileSpan = struct {
     col_lo: i32,
     col_hi: i32,
     row_lo: i32,
     row_hi: i32,
+    world_tiles: i32,
 
-    pub fn of(r: Rect) TileSpan {
+    pub fn of(g: Geometry, r: Rect) TileSpan {
         const col = @divFloor(r.lo.x, tile);
         const row = @divFloor(r.lo.y, tile);
-        const col_lo = @mod(col, tiles.world_tiles);
-        const row_lo = @mod(row, tiles.world_tiles);
+        const col_lo = @mod(col, g.world_tiles);
+        const row_lo = @mod(row, g.world_tiles);
         return .{
             .col_lo = col_lo,
             .col_hi = col_lo + (ceilDiv(r.hi.x, tile) - 1 - col),
             .row_lo = row_lo,
             .row_hi = row_lo + (ceilDiv(r.hi.y, tile) - 1 - row),
+            .world_tiles = g.world_tiles,
         };
     }
     /// Whether `t` (named in the world) lies in the wrapped range.
     pub fn holds(self: TileSpan, t: tiles.Tile) bool {
-        return @mod(t.col - self.col_lo, tiles.world_tiles) <= self.col_hi - self.col_lo and
-            @mod(t.row - self.row_lo, tiles.world_tiles) <= self.row_hi - self.row_lo;
+        return @mod(t.col - self.col_lo, self.world_tiles) <= self.col_hi - self.col_lo and
+            @mod(t.row - self.row_lo, self.world_tiles) <= self.row_hi - self.row_lo;
     }
     /// `holds(tileOf(p))`, from the point (202): a tile divides the world,
     /// so the point's offset from the span's first tile, round the world,
@@ -471,25 +577,17 @@ pub const TileSpan = struct {
     /// tile, and the tile's offset is at most `hi - lo` exactly when the
     /// point's is less than `hi - lo + 1` tiles.
     pub fn holdsPoint(self: TileSpan, p: Point) bool {
-        return holdsOn(p.x, self.col_lo, self.col_hi) and holdsOn(p.y, self.row_lo, self.row_hi);
+        const world = @as(i64, self.world_tiles) * tile;
+        return holdsOn(world, p.x, self.col_lo, self.col_hi) and holdsOn(world, p.y, self.row_lo, self.row_hi);
     }
-    fn holdsOn(v: i32, lo: i32, hi: i32) bool {
+    fn holdsOn(world: i64, v: i32, lo: i32, hi: i32) bool {
         const off = @mod(@as(i64, v) - @as(i64, lo) * tile, world);
         return off < (@as(i64, hi) - lo + 1) * tile;
-    }
-    /// The tile at `col`, `row` of the range, named in the world.
-    pub fn at(col: i32, row: i32) tiles.Tile {
-        return (tiles.Tile{ .col = col, .row = row }).wrapped();
     }
 };
 
 fn ceilDiv(a: i32, b: i32) i32 {
     return -@divFloor(-a, b);
-}
-
-/// The tile a point stands in, named in the world: the point wrapped first.
-pub fn tileOf(p: Point) tiles.Tile {
-    return .{ .col = @divFloor(@mod(p.x, world), tile), .row = @divFloor(@mod(p.y, world), tile) };
 }
 
 /// A drag displacement, in 256ths, and when the pointer was there (`@ms`,
@@ -680,6 +778,8 @@ pub const Seen = struct {
 /// places as the tick moves them.
 pub const Scene = struct {
     board: *Board,
+    /// The board's level's geometry, read once a tick.
+    geo: Geometry,
     seen: [critter_count]Seen = undefined,
     at: [critter_count]Point = undefined,
     len: usize = 0,
@@ -730,15 +830,16 @@ pub const Scene = struct {
     pub fn init(s: *Scene, b: *Board) bool {
         const l = b.leashedDog() orelse return false;
         s.board = b;
+        s.geo = b.geometry();
         s.len = 0;
         s.walk_len = 0;
-        const span = TileSpan.of(region(b.at(.of(leashed_kind, l))));
+        const span = TileSpan.of(s.geo, s.geo.region(b.at(.of(leashed_kind, l))));
         s.span = span;
         s.add(.of(leashed_kind, l), l);
         for (by_rank) |k| for (0..countOf(k)) |i| {
             if (k != leashed_kind or i != l) s.consider(.of(k, @intCast(i)), span, l);
         };
-        s.cells.clear();
+        s.cells.clear(s.geo.span_cells);
         s.poop_listed = .initEmpty();
         s.poop_head = @splat(@splat(no_poop));
         s.poop_laid = .initEmpty();
@@ -754,22 +855,24 @@ pub const Scene = struct {
     /// (0, 0), and in slot order on each.
     fn lendPoops(s: *Scene) void {
         const w = &s.roc_walk;
-        const tiles_n = span_tiles * span_tiles;
-        var count: [tiles_n]u16 = @splat(0);
+        const tiles_n = s.geo.span_tiles * s.geo.span_tiles;
+        var count: [span_tiles * span_tiles]u16 = undefined;
+        @memset(count[0..tiles_n], 0);
         var it = s.poop_listed.iterator(.{});
-        while (it.next()) |n| count[poopTile(s.board.poops[n])] += 1;
+        while (it.next()) |n| count[s.poopTile(s.board.poops[n])] += 1;
         var from: u16 = 0;
-        for (count, 0..) |c, t| {
+        for (count[0..tiles_n], 0..) |c, t| {
             w.from.items[t] = from;
             from += c;
         }
         w.from.items[tiles_n] = from;
         w.from.len = tiles_n + 1;
-        var fill = w.from.items[0..tiles_n].*;
+        var fill: [span_tiles * span_tiles]u16 = undefined;
+        @memcpy(fill[0..tiles_n], w.from.items[0..tiles_n]);
         it = s.poop_listed.iterator(.{});
         while (it.next()) |n| {
             const at = s.board.poops[n];
-            const t = poopTile(at);
+            const t = s.poopTile(at);
             w.poops.items[fill[t]] = .{ .x = at.x, .y = at.y, .slot = @intCast(n) };
             fill[t] += 1;
         }
@@ -780,10 +883,9 @@ pub const Scene = struct {
     /// The tile a point stands in, `row * span_tiles + col`, from the
     /// world's (0, 0): the one naming of a poop's tile, for its list
     /// (`headOf`), the lists `near` walks, and what Roc is lent.
-    fn poopTile(p: Point) usize {
-        const col: usize = @intCast(@divFloor(@mod(p.x, world), tile));
-        const row: usize = @intCast(@divFloor(@mod(p.y, world), tile));
-        return row * span_tiles + col;
+    fn poopTile(s: *const Scene, p: Point) usize {
+        const t = s.geo.tileOf(p);
+        return @as(usize, @intCast(t.row)) * s.geo.span_tiles + @as(usize, @intCast(t.col));
     }
 
     /// Lists slot `n`, whose point stands in the span, on its tile's list.
@@ -794,8 +896,8 @@ pub const Scene = struct {
     }
 
     fn headOf(s: *Scene, p: Point) *u16 {
-        const t = poopTile(p);
-        return &s.poop_head[t / span_tiles][t % span_tiles];
+        const t = s.poopTile(p);
+        return &s.poop_head[t / s.geo.span_tiles][t % s.geo.span_tiles];
     }
 
     fn link(s: *Scene, n: u16) void {
@@ -824,8 +926,8 @@ pub const Scene = struct {
     /// The listed slots whose point might lie within `reach` of `p` on
     /// both axes: those of the tiles the square meets, round the torus.
     pub fn near(s: *const Scene, p: Point, reach: i32) Near {
-        const xs = Wrapped.of(@mod(p.x, world), reach, tile, span_tiles);
-        const ys = Wrapped.of(@mod(p.y, world), reach, tile, span_tiles);
+        const xs = Wrapped.of(@mod(p.x, s.geo.world), reach, tile, s.geo.span_tiles);
+        const ys = Wrapped.of(@mod(p.y, s.geo.world), reach, tile, s.geo.span_tiles);
         return .{ .sc = s, .cols = xs, .rows = ys };
     }
 
@@ -834,7 +936,7 @@ pub const Scene = struct {
     /// chicken's turn in the tests (a move that forgot its bit would let a
     /// square miss whoever it overlaps).
     pub fn bucketsHold(s: *const Scene) bool {
-        return s.cells.holds(s.at[0..s.len]);
+        return s.cells.holds(s.geo.span_cells, s.at[0..s.len]);
     }
 
     fn consider(s: *Scene, c: Critter, span: TileSpan, l: u16) void {
@@ -861,7 +963,7 @@ pub const Scene = struct {
     /// Seen critter `i` to `to`, wrapped into the world (after a walk,
     /// `takeCrits`: Roc has already moved its bit in the lent cells).
     pub fn put(s: *Scene, i: usize, to: Point) void {
-        const p = wrapped(to);
+        const p = s.geo.wrapped(to);
         s.at[i] = p;
         s.board.put(s.seen[i].who, p);
     }
@@ -878,9 +980,8 @@ pub const Scene = struct {
     }
 };
 
-/// The most tiles a span is wide: the region's side, and one more for a
-/// region that doesn't sit on the tiles' lines.
-pub const span_tiles = tiles.world_tiles;
+/// The most tiles a span is wide, in any level: the room's region's side.
+pub const span_tiles = room.span_tiles;
 
 /// The end of a tile's list of poops.
 const no_poop: u16 = std.math.maxInt(u16);
@@ -892,13 +993,13 @@ const Grid = grid.Grid(critter_count, span_cells, cell, roc.Lent);
 /// ways on each axis, a side a few critters wide.
 pub const cell_per_tile = world_file.cell_per_tile;
 pub const cell: i32 = @divExact(tile, cell_per_tile);
-pub const span_cells: usize = span_tiles * cell_per_tile;
+pub const span_cells: usize = room.span_cells;
 
 const Wrapped = grid.Wrapped;
 
 comptime {
-    // The world is whole cells and tiles.
-    std.debug.assert(@mod(world, cell) == 0 and span_cells * cell == world);
+    // Every level's world is whole cells and tiles.
+    for (geometries) |g| std.debug.assert(@mod(g.world, cell) == 0 and @as(i32, @intCast(g.span_cells)) * cell == g.world);
 }
 
 /// The listed poop slots on some tiles (`Scene.near`), round the torus,
@@ -1073,8 +1174,8 @@ fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
     // **THE WALK'S JUDGE** (-Dwalk-judge, walk_reference.zig): the same
     // pixel-tick in plain Zig, compared field by field.
     var judge: if (walk_judge) walk_reference.Judge(critter_count, walk_most + 1) else void = undefined;
-    if (walk_judge) judge.before(w.crits.slice(), w.from.slice(), w.poops.slice(), span_cells, axis_n, inc, before, sc.board.laid);
-    const r = w.run(&sc.cells.cells, axis_n, inc, before, sc.board.laid);
+    if (walk_judge) judge.before(w.crits.slice(), w.from.slice(), w.poops.slice(), sc.geo.span_cells, axis_n, inc, before, sc.board.laid);
+    const r = w.run(&sc.cells.cells, sc.geo.span_cells, axis_n, inc, before, sc.board.laid);
     if (walk_judge) judge.after(w.crits.slice(), sc.cells.cells.slice(), Grid.words, w.moving.slice(), r);
     takeCrits(sc);
     const step: Point = .{ .x = r.step_x, .y = r.step_y };
@@ -1138,7 +1239,7 @@ pub fn ripe(laid: u32, n: u16) bool {
 fn onPoop(sc: *const Scene, p: Point, h: i32) bool {
     var poops = sc.near(p, h + poop_half);
     while (poops.next()) |m| {
-        if (squaresOverlap(p, h, sc.board.poops[m], poop_half)) return true;
+        if (sc.geo.squaresOverlap(p, h, sc.board.poops[m], poop_half)) return true;
     }
     return false;
 }
@@ -1185,16 +1286,16 @@ fn placePoop(sc: *Scene, slot: u16, q: Point) void {
 /// off the park here. The buckets are checked after the whole turn (they
 /// were after each chicken's step, when the turn was Zig's).
 fn chickensTurn(sc: *Scene) void {
-    const net = measure(delta(sc.seen[0].start, sc.pos(0)));
+    const net = measure(sc.geo.delta(sc.seen[0].start, sc.pos(0)));
     if (net == 0) return;
     const w = &sc.roc_walk;
     lendCrits(sc);
     w.homes.len = 0;
     for (sc.list()) |o| {
-        const h = layout.home(o.who);
+        const h = layout.home(sc.board.level, o.who);
         w.homes.push(.{ .x = h.x, .y = h.y });
     }
-    const eaten = w.forage(&sc.cells.cells, @intCast(net), sc.board.laid);
+    const eaten = w.forage(&sc.cells.cells, sc.geo.span_cells, @intCast(net), sc.board.laid);
     takeCrits(sc);
     for (eaten) |n| sc.eat(n);
     if (builtin.is_test) std.debug.assert(sc.bucketsHold());
@@ -1212,7 +1313,7 @@ pub fn overlaps(b: *Board, found: []([2]Critter)) usize {
     var n: usize = 0;
     for (sc.list(), 0..) |a, i| {
         for (sc.list()[i + 1 ..], i + 1..) |o, j| {
-            if (!squaresOverlap(sc.pos(i), a.half, sc.pos(j), o.half)) continue;
+            if (!sc.geo.squaresOverlap(sc.pos(i), a.half, sc.pos(j), o.half)) continue;
             if (n < found.len) found[n] = .{ a.who, o.who };
             n += 1;
         }

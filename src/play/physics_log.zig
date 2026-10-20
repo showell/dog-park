@@ -104,7 +104,7 @@ pub fn apply(kept: *judge.Kept, e: Entry) ApplyError!void {
         .resolved => {
             var lines: wire.Lines = .{ .rest = e.body };
             while (lines.next()) |text| {
-                const line = wire.parse(text) catch return error.CorruptLog;
+                const line = wire.parse(kept.board.geometry(), text) catch return error.CorruptLog;
                 if (line != .critter) return error.CorruptLog;
                 try moveAsWritten(&kept.board, line.critter);
             }
@@ -126,7 +126,7 @@ fn applyReport(kept: *judge.Kept, body: []const u8) ApplyError!void {
     var lines: wire.Lines = .{ .rest = body };
     var open: ?Open = null;
     while (lines.next()) |text| {
-        const line = wire.parse(text) catch return error.CorruptLog;
+        const line = wire.parse(kept.board.geometry(), text) catch return error.CorruptLog;
         switch (line) {
             .header, .view, .held => {},
             .from => |f| if (f.tick != kept.tick) return error.LogDoesNotApply,
@@ -206,14 +206,15 @@ fn endDrag(b: *Board, t: Tick) void {
 // ── what a report keeps ─────────────────────────────────────────────────────
 
 /// The report's lines before tick `t` (a `differ`'s kept prefix): its
-/// header, its `from`, and every line of the ticks before `t`.
-pub fn keptPrefix(report: []const u8, t: Tick) []const u8 {
+/// header, its `from`, and every line of the ticks before `t`, read by the
+/// kept board's level's world (`g`).
+pub fn keptPrefix(g: physics.Geometry, report: []const u8, t: Tick) []const u8 {
     var lines: wire.Lines = .{ .rest = report };
     var at: usize = 0;
     while (true) {
         const before = lines.rest;
         const text = lines.next() orelse break;
-        const line = wire.parse(text) catch break;
+        const line = wire.parse(g, text) catch break;
         const tick: ?Tick = switch (line) {
             .header, .from, .critter, .poop, .eaten => null,
             .leash => |l| l.tick,
@@ -251,7 +252,7 @@ pub fn resolve(b: *Board, out: *std.ArrayList(u8), alloc: std.mem.Allocator) !Re
     for (all, 0..) |c, i| {
         if (b.known(c) != .present) continue;
         for (all[0..i]) |o| {
-            if (b.known(o) == .present and physics.squaresOverlap(b.at(c), c.half(), b.at(o), o.half())) return .{ .nowhere = c };
+            if (b.known(o) == .present and b.geometry().squaresOverlap(b.at(c), c.half(), b.at(o), o.half())) return .{ .nowhere = c };
         }
     }
     return .{ .resolved = 0 };
@@ -353,7 +354,7 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
             s.kept.board.hold = .none;
         } else {
             var it = std.mem.splitScalar(u8, hold, ' ');
-            const dog: u16 = @intCast(try wire.parseDec(it.next() orelse "", physics.countOf(physics.leashed_kind) - 1));
+            const dog = try wire.parseNumber(it.next() orelse "", physics.countOf(physics.leashed_kind));
             if (!std.mem.eql(u8, it.next() orelse "", "drag")) return error.Bad;
             const which = it.next() orelse "";
             const drag: physics.Drag = if (std.mem.eql(u8, which, "on")) .on else if (std.mem.eql(u8, which, "ended")) .{ .ended = try wire.parseDec(it.next() orelse "", std.math.maxInt(u63)) } else return error.Bad;
@@ -364,7 +365,7 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
     s.kept.board.laid = @intCast(try wire.parseDec(try after(lines.next(), "laid "), std.math.maxInt(u32)));
     var text = lines.next() orelse return error.Bad;
     while (true) : (text = lines.next() orelse return error.Bad) {
-        const line = wire.parse(text) catch break;
+        const line = wire.parse(s.kept.board.geometry(), text) catch break;
         const in = wire.human(line) orelse return error.Bad;
         if (in.tick != s.kept.tick + 1 or s.kept.pending_len == physics.most_humans) return error.Bad;
         s.kept.pending[s.kept.pending_len] = in.h;
@@ -372,7 +373,7 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
     }
     for (physics.ranked, 0..) |c, i| {
         if (i > 0) text = lines.next() orelse return error.Bad;
-        var e = wire.Entries.of(text);
+        var e = wire.Entries.of(s.kept.board.geometry(), text);
         const one = (try e.next()) orelse return error.Bad;
         if (one != .critter or !one.critter.who.eql(c) or try e.next() != null) return error.Bad;
         s.kept.board.place(c, one.critter.at);
@@ -384,7 +385,7 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
     while (true) {
         text = lines.next() orelse return error.Bad;
         if (std.mem.eql(u8, text, "end")) break;
-        var e = wire.Entries.of(text);
+        var e = wire.Entries.of(s.kept.board.geometry(), text);
         const one = (try e.next()) orelse return error.Bad;
         if (one != .poop or try e.next() != null) return error.Bad;
         if (last != null and one.poop.n <= last.?) return error.Bad;

@@ -25,7 +25,7 @@ fn d(x: i32, y: i32) physics.Disp {
 }
 
 /// Chicken 0's home, and a point `x`, `y` px from it.
-const home = layout.home(.of(.chicken, 0));
+const home = layout.home(physics.last_level, .of(.chicken, 0));
 fn nearHome(x: i32, y: i32) Point {
     return .{ .x = home.x + physics.px(x), .y = home.y + physics.px(y) };
 }
@@ -321,7 +321,7 @@ test "the poops by tile: a poop across the world's seam still blocks the leashed
     // x = 10 px, the poop 20 px west of it (touching: a dog's half and a
     // poop's), at the far side of the world.
     var b = leashedAt(px(10, 1050));
-    poopAt(&b, 3, px(@import("tiles.zig").world_px - 10, 1050));
+    poopAt(&b, 3, px(@import("tiles.zig").room_tiles * @import("tiles.zig").tile_px - 10, 1050));
     b.laid = 4;
     _ = ticked(&b, 1, &.{}, &.{d(-1, 0)});
     try testing.expectEqual(px(10, 1051), b.of(.dog)[0]);

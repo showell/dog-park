@@ -296,7 +296,7 @@ pub const Server = struct {
         var lines: wire.Lines = .{ .rest = body };
         const header = blk: {
             const first = lines.next() orelse break :blk null;
-            const parsed = wire.parse(first) catch break :blk null;
+            const parsed = wire.parse(self.kept.board.geometry(), first) catch break :blk null;
             break :blk switch (parsed) {
                 .header => |h| h,
                 else => null,
@@ -348,7 +348,7 @@ pub const Server = struct {
         errdefer self.kept = before;
         const kept_text: []const u8 = switch (verdict) {
             .kept => body,
-            .differ => plog.keptPrefix(body, self.kept.tick + 1),
+            .differ => plog.keptPrefix(self.kept.board.geometry(), body, self.kept.tick + 1),
             .reload, .unreadable => "",
         };
         var entry: std.ArrayList(u8) = .empty;
@@ -458,7 +458,7 @@ pub const Server = struct {
             }
             for (k.board.poops, k.board.poop_known, 0..) |p, known, i| {
                 if (known != .present) continue;
-                const at = physics.tileOf(p);
+                const at = k.board.geometry().tileOf(p);
                 if (at.col != t.col or at.row != t.row) continue;
                 try out.char(' ');
                 try wire.poopAt(out, @intCast(i), p);
@@ -469,8 +469,9 @@ pub const Server = struct {
     }
 
     fn tileEntry(out: *Text, b: *const physics.Board, t: tiles.Tile, c: physics.Critter) !void {
+        if (b.known(c) != .present) return;
         const p = b.at(c);
-        const at = physics.tileOf(p);
+        const at = b.geometry().tileOf(p);
         if (at.col != t.col or at.row != t.row) return;
         try out.char(' ');
         try wire.entry(out, b, c);
@@ -533,11 +534,12 @@ pub const Server = struct {
             var begun: physics.Begun = .{};
             for (self.kept.pendingSlice()) |h| _ = physics.input(&b, &begun, h);
             if (b.leashedDog()) |l| {
-                const span = physics.TileSpan.of(physics.region(b.of(physics.leashed_kind)[l]));
+                const g = b.geometry();
+                const span = physics.TileSpan.of(g, g.region(b.of(physics.leashed_kind)[l]));
                 var row = span.row_lo;
                 while (row <= span.row_hi) : (row += 1) {
                     var col = span.col_lo;
-                    while (col <= span.col_hi) : (col += 1) region.add(physics.TileSpan.at(col, row)) catch unreachable;
+                    while (col <= span.col_hi) : (col += 1) region.add(g.tileAt(col, row)) catch unreachable;
                 }
             }
         }

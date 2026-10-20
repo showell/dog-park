@@ -1,7 +1,8 @@
 //! **A GRID OF CELLS ROUND A TORUS**: up to `cap` members, each an index
 //! in [0, `cap`) standing at an integer point, kept by the cell it stands
 //! in: a `side` by `side` grid of cells `size` a side over a square torus
-//! `side * size` a side. A cell holds a bitset of its members. This keeps
+//! `side * size` a side, `side` at most `most_side` (the storage's) and
+//! chosen at each `clear`. A cell holds a bitset of its members. This keeps
 //! only the storage and the tests' check of it (`holds`): who files and
 //! moves the members is the borrower's (the physics lends its grid's cells
 //! to Roc as they are, roc_physics.zig's `Lent`, and roc/Walk.roc keeps
@@ -23,44 +24,45 @@ pub fn Owned(comptime T: type, comptime most: usize) type {
     };
 }
 
-pub fn Grid(comptime cap: usize, comptime side: usize, comptime size: i32, comptime Store: fn (comptime type, comptime usize) type) type {
+pub fn Grid(comptime cap: usize, comptime most_side: usize, comptime size: i32, comptime Store: fn (comptime type, comptime usize) type) type {
     return struct {
         /// The words of a cell's bitset.
         pub const words = std.math.divCeil(usize, cap, 64) catch unreachable;
-        pub const Cells = Store(u64, side * side * words);
-        /// The torus's side.
-        pub const extent: i32 = @as(i32, side) * size;
+        pub const Cells = Store(u64, most_side * most_side * words);
 
         cells: Cells = .{},
 
         const Self = @This();
 
         comptime {
-            std.debug.assert(side * side <= std.math.maxInt(u16));
+            std.debug.assert(most_side * most_side <= std.math.maxInt(u16));
         }
 
-        /// No members.
-        pub fn clear(g: *Self) void {
+        /// No members, on a torus `side` cells a side.
+        pub fn clear(g: *Self, side: usize) void {
+            std.debug.assert(side <= most_side);
             g.cells.len = side * side * words;
             @memset(&g.cells.items, 0);
         }
 
-        /// The cell point (`x`, `y`) stands in, round the torus.
-        pub fn cellOf(x: i32, y: i32) u16 {
+        /// The cell point (`x`, `y`) stands in, round the torus `side`
+        /// cells a side.
+        pub fn cellOf(side: usize, x: i32, y: i32) u16 {
+            const extent: i32 = @as(i32, @intCast(side)) * size;
             const col: usize = @intCast(@divFloor(@mod(x, extent), size));
             const row: usize = @intCast(@divFloor(@mod(y, extent), size));
             return @intCast(row * side + col);
         }
 
         /// **THE CELLS HOLD** members 0 to `points.len` - 1 (anything with
-        /// `x` and `y`), each in the cell its point stands in and nowhere
-        /// else.
-        pub fn holds(g: *const Self, points: anytype) bool {
+        /// `x` and `y`), each in the cell its point stands in, round the
+        /// torus `side` cells a side, and nowhere else.
+        pub fn holds(g: *const Self, side: usize, points: anytype) bool {
             var bits: usize = 0;
             for (g.cells.items) |w| bits += @popCount(w);
             if (bits != points.len) return false;
             for (points, 0..) |p, j| {
-                const c = cellOf(p.x, p.y);
+                const c = cellOf(side, p.x, p.y);
                 if (g.cells.items[@as(usize, c) * words + j / 64] & bit(j) == 0) return false;
             }
             return true;
@@ -98,26 +100,29 @@ const G = Grid(70, 4, 10, Owned);
 
 /// Member `j` filed at (`x`, `y`), as a borrower would.
 fn file(g: *G, j: usize, x: i32, y: i32) void {
-    g.cells.items[@as(usize, G.cellOf(x, y)) * G.words + j / 64] |= @as(u64, 1) << @intCast(j % 64);
+    g.cells.items[@as(usize, G.cellOf(4, x, y)) * G.words + j / 64] |= @as(u64, 1) << @intCast(j % 64);
 }
 
 test "a member is in the cell its point stands in, round the torus" {
-    try testing.expectEqual(@as(u16, 0), G.cellOf(0, 0));
-    try testing.expectEqual(@as(u16, 1 * 4 + 3), G.cellOf(39, 15));
-    try testing.expectEqual(@as(u16, 3 * 4 + 3), G.cellOf(-1, -1));
-    try testing.expectEqual(@as(u16, 0), G.cellOf(40, 80));
+    try testing.expectEqual(@as(u16, 0), G.cellOf(4, 0, 0));
+    try testing.expectEqual(@as(u16, 1 * 4 + 3), G.cellOf(4, 39, 15));
+    try testing.expectEqual(@as(u16, 3 * 4 + 3), G.cellOf(4, -1, -1));
+    try testing.expectEqual(@as(u16, 0), G.cellOf(4, 40, 80));
+    // A smaller torus in the same storage: 3 by 3 cells of 10.
+    try testing.expectEqual(@as(u16, 2 * 3 + 2), G.cellOf(3, -1, -1));
+    try testing.expectEqual(@as(u16, 0), G.cellOf(3, 30, 60));
 }
 
 test "the cells hold each member in its point's cell, and no more" {
     var g: G = .{};
-    g.clear();
+    g.clear(4);
     const pts = [_]P{ .{ .x = 1, .y = 1 }, .{ .x = 38, .y = 2 } };
     file(&g, 0, 1, 1);
     file(&g, 1, 38, 2);
-    try testing.expect(g.holds(pts[0..]));
+    try testing.expect(g.holds(4, pts[0..]));
     // Moved without its bit, member 1 is not held.
-    try testing.expect(!g.holds(&[_]P{ pts[0], .{ .x = 5, .y = 15 } }));
+    try testing.expect(!g.holds(4, &[_]P{ pts[0], .{ .x = 5, .y = 15 } }));
     // An extra bit, in a second word, is too many.
     file(&g, 65, 39, 39);
-    try testing.expect(!g.holds(pts[0..]));
+    try testing.expect(!g.holds(4, pts[0..]));
 }

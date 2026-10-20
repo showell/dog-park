@@ -112,7 +112,7 @@ const Page = struct {
         // The load's input lines: played at K + 1, never sent.
         var lines = std.mem.splitScalar(u8, answer, '\n');
         while (lines.next()) |l| if (std.mem.startsWith(u8, l, "input ")) {
-            p.humans[p.humans_len] = wire.human(try wire.parse(l["input ".len..])).?.h;
+            p.humans[p.humans_len] = wire.human(try wire.parse(physics.room, l["input ".len..])).?.h;
             p.humans_len += 1;
         };
         return p;
@@ -194,7 +194,7 @@ fn tileLineOf(alloc: std.mem.Allocator, b: *const Board, t: tiles.Tile) ![]const
         const many: usize = if (kind == .cow) physics.countOf(.cow) else physics.countOf(.dog);
         for (0..many) |i| {
             const c: physics.Critter = .{ .kind = kind, .n = @intCast(i) };
-            const at = physics.tileOf(b.at(c));
+            const at = physics.room.tileOf(b.at(c));
             if (at.col != t.col or at.row != t.row) continue;
             try w.char(' ');
             try w.critter(c);
@@ -213,14 +213,14 @@ fn tileSetOf(cols: [2]i32, rows: [2]i32) wire.TileSet {
     var r = rows[0];
     while (r <= rows[1]) : (r += 1) {
         var c = cols[0];
-        while (c <= cols[1]) : (c += 1) s.add(physics.TileSpan.at(c, r)) catch unreachable;
+        while (c <= cols[1]) : (c += 1) s.add(physics.room.tileAt(c, r)) catch unreachable;
     }
     return s;
 }
 
 /// The region's tiles around a dog.
 fn regionOf(b: *const Board, dog: u16) wire.TileSet {
-    const span = physics.TileSpan.of(physics.region(b.of(.dog)[dog]));
+    const span = physics.TileSpan.of(physics.room, physics.room.region(b.of(.dog)[dog]));
     return tileSetOf(.{ span.col_lo, span.col_hi }, .{ span.row_lo, span.row_hi });
 }
 
@@ -266,7 +266,7 @@ test "1. an unleashed pan: a report with only a view gets its tile lines; the pa
     defer rig.deinit();
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
     // The park's corner tile and the empty ground west of it, two rows.
-    const corner = tiles.park_offset_px / tiles.tile_px;
+    const corner = physics.room.park_first;
     const view = tileSetOf(.{ corner - 1, corner + 2 }, .{ corner, corner + 1 });
     try page.begin();
     try page.write(.{ .view = .{ .tick = page.last + 1, .w = 1280, .h = 800, .tiles = view } });
@@ -461,7 +461,7 @@ test "13. a leash at the screen's edge, small display against large, the same re
         const region = regionOf(&page.board, the_dog);
         // The small display's 4 tiles hold the dog, at the region's edge;
         // the large one's every tile of the region.
-        const dog_tile = physics.tileOf(page.board.of(.dog)[the_dog]);
+        const dog_tile = physics.room.tileOf(page.board.of(.dog)[the_dog]);
         var view = switch (display) {
             .small => tileSetOf(.{ dog_tile.col, dog_tile.col + 1 }, .{ dog_tile.row, dog_tile.row + 1 }),
             .large => region,
@@ -645,7 +645,7 @@ test "the torus' seam (decision 14): an unleashed view of the world's four corne
     defer rig.deinit();
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
     // An unleashed view of the four corner tiles, named in the world.
-    const edge = tiles.world_tiles - 1;
+    const edge = tiles.room_tiles - 1;
     var seam: wire.TileSet = .{};
     for ([_][2]i32{ .{ edge, 0 }, .{ 0, 0 }, .{ edge, edge }, .{ 0, edge } }) |cr| try seam.add(.{ .col = cr[0], .row = cr[1] });
     try page.begin();
@@ -664,11 +664,11 @@ test "the torus' seam (decision 14): a leash at the world's corner views and hol
     try rig.init(t0);
     defer rig.deinit();
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
-    const edge = tiles.world_tiles - 1;
+    const edge = tiles.room_tiles - 1;
     // The dog moved to the corner, a cow across the seam from it, on both
     // boards (as a restart from such a log would have them).
     const near = physics.px(200);
-    const far = physics.world - near;
+    const far = physics.room.world - near;
     for ([_]*Board{ &rig.server.kept.board, &page.board }) |b| {
         b.place(.of(.dog, the_dog), .{ .x = near, .y = near });
         b.place(.of(.cow, 0), .{ .x = far, .y = near });
@@ -686,9 +686,9 @@ test "25. the park in the world: the empty world reads as empty" {
     defer rig.deinit();
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
     var view: wire.TileSet = .{};
-    const first = tiles.park_offset_px / tiles.tile_px;
-    const last = first + tiles.park_tiles - 1;
-    const edge = tiles.world_tiles - 1;
+    const first = physics.room.park_first;
+    const last = first + physics.room.park_tiles - 1;
+    const edge = tiles.room_tiles - 1;
     for ([_][2]i32{ .{ 0, 0 }, .{ edge, edge }, .{ first - 1, first + 3 }, .{ last, last } }) |cr| try view.add(.{ .col = cr[0], .row = cr[1] });
     try page.begin();
     try page.write(.{ .view = .{ .tick = 1, .w = 1280, .h = 800, .tiles = view } });

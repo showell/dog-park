@@ -62,6 +62,13 @@ fn board(b: u32) *physics.Board {
     return &boards[b];
 }
 
+/// **THE PAGE BOARD'S GEOMETRY**: the live board's level's, which every
+/// board of the page shares (a copy carries its level), and which bounds
+/// every tile and position the page reads or writes.
+fn geometry() physics.Geometry {
+    return boards[live].geometry();
+}
+
 fn tickOf(t: f64) Tick {
     return @intFromFloat(t);
 }
@@ -94,7 +101,7 @@ export fn tilePx() u32 {
     return tiles.tile_px;
 }
 export fn worldTiles() u32 {
-    return tiles.world_tiles;
+    return @intCast(geometry().world_tiles);
 }
 export fn poopPx() u32 {
     return physics.poop_px;
@@ -180,13 +187,14 @@ export fn dragOf(b: u32) f64 {
 /// the world (wrapped across the seam); their count, 0 with nothing leashed.
 export fn regionTiles(b: u32) u32 {
     const l = board(b).leashedDog() orelse return 0;
-    const span = physics.TileSpan.of(physics.region(board(b).of(physics.leashed_kind)[l]));
+    const g = board(b).geometry();
+    const span = physics.TileSpan.of(g, g.region(board(b).of(physics.leashed_kind)[l]));
     var n: u32 = 0;
     var row = span.row_lo;
     while (row <= span.row_hi) : (row += 1) {
         var col = span.col_lo;
         while (col <= span.col_hi) : (col += 1) {
-            const t = physics.TileSpan.at(col, row);
+            const t = g.tileAt(col, row);
             ints_buf[2 * n] = t.col;
             ints_buf[2 * n + 1] = t.row;
             n += 1;
@@ -260,11 +268,11 @@ export fn human(b: u32, kind: u32, t: f64, dog: u32) i32 {
 /// most 64; a repeat is dropped).
 fn tileSet(from: usize, n: u32) ?wire.TileSet {
     var s: wire.TileSet = .{};
+    const g = geometry();
     for (0..n) |i| {
-        const col = ints_buf[from + 2 * i];
-        const row = ints_buf[from + 2 * i + 1];
-        if (col < 0 or row < 0 or col >= tiles.world_tiles or row >= tiles.world_tiles) return null;
-        s.add(.{ .col = col, .row = row }) catch return null;
+        const t: tiles.Tile = .{ .col = ints_buf[from + 2 * i], .row = ints_buf[from + 2 * i + 1] };
+        if (!g.holdsTile(t)) return null;
+        s.add(t) catch return null;
     }
     return s;
 }
@@ -379,16 +387,16 @@ const Words = struct {
     }
 };
 
-fn tileOf(s: []const u8) error{Malformed}!tiles.Tile {
+fn tileOf(g: physics.Geometry, s: []const u8) error{Malformed}!tiles.Tile {
     const comma = std.mem.indexOfScalar(u8, s, ',') orelse return error.Malformed;
-    const top = tiles.world_tiles - 1;
+    const top: u64 = @intCast(g.world_tiles - 1);
     return .{ .col = @intCast(try wire.parseDec(s[0..comma], top)), .row = @intCast(try wire.parseDec(s[comma + 1 ..], top)) };
 }
 
 /// The entries on the rest of a line (`dog N a walked W cow M b poop P c
 /// …`), each handed to `each`.
-fn entries(w: *Words, ctx: anytype, comptime each: fn (@TypeOf(ctx), wire.Entry) void) error{Malformed}!u32 {
-    var e = wire.Entries.of(w.it.rest());
+fn entries(g: physics.Geometry, w: *Words, ctx: anytype, comptime each: fn (@TypeOf(ctx), wire.Entry) void) error{Malformed}!u32 {
+    var e = wire.Entries.of(g, w.it.rest());
     var n: u32 = 0;
     while (e.next() catch return error.Malformed) |one| {
         each(ctx, one);
@@ -412,7 +420,7 @@ export fn readTile(len: u32, mask: u32) i32 {
 
 fn readTileWords(w: *Words, mask: u32) error{Malformed}!i32 {
     try w.expect("tile");
-    const t = try tileOf(w.next() orelse return error.Malformed);
+    const t = try tileOf(geometry(), w.next() orelse return error.Malformed);
     ints_buf[0] = t.col;
     ints_buf[1] = t.row;
     const Ctx = struct {
@@ -433,7 +441,7 @@ fn readTileWords(w: *Words, mask: u32) error{Malformed}!i32 {
             }
         }
     };
-    return @intCast(try entries(w, Ctx{ .mask = mask }, Ctx.place));
+    return @intCast(try entries(geometry(), w, Ctx{ .mask = mask }, Ctx.place));
 }
 
 /// **A `board T` LINE** in `inBuf`, laid over board `b` (after its
@@ -472,14 +480,15 @@ fn readBoardWords(w: *Words, b: u32) error{Malformed}!i32 {
     };
     const ctx = Ctx{ .b = board(b) };
     var again = w.*;
-    const n = try entries(w, ctx, Ctx.place);
+    const g = ctx.b.geometry();
+    const n = try entries(g, w, ctx, Ctx.place);
     if (ctx.b.leashedDog()) |l| {
-        const span = physics.TileSpan.of(physics.region(ctx.b.of(physics.leashed_kind)[l]));
+        const span = physics.TileSpan.of(g, g.region(ctx.b.of(physics.leashed_kind)[l]));
         for (&ctx.b.poops, &ctx.b.poop_known) |p, *k| {
             if (k.* == .present and span.holdsPoint(p)) k.* = .absent;
         }
     }
-    _ = try entries(&again, ctx, Ctx.poop);
+    _ = try entries(g, &again, ctx, Ctx.poop);
     return @intCast(n);
 }
 
@@ -508,7 +517,7 @@ fn readStateWords(w: *Words, b: u32) error{Malformed}!void {
     if (std.mem.eql(u8, who, "none")) {
         if (!std.mem.eql(u8, drag, "none")) return error.Malformed;
     } else {
-        const dog: u16 = @intCast(try wire.parseDec(who, physics.countOf(physics.leashed_kind) - 1));
+        const dog = try wire.parseNumber(who, physics.countOf(physics.leashed_kind));
         const d: physics.Drag = if (std.mem.eql(u8, drag, "on")) .on else if (std.mem.eql(u8, drag, "ended"))
             .{ .ended = try wire.parseDec(w.next() orelse return error.Malformed, std.math.maxInt(u32)) }
         else
@@ -537,7 +546,7 @@ fn readStateWords(w: *Words, b: u32) error{Malformed}!void {
             continue;
         }
         if (n >= wire.most_tiles) return error.Malformed;
-        const t = try tileOf(word);
+        const t = try tileOf(board(b).geometry(), word);
         ints_buf[at] = t.col;
         ints_buf[at + 1] = t.row;
         at += 2;
@@ -555,7 +564,7 @@ fn readStateWords(w: *Words, b: u32) error{Malformed}!void {
 export fn readInput(len: u32) i32 {
     const text = line(len);
     if (!std.mem.startsWith(u8, text, "input ")) return -1;
-    const parsed = wire.parse(text["input ".len..]) catch return -1;
+    const parsed = wire.parse(geometry(), text["input ".len..]) catch return -1;
     const h = wire.human(parsed) orelse return -1;
     line_tick = h.tick;
     ints_buf[0] = 0;
@@ -601,7 +610,7 @@ fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
     try report.appendSlice(testing.allocator, outText(writeHeader(1791935990000, 1, 1, 0, 1791936000000)));
     try report.appendSlice(testing.allocator, outText(@intCast(human(live, @intFromEnum(HumanKind.leash), 1, the_dog))));
     const r = regionTiles(live);
-    const span = physics.TileSpan.of(physics.region(boards[live].of(physics.leashed_kind)[the_dog]));
+    const span = physics.TileSpan.of(physics.room, physics.room.region(boards[live].of(physics.leashed_kind)[the_dog]));
     try testing.expectEqual(@as(u32, @intCast((span.col_hi - span.col_lo + 1) * (span.row_hi - span.row_lo + 1))), r);
     for (0..r) |i| k.sent.add(.{ .col = ints_buf[2 * i], .row = ints_buf[2 * i + 1] });
     try report.appendSlice(testing.allocator, outText(writeView(1, 1280, 800, r)));
@@ -624,11 +633,11 @@ test "regionTiles: the region is the world, every tile named once, wherever the 
     boards[live].place(.of(.dog, the_dog), .{ .x = physics.px(200), .y = physics.px(200) });
     _ = human(live, @intFromEnum(HumanKind.leash), 1, the_dog);
     const n = regionTiles(live);
-    try testing.expectEqual(@as(u32, tiles.world_tiles * tiles.world_tiles), n);
+    try testing.expectEqual(@as(u32, tiles.room_tiles * tiles.room_tiles), n);
     var named: wire.TileSet = .{};
     for (0..n) |i| try named.add(.{ .col = ints_buf[2 * i], .row = ints_buf[2 * i + 1] });
     try testing.expectEqual(@as(usize, n), named.slice().len);
-    for (named.slice()) |t| try testing.expect(t.col >= 0 and t.col < tiles.world_tiles and t.row >= 0 and t.row < tiles.world_tiles);
+    for (named.slice()) |t| try testing.expect(t.col >= 0 and t.col < tiles.room_tiles and t.row >= 0 and t.row < tiles.room_tiles);
     // And the page's view of them is a line the wire reads.
     try testing.expect(writeView(1, 1280, 800, n) > 0);
 }

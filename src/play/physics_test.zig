@@ -27,7 +27,7 @@ fn fuzzed(full: usize) usize {
 
 /// The world's middle, in whole pixels: scenes stand here, clear of the
 /// seam unless they mean it.
-const mid: i32 = tiles.world_px / 2;
+const mid: i32 = (tiles.room_tiles * tiles.tile_px) / 2;
 
 test "physics.zig's Kind numbers the kinds as World.roc's kinds does, each its size" {
     const kinds = @import("world.zig").world.kinds;
@@ -108,7 +108,7 @@ test "the leashed dog overlapping another: a bump only when the drag shrinks |Δ
 // ------------------------------------------ the torus' seam (decision 14)
 
 test "the seam: the leashed dog dragged across x = 0, then y = 0: it wraps on each axis, the line says where" {
-    const world = physics.world;
+    const world = physics.room.world;
     var b = leashedAt(px(30, 30));
     const lines = ticked(&b, 1, &.{}, &.{ d(-50, 0), d(0, -50) });
     const after: Point = .{ .x = world - physics.px(20), .y = world - physics.px(20) };
@@ -118,15 +118,15 @@ test "the seam: the leashed dog dragged across x = 0, then y = 0: it wraps on ea
 }
 
 test "the seam: a critter across the corner from the leashed dog is seen, the short way round" {
-    const world = physics.world;
+    const world = physics.room.world;
     var b = leashedAt(px(60, 60));
     // Dog 1, another breed, 100 px west and north across the corner:
     // within `wary` of the leashed dog.
     b.place(.of(.dog, 1), .{ .x = world - physics.px(40), .y = world - physics.px(40) });
     const sc = physics.Scene.of(&b).?;
     try testing.expectEqual(@as(usize, 2), sc.len);
-    try testing.expectEqual(px(-100, -100), physics.delta(b.of(.dog)[0], b.of(.dog)[1]));
-    try testing.expect(physics.measure(physics.delta(b.of(.dog)[0], b.of(.dog)[1])) < physics.measureOf(physics.wary));
+    try testing.expectEqual(px(-100, -100), physics.room.delta(b.of(.dog)[0], b.of(.dog)[1]));
+    try testing.expect(physics.measure(physics.room.delta(b.of(.dog)[0], b.of(.dog)[1])) < physics.measureOf(physics.wary));
 }
 
 // -------------------------------------------------- bumps, timer, rest
@@ -267,7 +267,7 @@ test "across the seam the drag wraps, and carries on (decision 14: no edge)" {
     var b = leashedAt(px(30, mid));
     const lines = ticked(&b, 1, &.{}, &.{ d(-50, 0), d(0, 20) });
     // 50 px west from 30 px: 20 px short of the world's east side.
-    try testing.expectEqual(Point{ .x = physics.world - physics.px(20), .y = physics.px(mid + 20) }, b.of(.dog)[0]);
+    try testing.expectEqual(Point{ .x = physics.room.world - physics.px(20), .y = physics.px(mid + 20) }, b.of(.dog)[0]);
     try testing.expectEqual(@as(?physics.Bumped, null), bumpOf(&lines));
     try testing.expectEqual(physics.Drag.on, b.hold.leashed.drag);
 }
@@ -275,19 +275,19 @@ test "across the seam the drag wraps, and carries on (decision 14: no edge)" {
 // ------------------------------------------- what the physics sees (12, 14)
 
 test "the region is the world: its tiles are every tile once, from (0, 0), wherever the leashed dog stands; tileOf wraps a point" {
-    const w = tiles.world_tiles;
-    for ([_]Point{ px(0, 0), px(mid, mid), .{ .x = physics.world - 1, .y = 0 } }) |at| {
-        try testing.expectEqual(physics.TileSpan{ .col_lo = 0, .col_hi = w - 1, .row_lo = 0, .row_hi = w - 1 }, physics.TileSpan.of(physics.region(at)));
+    const w = tiles.room_tiles;
+    for ([_]Point{ px(0, 0), px(mid, mid), .{ .x = physics.room.world - 1, .y = 0 } }) |at| {
+        try testing.expectEqual(physics.TileSpan{ .col_lo = 0, .col_hi = w - 1, .row_lo = 0, .row_hi = w - 1, .world_tiles = w }, physics.TileSpan.of(physics.room, physics.room.region(at)));
     }
-    try testing.expectEqual(tiles.Tile{ .col = w - 1, .row = 0 }, physics.tileOf(.{ .x = -1, .y = physics.world }));
-    try testing.expectEqual(tiles.Tile{ .col = 0, .row = w - 1 }, physics.tileOf(.{ .x = physics.world + physics.tile - 1, .y = -physics.tile }));
+    try testing.expectEqual(tiles.Tile{ .col = w - 1, .row = 0 }, physics.room.tileOf(.{ .x = -1, .y = physics.room.world }));
+    try testing.expectEqual(tiles.Tile{ .col = 0, .row = w - 1 }, physics.room.tileOf(.{ .x = physics.room.world + physics.tile - 1, .y = -physics.tile }));
 }
 
 test "the physics sees every critter, wherever it stands: across the seam from the leashed dog, and on the far side of the world" {
     var b = leashedAt(px(10, 10));
-    b.place(.of(.cow, 0), .{ .x = physics.world - physics.px(10), .y = physics.world - physics.px(10) });
+    b.place(.of(.cow, 0), .{ .x = physics.room.world - physics.px(10), .y = physics.room.world - physics.px(10) });
     b.place(.of(.cow, 1), px(mid, mid));
-    b.place(.of(.dog, 5), .{ .x = physics.world / 2 + physics.px(300), .y = physics.px(10) });
+    b.place(.of(.dog, 5), .{ .x = physics.room.world / 2 + physics.px(300), .y = physics.px(10) });
     const sc = physics.Scene.of(&b).?;
     try testing.expectEqual(@as(usize, 4), sc.len);
 }
@@ -296,7 +296,7 @@ test "the walk's neighbours wrap: a dog across the seam, nearer than one on this
     // Dog 4 (the leashed dog's breed) 40 px west across x = 0; dog 8 60 px
     // east. The ring search must find dog 4 the short way round.
     var b = leashedAt(px(10, mid));
-    b.place(.of(.dog, 4), .{ .x = physics.world - physics.px(30), .y = physics.px(mid) });
+    b.place(.of(.dog, 4), .{ .x = physics.room.world - physics.px(30), .y = physics.px(mid) });
     b.place(.of(.dog, 8), px(70, mid));
     const lines = ticked(&b, 1, &.{}, &.{d(0, 1)});
     try testing.expectEqualSlices(u16, &.{ 4, 8 }, lines.walk[0..2]);
@@ -305,47 +305,49 @@ test "the walk's neighbours wrap: a dog across the seam, nearer than one on this
 // ------------------------------------------- the arithmetic on every target
 
 test "shortWay is the @mod formula, at every edge and over a seeded fuzz of the whole i32 range (202)" {
-    const w = physics.world;
-    const h = physics.half_world;
+    const w = physics.room.world;
+    const h = physics.room.half_world;
     const plain = struct {
         fn f(v: i32) i32 {
             return @mod(v + h, w) - h;
         }
     }.f;
     const edges = [_]i32{ 0, 1, -1, h - 1, h, h + 1, -h - 1, -h, -h + 1, w - 1, w, w + 1, -w - 1, -w, -w + 1, w + h - 1, w + h, w + h + 1, -w - h - 1, -w - h, -w - h + 1, 2 * w, -2 * w, std.math.maxInt(i32) - h, std.math.minInt(i32) + h };
-    for (edges) |v| try testing.expectEqual(plain(v), physics.shortWay(v));
+    for (edges) |v| try testing.expectEqual(plain(v), physics.room.shortWay(v));
     var prng: std.Random.DefaultPrng = .init(202);
     const r = prng.random();
     for (0..fuzzed(100_000)) |_| {
         const v = r.intRangeAtMost(i32, std.math.minInt(i32) + h, std.math.maxInt(i32) - h);
-        try testing.expectEqual(plain(v), physics.shortWay(v));
+        try testing.expectEqual(plain(v), physics.room.shortWay(v));
         const close = r.intRangeAtMost(i32, -w - h, w + h);
-        try testing.expectEqual(plain(close), physics.shortWay(close));
+        try testing.expectEqual(plain(close), physics.room.shortWay(close));
     }
 }
 
-test "holdsPoint is holds(tileOf(p)): spans that wrap, cover the world or more, and points anywhere in i32 (202)" {
+test "holdsPoint is holds(tileOf(p)), on every level's torus: spans that wrap, cover the world or more, and points anywhere in i32 (202)" {
     var prng: std.Random.DefaultPrng = .init(2029);
     const r = prng.random();
-    const wt: i32 = tiles.world_tiles;
     for (0..fuzzed(20_000)) |_| {
+        const g = physics.Geometry.of(r.uintLessThan(physics.Level, physics.level_count));
+        const wt: i32 = g.world_tiles;
         const lo = r.intRangeLessThan(i32, 0, wt);
         const span: physics.TileSpan = .{
             .col_lo = lo,
             .col_hi = lo + r.intRangeAtMost(i32, -1, wt + 2),
             .row_lo = r.intRangeLessThan(i32, 0, wt),
             .row_hi = 0,
+            .world_tiles = wt,
         };
         var sp = span;
         sp.row_hi = sp.row_lo + r.intRangeAtMost(i32, -1, wt + 2);
         for (0..8) |k| {
             const p: physics.Point = switch (k % 3) {
                 0 => .{ .x = r.int(i32), .y = r.int(i32) },
-                1 => .{ .x = r.intRangeLessThan(i32, 0, physics.world), .y = r.intRangeLessThan(i32, 0, physics.world) },
+                1 => .{ .x = r.intRangeLessThan(i32, 0, g.world), .y = r.intRangeLessThan(i32, 0, g.world) },
                 // A tile's edge, each side.
                 else => .{ .x = (lo + r.intRangeAtMost(i32, -2, 3)) * physics.tile + r.intRangeAtMost(i32, -1, 0), .y = sp.row_hi * physics.tile + r.intRangeAtMost(i32, -1, physics.tile) },
             };
-            try testing.expectEqual(sp.holds(physics.tileOf(p)), sp.holdsPoint(p));
+            try testing.expectEqual(sp.holds(g.tileOf(p)), sp.holdsPoint(p));
         }
     }
 }
@@ -400,9 +402,9 @@ test "the invariant: seeded drags through the laid-out park, and no two critters
 /// Whether chicken `n` at `c` has no step of its own to take: at home and
 /// no ripe poop within its sight.
 fn idleChicken(b: *const Board, c: Point, n: u16) bool {
-    if (physics.measure(physics.delta(c, @import("layout.zig").home(.of(.chicken, n)))) > physics.px(@import("rules.zig").rules.chickens.home_band)) return false;
+    if (physics.measure(physics.room.delta(c, @import("layout.zig").home(physics.last_level, .of(.chicken, n)))) > physics.px(@import("rules.zig").rules.chickens.home_band)) return false;
     for (b.poops, b.poop_known, 0..) |p, k, slot| {
-        if (k == .present and physics.ripe(b.laid, @intCast(slot)) and physics.measure(physics.delta(c, p)) <= physics.px(@import("rules.zig").rules.chickens.sight)) return false;
+        if (k == .present and physics.ripe(b.laid, @intCast(slot)) and physics.measure(physics.room.delta(c, p)) <= physics.px(@import("rules.zig").rules.chickens.sight)) return false;
     }
     return true;
 }
