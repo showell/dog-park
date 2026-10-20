@@ -26,7 +26,7 @@ walk = |
 	eaten,
 	moving,
 | {
-	{ cells: filed_cells, crits: filed_crits } = Walk.filed({ cells, crits })
+	{ cells: filed_cells, crits: filed_crits } = Walk.filed(Walk.geo_of(side), { cells, crits })
 	if mode == 0 {
 		r = Walk.pixel_tick(
 			{ from, poops, side },

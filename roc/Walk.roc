@@ -44,19 +44,10 @@ Walk := [].{
 	## A poop the physics sees, and its slot (lower slots block first).
 	Poop : { slot : U16, x : I32, y : I32 }
 
-	## The world (World.roc), in 256ths: its side, half of it, a tile's
-	## side, the tiles a side, a poop's half side, and the largest critter's.
-	world : I32
-	world = (World.world_tiles * World.tile_px * 256).to_i32_wrap()
-
-	half_world : I32
-	half_world = world // 2
-
+	## A tile's side in 256ths (World.roc's, every level's), a poop's half
+	## side, and the largest critter's.
 	tile : I32
 	tile = (World.tile_px * 256).to_i32_wrap()
-
-	tiles : I32
-	tiles = World.world_tiles.to_i32_wrap()
 
 	poop_half : I32
 	poop_half = (World.poop_px // 2 * 256).to_i32_wrap()
@@ -81,11 +72,44 @@ Walk := [].{
 	cell_per_tile : I32
 	cell_per_tile = World.cell_per_tile.to_i32_wrap()
 
-	side : I32
-	side = tiles * cell_per_tile
-
 	cell : I32
 	cell = tile // cell_per_tile
+
+	## **THE WORLD THIS CALL WALKS IN** (a level's, World.roc's `levels`):
+	## `side` cells a side, as the physics lends it (`Lent`), so `tiles`
+	## tiles, `world` in 256ths, and half of it. Worked out once a call
+	## (`geo_of`); the walk carries it in `Seen`, and the helpers that wrap
+	## round the torus take it.
+	Geo : { half : I32, side : I32, tiles : I32, world : I32 }
+
+	## `i` round a torus `n` long, in [0, `n`). Each wrap the walk makes is
+	## at most one length off (a span's index, a moved point), so a compare
+	## and an add: since the world is a level's, not a constant, a division
+	## (`mod_by`) would cost in every loop that wraps. Farther, a division.
+	around : I32, I32 -> I32
+	around = |i, n| {
+		if i >= 0 and i < n {
+			i
+		} else if i < 0 and i >= 0 - n {
+			i + n
+		} else if i >= n and i < n + n {
+			i - n
+		} else {
+			i.mod_by(n)
+		}
+	}
+
+	geo_of : I32 -> Geo
+	geo_of = |side| {
+		if side <= 0 or side % cell_per_tile != 0 {
+			crash "Walk: the physics lent a side that is not whole tiles of cells"
+		} else {
+			{}
+		}
+		tiles = side // cell_per_tile
+		world = tiles * tile
+		{ half: world // 2, side, tiles, world }
+	}
 
 	## What the walk only reads: the poops by tile, those of tile `t` (row
 	## by row from the world's (0, 0)) at `poops[from[t] .. from[t + 1]]`;
@@ -94,7 +118,7 @@ Walk := [].{
 
 	## The same, with what the walk works out from it once: the words of a
 	## cell's set of critters (`Park`).
-	Seen : { from : List(U16), poops : List(Poop), words : U64 }
+	Seen : { from : List(U16), geo : Geo, poops : List(Poop), words : U64 }
 
 	## **THE CRITTERS** by seen index (`crits`), and by cell: `cells` holds
 	## each cell's set of seen indexes, `words` 64-bit words a cell (cell
@@ -133,15 +157,12 @@ Walk := [].{
 	## The walk after the leashed dog's step of size `most`.
 	walk : Lent, Work, I32 -> Walked
 	walk = |lent, work0, most| {
-		if lent.side != side {
-			crash "Walk: the physics keeps the critters by other cells than World.roc's tiles cut cell_per_tile ways"
-		} else {
-			{}
-		}
+		geo = geo_of(lent.side)
 		s = {
 			from: lent.from,
+			geo,
 			poops: lent.poops,
-			words: work0.park.cells.len() // (side * side).to_u64_wrap(),
+			words: work0.park.cells.len() // (geo.side * geo.side).to_u64_wrap(),
 		}
 
 		## **ONE OWNER FOR EACH LIST**: each in a variable of its own, and
@@ -170,7 +191,7 @@ Walk := [].{
 				iu = i.to_u64_wrap()
 				me = get_c($crits, iu)
 				$crits = put($crits, iu, { ..me, key: visited })
-				{ crits: k1, moving: m1, out: wished } = wish_of($crits, $moving, iu)
+				{ crits: k1, moving: m1, out: wished } = wish_of(s.geo, $crits, $moving, iu)
 				$crits = k1
 				$moving = m1
 				$moving = $moving.append(iu.to_u16_wrap())
@@ -223,14 +244,15 @@ Walk := [].{
 		s = {
 			from: lent.from,
 			poops: lent.poops,
-			words: work0.park.cells.len() // (side * side).to_u64_wrap(),
+			geo: geo_of(lent.side),
+			words: work0.park.cells.len() // (lent.side * lent.side).to_u64_wrap(),
 		}
 		{ depth, moving, park: park0 } = work0
 		{ cells: c0, crits: k0 } = park0
 		from = pt(get_c(k0, 0))
 		{ bump, park: park1, walked } = drag(s, { cells: c0, crits: k0 }, axis, inc)
 		{ cells: c1, crits: k1 } = park1
-		step = delta(from, pt(get_c(k1, 0)))
+		step = delta(s.geo, from, pt(get_c(k1, 0)))
 		work1 = { depth, moving, park: { cells: c1, crits: k1 } }
 		if step.x == 0 and step.y == 0 {
 			{ bump, poop: no_poop, step, walk: { anchor: -1, pooper: 0, work: work1 }, walked }
@@ -316,9 +338,9 @@ Walk := [].{
 				how.anchor.to_u64_wrap(),
 			),
 		) else plus(p, how.step)
-		spot = plus(p, away_from(ahead, p, poop_back))
+		spot = plus(p, away_from(s.geo, ahead, p, poop_back))
 		slot = (how.laid.to_u64() % poop_slots).to_u16_wrap()
-		var $at = wrapped(spot)
+		var $at = wrapped(s.geo, spot)
 		var $found = poop_fits(s, crits, $at, slot)
 		var $r = poop_grid
 		while !$found and $r <= poop_reach {
@@ -337,7 +359,7 @@ Walk := [].{
 				} else {
 					{ x: 0 - r, y: r - off }
 				}
-				$at = wrapped(plus(spot, d))
+				$at = wrapped(s.geo, plus(spot, d))
 				$found = poop_fits(s, crits, $at, slot)
 				$k = $k + 1
 			}
@@ -349,9 +371,9 @@ Walk := [].{
 	## A vector `length` long straight away from `from`, for the critter at
 	## `p`, each axis truncated toward zero; east when the centres coincide.
 	## (The wish's own `away` is its hot loop's: this is the poop's.)
-	away_from : Pt, Pt, I32 -> Pt
-	away_from = |from, p, length| {
-		v = delta(from, p)
+	away_from : Geo, Pt, Pt, I32 -> Pt
+	away_from = |g, from, p, length| {
+		v = delta(g, from, p)
 		if v.x == 0 and v.y == 0 {
 			{ x: length, y: 0 }
 		} else {
@@ -373,23 +395,23 @@ Walk := [].{
 		var $j = 0
 		while $ok and $j < crits.len() {
 			c = get_c(crits, $j)
-			$ok = !overlap(q, poop_half, pt(c), c.half)
+			$ok = !overlap(s.geo, q, poop_half, pt(c), c.half)
 			$j = $j + 1
 		}
 		reach = 2 * poop_half
-		cols = span(q.x, reach, tile, tiles)
-		rows = span(q.y, reach, tile, tiles)
+		cols = span(q.x, reach, tile, s.geo.tiles)
+		rows = span(q.y, reach, tile, s.geo.tiles)
 		var $r = 0
 		while $ok and $r < rows.n {
-			row = (rows.lo + $r).mod_by(tiles)
+			row = around(rows.lo + $r, s.geo.tiles)
 			var $c = 0
 			while $ok and $c < cols.n {
-				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				t = (row * s.geo.tiles + around(cols.lo + $c, s.geo.tiles)).to_u64_wrap()
 				var $k = (get_u16(s.from, t)).to_u64()
 				stop = (get_u16(s.from, t + 1)).to_u64()
 				while $ok and $k < stop {
 					o = get_poop(s, $k)
-					$ok = o.slot == slot or !overlap(q, poop_half, { x: o.x, y: o.y }, poop_half)
+					$ok = o.slot == slot or !overlap(s.geo, q, poop_half, { x: o.x, y: o.y }, poop_half)
 					$k = $k + 1
 				}
 				$c = $c + 1
@@ -435,7 +457,7 @@ Walk := [].{
 		from = pt(me)
 		k1 = put(k0, 0, { ..me, kin: no_kin })
 		{ by, bump, park: park1 } = sweep(s, { cells: c0, crits: k1 }, axis, inc)
-		park2 = if (by != 0) move_to(s, park1, 0, wrapped(plus(from, on_axis(axis, by)))) else park1
+		park2 = if (by != 0) move_to(s, park1, 0, wrapped(s.geo, plus(from, on_axis(axis, by)))) else park1
 		{ park: park3, went, walked: more } = if bump.kind == bump_none {
 			{ park: park2, went: Bool.True, walked: 0 }
 		} else {
@@ -476,7 +498,7 @@ Walk := [].{
 				{ park: park1, went: Bool.True, walked: rest.abs() }
 			} else {
 				{ cells: c1, crits: k1 } = park1
-				off = part_on(delta(pt(get_c(k1, 0)), bump.stood), 1 - axis)
+				off = part_on(delta(s.geo, pt(get_c(k1, 0)), bump.stood), 1 - axis)
 				{ park: park2, veto: slid } = step_whole(
 					s,
 					{ cells: c1, crits: k1 },
@@ -503,7 +525,7 @@ Walk := [].{
 		me = get_c(crits, 0)
 		p = pt(me)
 		h = me.half
-		near = square_of(p, h + biggest_half + step.abs())
+		near = square_of(s.geo, p, h + biggest_half + step.abs())
 		var $best = step
 		var $bump = no_bump
 		var $w = 0
@@ -513,7 +535,7 @@ Walk := [].{
 				j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 				if j != 0 {
 					o = get_c(crits, j)
-					got = sweep_limit(p, h, axis, step, pt(o), o.half)
+					got = sweep_limit(s.geo, p, h, axis, step, pt(o), o.half)
 					if got.abs() < $best.abs() {
 						$best = got
 						$bump = { at: j.to_i32_wrap(), kind: bump_critter, stood: pt(o) }
@@ -528,23 +550,23 @@ Walk := [].{
 			$w = $w + 1
 		}
 		reach = h + poop_half + step.abs()
-		cols = span(p.x, reach, tile, tiles)
-		rows = span(p.y, reach, tile, tiles)
+		cols = span(p.x, reach, tile, s.geo.tiles)
+		rows = span(p.y, reach, tile, s.geo.tiles)
 		var $poop_best = step
 		var $poop = -1
 		var $poop_at = { x: 0, y: 0 }
 		var $r = 0
 		while $r < rows.n {
-			row = (rows.lo + $r).mod_by(tiles)
+			row = around(rows.lo + $r, s.geo.tiles)
 			var $c = 0
 			while $c < cols.n {
-				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				t = (row * s.geo.tiles + around(cols.lo + $c, s.geo.tiles)).to_u64_wrap()
 				var $k = (get_u16(s.from, t)).to_u64()
 				stop = (get_u16(s.from, t + 1)).to_u64()
 				while $k < stop {
 					q = get_poop(s, $k)
 					slot = q.slot.to_i64()
-					got = sweep_limit(p, h, axis, step, { x: q.x, y: q.y }, poop_half)
+					got = sweep_limit(s.geo, p, h, axis, step, { x: q.x, y: q.y }, poop_half)
 					if got.abs() < $poop_best.abs() or ($poop >= 0 and got.abs() == $poop_best.abs() and slot < $poop) {
 						$poop_best = got
 						$poop = slot
@@ -574,9 +596,9 @@ Walk := [].{
 	## pressing in, so touching across the move doesn't block, and against a
 	## square it already overlaps a step may not shrink |Δ| on that axis nor
 	## change its sign (from Δ = 0 either way is free).
-	sweep_limit : Pt, I32, I32, I32, Pt, I32 -> I32
-	sweep_limit = |p, h, axis, s, o, oh| {
-		d = delta(p, o)
+	sweep_limit : Geo, Pt, I32, I32, I32, Pt, I32 -> I32
+	sweep_limit = |g, p, h, axis, s, o, oh| {
+		d = delta(g, p, o)
 		hs = h + oh
 		along = part_on(d, axis)
 		if part_on(d, 1 - axis).abs() >= hs or s == 0 {
@@ -648,7 +670,7 @@ Walk := [].{
 	line_up = |s, park, from| {
 		{ cells, crits } = park
 		p = pt(get_c(crits, from))
-		n = side
+		n = s.geo.side
 		pc = p.x // cell
 		pr = p.y // cell
 		var $t = { d1: 0, d2: 0, d3: 0, k1: -1, k2: -1, k3: -1 }
@@ -666,14 +688,14 @@ Walk := [].{
 				top = if (2 * $r == n) $r - 1 else $r
 				var $dy = 0 - $r
 				while $dy <= top {
-					row = (pr + $dy).mod_by(n)
+					row = around(pr + $dy, n)
 					edge = $dy == 0 - $r or $dy == $r
 					var $dx = 0 - $r
 					while $dx <= top {
 						## The dogs and cows of the cell not yet visited, offered
 						## to the three nearest `p` (here, not in a function: one
 						## that took the park took its lists' refcounts up and down).
-						base = (row * n + (pc + $dx).mod_by(n)).to_u64_wrap() * s.words
+						base = (row * n + around(pc + $dx, n)).to_u64_wrap() * s.words
 						var $w = 0
 						while $w < s.words {
 							var $bits = get_u64(cells, base + $w)
@@ -681,7 +703,7 @@ Walk := [].{
 								j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 								o = get_c(crits, j)
 								if o.key != visited and Wish.walks(o.kind) {
-									$t = nearer($t, measure(delta(pt(o), p)), j.to_i64_wrap())
+									$t = nearer($t, measure(delta(s.geo, pt(o), p)), j.to_i64_wrap())
 								} else {
 									{}
 								}
@@ -732,27 +754,28 @@ Walk := [].{
 
 	## Seen critter `i`'s wish, from the critters in motion where they now
 	## stand.
-	wish_of : List(Crit),
+	wish_of : Geo,
+	List(Crit),
 	List(U16),
 	U64 -> {
 		crits : List(Crit),
 		moving : List(U16),
 		out : Wish.Out,
 	}
-	wish_of = |crits, moving, i| {
+	wish_of = |g, crits, moving, i| {
 		me = get_c(crits, i)
 		wisher = { half: me.half, kind: me.kind }
 		var $s = Wish.start
 		for j in moving {
 			o = get_c(crits, j.to_u64())
-			tx = short(o.x - me.x)
-			ty = short(o.y - me.y)
+			tx = short(g, o.x - me.x)
+			ty = short(g, o.y - me.y)
 			$s = Wish.add(
 				wisher,
 				$s,
 				{
-					ax: back(tx),
-					ay: back(ty),
+					ax: back(g, tx),
+					ay: back(g, ty),
 					half: o.half,
 					tx,
 					ty,
@@ -767,8 +790,8 @@ Walk := [].{
 
 	## A short-way difference turned round: in [-half_world, half_world),
 	## the same but at -half_world.
-	back : I32 -> I32
-	back = |d| if (d == -half_world) d else -d
+	back : Geo, I32 -> I32
+	back = |g, d| if (d == -g.half) d else -d
 
 	## The step a total of wishes comes to, at most `most` on its larger
 	## axis: none inside the dead zone; the total itself within `most`;
@@ -819,7 +842,7 @@ Walk := [].{
 	step_around = |s, park, i, step| {
 		{ park: tried, veto } = step_whole(s, park, i, step)
 		if veto.why == why_chicken or veto.why == why_poop {
-			{ park: again, veto: _ } = step_whole(s, tried, i, sidestep(veto, step))
+			{ park: again, veto: _ } = step_whole(s, tried, i, sidestep(s.geo, veto, step))
 			again
 		} else {
 			tried
@@ -830,9 +853,9 @@ Walk := [].{
 	## axis on which the blocker is farther off zeroed (a tie zeroes x),
 	## and on the other its own part kept, or, that part zero, the step's
 	## whole size away from the blocker (on the line, +).
-	sidestep : Veto, Pt -> Pt
-	sidestep = |v, step| {
-		d = delta(v.at, v.blocker)
+	sidestep : Geo, Veto, Pt -> Pt
+	sidestep = |g, v, step| {
+		d = delta(g, v.at, v.blocker)
 		size = measure(step)
 		if d.x.abs() >= d.y.abs() {
 			{ x: 0, y: if (step.y != 0) step.y else if (d.y > 0) -size else size }
@@ -897,14 +920,14 @@ Walk := [].{
 					$g = { ..$g, veto: { at: from, blocker: q, why: why_poop } }
 				}
 				Clear => {
-					near = square_of(to, h + biggest_half)
+					near = square_of(s.geo, to, h + biggest_half)
 					var $w = 0
 					while $w < s.words and $g.veto.why == why_went {
 						var $bits = near_word(s, park, near, $w)
 						while $bits != 0 and $g.veto.why == why_went {
 							j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 							o = get_c(park.crits, j)
-							if overlap(to, h, pt(o), o.half) and !in_move($g, j) {
+							if overlap(s.geo, to, h, pt(o), o.half) and !in_move($g, j) {
 								if Wish.kind_of(o.kind) == Chicken {
 									if $g.ns == nudge_most {
 										$g = {
@@ -947,13 +970,14 @@ Walk := [].{
 
 	## Where shoved chicken `m` lands: its point plus the step, plus the
 	## step turned toward its side of its shover's centre line.
-	land_of : List(Crit), Pt, Group, U64 -> Pt
-	land_of = |crits, step, g, m| {
+	land_of : Geo, List(Crit), Pt, Group, U64 -> Pt
+	land_of = |geo, crits, step, g, m| {
 		p = pt(get_c(crits, lane_get(g.shoved, m)))
 		wrapped(
+			geo,
 			plus(
 				plus(p, step),
-				shove_aside(step, delta(pt(get_c(crits, lane_get(g.by, m))), p)),
+				shove_aside(step, delta(geo, pt(get_c(crits, lane_get(g.by, m))), p)),
 			),
 		)
 	}
@@ -969,19 +993,19 @@ Walk := [].{
 		while $m < g.ns and $v.why == why_went {
 			c = get_c(crits, lane_get(g.shoved, $m))
 			ch = c.half
-			land = land_of(crits, step, g, $m)
+			land = land_of(s.geo, crits, step, g, $m)
 			bad = match poop_under(s, land, ch) {
 				Found(_) => Bool.True
 				Clear => {
 					var $hit = Bool.False
-					near = square_of(land, ch + biggest_half)
+					near = square_of(s.geo, land, ch + biggest_half)
 					var $w = 0
 					while !$hit and $w < s.words {
 						var $bits = near_word(s, park, near, $w)
 						while !$hit and $bits != 0 {
 							j = $w * 64 + $bits.count_trailing_zero_bits().to_u64()
 							o = get_c(crits, j)
-							$hit = overlap(land, ch, pt(o), o.half) and !in_move(g, j)
+							$hit = overlap(s.geo, land, ch, pt(o), o.half) and !in_move(g, j)
 							$bits = $bits.bitwise_and($bits - 1)
 						}
 						$w = $w + 1
@@ -989,12 +1013,12 @@ Walk := [].{
 					var $k = 0
 					while !$hit and $k < g.n {
 						o = get_c(crits, lane_get(g.group, $k))
-						$hit = overlap(land, ch, plus(pt(o), step), o.half)
+						$hit = overlap(s.geo, land, ch, plus(pt(o), step), o.half)
 						$k = $k + 1
 					}
 					var $e = 0
 					while !$hit and $e < $m {
-						$hit = overlap(land, ch, land_of(crits, step, g, $e), ch)
+						$hit = overlap(s.geo, land, ch, land_of(s.geo, crits, step, g, $e), ch)
 						$e = $e + 1
 					}
 					$hit
@@ -1019,13 +1043,13 @@ Walk := [].{
 		var $park = park0
 		var $m = 0
 		while $m < g.ns {
-			$park = move_to(s, $park, lane_get(g.shoved, $m), land_of($park.crits, step, g, $m))
+			$park = move_to(s, $park, lane_get(g.shoved, $m), land_of(s.geo, $park.crits, step, g, $m))
 			$m = $m + 1
 		}
 		var $k = 0
 		while $k < g.n {
 			o = lane_get(g.group, $k)
-			$park = move_to(s, $park, o, wrapped(plus(pt(get_c($park.crits, o)), step)))
+			$park = move_to(s, $park, o, wrapped(s.geo, plus(pt(get_c($park.crits, o)), step)))
 			$k = $k + 1
 		}
 		$park
@@ -1034,20 +1058,20 @@ Walk := [].{
 	## The cell a point stands in, round the torus, `row * side + col` (the
 	## physics lends some critters off the world's square: src/play/grid.zig's
 	## `cellOf` wraps alike).
-	cell_at : I32, I32 -> U64
-	cell_at = |x, y| ((y.mod_by(world) // cell) * side + x.mod_by(world) // cell).to_u64_wrap()
+	cell_at : Geo, I32, I32 -> U64
+	cell_at = |g, x, y| ((around(y, g.world) // cell) * g.side + around(x, g.world) // cell).to_u64_wrap()
 
 	## **THE PARK FILED**: each critter's bit in the cell it stands in.
 	## The physics lends the cells all clear when it starts a tick's park
 	## (src/play/physics.zig's `Scene.init`), and lends them back as this
 	## left them for the rest of the tick; filed, the leashed dog's own bit
 	## is set, so that bit tells which. Every call files before it walks.
-	filed : Park -> Park
-	filed = |park0| {
+	filed : Geo, Park -> Park
+	filed = |g, park0| {
 		{ cells: c0, crits: k0 } = park0
-		words = c0.len() // (side * side).to_u64_wrap()
+		words = c0.len() // (g.side * g.side).to_u64_wrap()
 		dog0 = get_c(k0, 0)
-		if get_u64(c0, cell_at(dog0.x, dog0.y) * words).bitwise_and(1) == 1 {
+		if get_u64(c0, cell_at(g, dog0.x, dog0.y) * words).bitwise_and(1) == 1 {
 			{ cells: c0, crits: k0 }
 		} else {
 			n = k0.len()
@@ -1055,7 +1079,7 @@ Walk := [].{
 			var $j = 0
 			while $j < n {
 				c = get_c(k0, $j)
-				at = cell_at(c.x, c.y) * words + $j // 64
+				at = cell_at(g, c.x, c.y) * words + $j // 64
 				word = get_u64($cells, at).bitwise_or((1).shl_wrap(($j % 64).to_u8_wrap()))
 				$cells = put($cells, at, word)
 				$j = $j + 1
@@ -1069,8 +1093,8 @@ Walk := [].{
 	move_to = |s, park, j, p| {
 		{ cells, crits: crits0 } = park
 		c = get_c(crits0, j)
-		was_in = cell_at(c.x, c.y)
-		now_in = cell_at(p.x, p.y)
+		was_in = cell_at(s.geo, c.x, c.y)
+		now_in = cell_at(s.geo, p.x, p.y)
 		crits = put(crits0, j, { ..c, x: p.x, y: p.y })
 		if now_in == was_in {
 			{ cells, crits }
@@ -1110,7 +1134,8 @@ Walk := [].{
 		s = {
 			from: lent.from,
 			poops: lent.poops,
-			words: park0.cells.len() // (side * side).to_u64_wrap(),
+			geo: geo_of(lent.side),
+			words: park0.cells.len() // (lent.side * lent.side).to_u64_wrap(),
 		}
 		{ cells: c0, crits: k0 } = park0
 		newest = ((laid.to_u64() + poop_slots - 1) % poop_slots).to_u16_wrap()
@@ -1135,14 +1160,14 @@ Walk := [].{
 							s,
 							{ cells: $cells, crits: $crits },
 							$j,
-							forage_at_most(delta(p, near.at), most),
+							forage_at_most(delta(s.geo, p, near.at), most),
 							newest,
 						)
 						$cells = c1
 						$crits = k1
 						$eaten = eat_under(s, $eaten, pt(get_c($crits, $j)), me.half, newest)
 					} else {
-						home = delta(p, get_pt(homes, $j))
+						home = delta(s.geo, p, get_pt(homes, $j))
 						if measure(home) > (f.home_band * 256).to_i32_wrap() {
 							{ park: { cells: c1, crits: k1 }, veto: _ } = forage_step(
 								s,
@@ -1169,22 +1194,22 @@ Walk := [].{
 	## -1 for none, and where), ties to the lower slot.
 	nearest_ripe : Seen, List(U16), Pt, I32, U16 -> { at : Pt, slot : I32 }
 	nearest_ripe = |s, eaten, p, sight, newest| {
-		cols = span(p.x, sight, tile, tiles)
-		rows = span(p.y, sight, tile, tiles)
+		cols = span(p.x, sight, tile, s.geo.tiles)
+		rows = span(p.y, sight, tile, s.geo.tiles)
 		var $best = -1
 		var $best_d = 0
 		var $at = { x: 0, y: 0 }
 		var $r = 0
 		while $r < rows.n {
-			row = (rows.lo + $r).mod_by(tiles)
+			row = around(rows.lo + $r, s.geo.tiles)
 			var $c = 0
 			while $c < cols.n {
-				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				t = (row * s.geo.tiles + around(cols.lo + $c, s.geo.tiles)).to_u64_wrap()
 				var $k = (get_u16(s.from, t)).to_u64()
 				stop = (get_u16(s.from, t + 1)).to_u64()
 				while $k < stop {
 					q = get_poop(s, $k)
-					d = measure(delta(p, { x: q.x, y: q.y }))
+					d = measure(delta(s.geo, p, { x: q.x, y: q.y }))
 					slot = q.slot.to_i32()
 					if q.slot != newest and d <= sight and !eaten.contains(q.slot) and ($best < 0 or d < $best_d or (d == $best_d and slot < $best)) {
 						$best = slot
@@ -1207,20 +1232,21 @@ Walk := [].{
 	eat_under : Seen, List(U16), Pt, I32, U16 -> List(U16)
 	eat_under = |s, eaten0, p, h, newest| {
 		reach = h + poop_half
-		cols = span(p.x, reach, tile, tiles)
-		rows = span(p.y, reach, tile, tiles)
+		cols = span(p.x, reach, tile, s.geo.tiles)
+		rows = span(p.y, reach, tile, s.geo.tiles)
 		var $eaten = eaten0
 		var $r = 0
 		while $r < rows.n {
-			row = (rows.lo + $r).mod_by(tiles)
+			row = around(rows.lo + $r, s.geo.tiles)
 			var $c = 0
 			while $c < cols.n {
-				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				t = (row * s.geo.tiles + around(cols.lo + $c, s.geo.tiles)).to_u64_wrap()
 				var $k = (get_u16(s.from, t)).to_u64()
 				stop = (get_u16(s.from, t + 1)).to_u64()
 				while $k < stop {
 					q = get_poop(s, $k)
 					if q.slot != newest and overlap(
+						s.geo,
 						p,
 						h,
 						{ x: q.x, y: q.y },
@@ -1280,7 +1306,7 @@ Walk := [].{
 				var $veto = went
 				while $veto.why == why_went and $k < crits.len() {
 					o = get_c(crits, $k)
-					if $k != j and overlap(to, h, pt(o), o.half) {
+					if $k != j and overlap(s.geo, to, h, pt(o), o.half) {
 						why = match Wish.forage_of(o.kind) {
 							Forages(_) => why_chicken
 							Stays => why_pressed
@@ -1292,7 +1318,7 @@ Walk := [].{
 					$k = $k + 1
 				}
 				if $veto.why == why_went {
-					{ park: forage_move(s, { cells, crits }, j, wrapped(to)), veto: went }
+					{ park: forage_move(s, { cells, crits }, j, wrapped(s.geo, to)), veto: went }
 				} else {
 					{ park: { cells, crits }, veto: $veto }
 				}
@@ -1305,20 +1331,20 @@ Walk := [].{
 	poop_in : Seen, U16, Pt, I32 -> { at : Pt, slot : I32 }
 	poop_in = |s, slot, p, h| {
 		reach = h + poop_half
-		cols = span(p.x, reach, tile, tiles)
-		rows = span(p.y, reach, tile, tiles)
+		cols = span(p.x, reach, tile, s.geo.tiles)
+		rows = span(p.y, reach, tile, s.geo.tiles)
 		var $found = { at: { x: 0, y: 0 }, slot: -1 }
 		var $r = 0
 		while $r < rows.n {
-			row = (rows.lo + $r).mod_by(tiles)
+			row = around(rows.lo + $r, s.geo.tiles)
 			var $c = 0
 			while $c < cols.n {
-				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				t = (row * s.geo.tiles + around(cols.lo + $c, s.geo.tiles)).to_u64_wrap()
 				var $k = (get_u16(s.from, t)).to_u64()
 				stop = (get_u16(s.from, t + 1)).to_u64()
 				while $k < stop {
 					q = get_poop(s, $k)
-					if q.slot == slot and overlap(p, h, { x: q.x, y: q.y }, poop_half) {
+					if q.slot == slot and overlap(s.geo, p, h, { x: q.x, y: q.y }, poop_half) {
 						$found = { at: { x: q.x, y: q.y }, slot: q.slot.to_i32() }
 					} else {
 						{}
@@ -1341,7 +1367,7 @@ Walk := [].{
 	forage_around = |s, park0, j, step, newest| {
 		{ park: park1, veto: v } = forage_step(s, park0, j, step, newest)
 		if v.why == why_poop or v.why == why_chicken {
-			d = delta(v.at, v.blocker)
+			d = delta(s.geo, v.at, v.blocker)
 			size = measure(step)
 			again = if d.x.abs() >= d.y.abs() {
 				{ x: 0, y: if (step.y != 0) step.y else if (d.y > 0) 0 - size else size }
@@ -1361,8 +1387,8 @@ Walk := [].{
 	forage_move = |s, park, j, p| {
 		{ cells, crits: crits0 } = park
 		c = get_c(crits0, j)
-		was_in = cell_at(c.x, c.y)
-		now_in = cell_at(p.x, p.y)
+		was_in = cell_at(s.geo, c.x, c.y)
+		now_in = cell_at(s.geo, p.x, p.y)
 		crits = put(crits0, j, { ..c, x: p.x, y: p.y })
 		if now_in == was_in {
 			{ cells, crits }
@@ -1390,10 +1416,10 @@ Walk := [].{
 	## The cells a square `reach` either way of `p` meets, on each axis.
 	Square : { cols : Span, rows : Span }
 
-	square_of : Pt, I32 -> Square
-	square_of = |p, reach| {
-		cols: span(p.x, reach, cell, side),
-		rows: span(p.y, reach, cell, side),
+	square_of : Geo, Pt, I32 -> Square
+	square_of = |g, p, reach| {
+		cols: span(p.x, reach, cell, g.side),
+		rows: span(p.y, reach, cell, g.side),
 	}
 
 	## Word `w` of the set of every critter in the cells of `near`.
@@ -1402,10 +1428,10 @@ Walk := [].{
 		var $u = 0
 		var $r = 0
 		while $r < near.rows.n {
-			row = (near.rows.lo + $r).mod_by(side)
+			row = around(near.rows.lo + $r, s.geo.side)
 			var $c = 0
 			while $c < near.cols.n {
-				c = row * side + (near.cols.lo + $c).mod_by(side)
+				c = row * s.geo.side + around(near.cols.lo + $c, s.geo.side)
 				$u = $u.bitwise_or(get_u64(park.cells, c.to_u64_wrap() * s.words + w))
 				$c = $c + 1
 			}
@@ -1439,22 +1465,23 @@ Walk := [].{
 	poop_under : Seen, Pt, I32 -> [Found(Pt), Clear]
 	poop_under = |s, p, h| {
 		reach = h + poop_half
-		cols = span(p.x, reach, tile, tiles)
-		rows = span(p.y, reach, tile, tiles)
+		cols = span(p.x, reach, tile, s.geo.tiles)
+		rows = span(p.y, reach, tile, s.geo.tiles)
 		var $best = -1
 		var $at = { x: 0, y: 0 }
 		var $r = 0
 		while $r < rows.n {
-			row = (rows.lo + $r).mod_by(tiles)
+			row = around(rows.lo + $r, s.geo.tiles)
 			var $c = 0
 			while $c < cols.n {
-				t = (row * tiles + (cols.lo + $c).mod_by(tiles)).to_u64_wrap()
+				t = (row * s.geo.tiles + around(cols.lo + $c, s.geo.tiles)).to_u64_wrap()
 				var $k = (get_u16(s.from, t)).to_u64()
 				stop = (get_u16(s.from, t + 1)).to_u64()
 				while $k < stop {
 					q = get_poop(s, $k)
 					slot = q.slot.to_i64()
 					if ($best < 0 or slot < $best) and overlap(
+						s.geo,
 						p,
 						h,
 						{ x: q.x, y: q.y },
@@ -1481,7 +1508,7 @@ Walk := [].{
 
 	span : I32, I32, I32, I32 -> Span
 	span = |v, reach, size, count| {
-		w = v.mod_by(world)
+		w = around(v, size * count)
 		lo = (w - reach).div_floor_by(size)
 		hi = (w + reach).div_floor_by(size)
 		{ lo, n: if (hi - lo + 1 < count) hi - lo + 1 else count }
@@ -1489,12 +1516,13 @@ Walk := [].{
 
 	## **THE ONE DIFFERENCE**: from `a` to `b`, per axis, the short way
 	## round the torus, each axis in [-world/2, world/2).
-	delta : Pt, Pt -> Pt
-	delta = |a, b| { x: short(b.x - a.x), y: short(b.y - a.y) }
+	delta : Geo, Pt, Pt -> Pt
+	delta = |g, a, b| { x: short(g, b.x - a.x), y: short(g, b.y - a.y) }
 
-	short : I32 -> I32
-	short = |d| {
-		h = half_world
+	short : Geo, I32 -> I32
+	short = |g, d| {
+		h = g.half
+		world = g.world
 		if d >= h {
 			if (d < world + h) d - world else (d + h).mod_by(world) - h
 		} else if d >= -h {
@@ -1507,14 +1535,14 @@ Walk := [].{
 	}
 
 	## Two squares overlap: closer than their halves' sum on both axes.
-	overlap : Pt, I32, Pt, I32 -> Bool
-	overlap = |p, ph, q, qh| {
-		d = delta(p, q)
+	overlap : Geo, Pt, I32, Pt, I32 -> Bool
+	overlap = |g, p, ph, q, qh| {
+		d = delta(g, p, q)
 		d.x.abs() < ph + qh and d.y.abs() < ph + qh
 	}
 
-	wrapped : Pt -> Pt
-	wrapped = |p| { x: p.x.mod_by(world), y: p.y.mod_by(world) }
+	wrapped : Geo, Pt -> Pt
+	wrapped = |g, p| { x: around(p.x, g.world), y: around(p.y, g.world) }
 
 	plus : Pt, Pt -> Pt
 	plus = |p, v| { x: p.x + v.x, y: p.y + v.y }
@@ -1586,7 +1614,11 @@ Walk := [].{
 ## Pure-Roc checks of the walk: small parks round a leashed dog at
 ## (1000, 1000) px, its step a pixel (256). Critters by kind (0 a dog, 1 a
 ## cow, 2 a chicken), kin and place in whole pixels, in seen index order,
-## the leashed dog first; dogs of breed 0, so kin to it.
+## the leashed dog first; dogs of breed 0, so kin to it. In Level Two's
+## world, `test_side` cells a side.
+test_side : I32
+test_side = (World.world_tiles * World.cell_per_tile).to_i32_wrap()
+
 crit = |kind, kin, x, y| {
 	half = if (kind == 1) 21 * 256 else if (kind == 2) 10 * 256 else 14 * 256
 	{ half, key: Walk.not_lined_up, kin, kind, x: x * 256, y: y * 256 }
@@ -1602,13 +1634,13 @@ park_of = |cs| {
 		$crits = $crits.append({ ..c, key: if ($j == 0) Walk.visited else Walk.not_lined_up })
 		$j = $j + 1
 	}
-	Walk.filed({ cells: List.repeat(0, (Walk.side * Walk.side).to_u64_wrap()), crits: $crits })
+	Walk.filed(Walk.geo_of(test_side), { cells: List.repeat(0, (test_side * test_side).to_u64_wrap()), crits: $crits })
 }
 
 ## The walk of `cs` with no poop, or with one poop at `(px, py)` px in
 ## tile `t` (row by row, 350 px tiles).
 walk_of = |cs| Walk.walk(
-	{ from: List.repeat(0, 37), poops: [], side: Walk.side },
+	{ from: List.repeat(0, 37), poops: [], side: test_side },
 	{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
 	256,
 )
@@ -1616,7 +1648,7 @@ walk_of = |cs| Walk.walk(
 walk_poop = |cs, px, py, t| {
 	from = List.repeat(0, t + 1).concat(List.repeat(1, 36 - t))
 	Walk.walk(
-		{ from, poops: [{ slot: 0, x: px * 256, y: py * 256 }], side: Walk.side },
+		{ from, poops: [{ slot: 0, x: px * 256, y: py * 256 }], side: test_side },
 		{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
 		256,
 	)
@@ -1630,7 +1662,7 @@ place = |r, j| match r.work.park.crits.get(j) {
 ## One pixel-tick of `cs`, no poop: the leashed dog's step `inc` along
 ## `axis` (0 x, 1 y), then the walk if it moved.
 tick_of = |cs, axis, inc| Walk.pixel_tick(
-	{ from: List.repeat(0, 37), poops: [], side: Walk.side },
+	{ from: List.repeat(0, 37), poops: [], side: test_side },
 	{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
 	axis,
 	inc,
@@ -1684,7 +1716,7 @@ expect {
 	poops = [{ slot: 3, x: 1020 * 256, y: 995 * 256 }, { slot: 1, x: 1020 * 256, y: 1005 * 256 }]
 	cs = [dog(1000, 1000)]
 	r = Walk.pixel_tick(
-		{ from, poops, side: Walk.side },
+		{ from, poops, side: test_side },
 		{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
 		0,
 		256,
@@ -1772,7 +1804,7 @@ walk_poops = |cs, ps, t| {
 	from = List.repeat(0, t + 1).concat(List.repeat(ps.len().to_u16_wrap(), 36 - t))
 	poops = ps.map_with_index(|q, k| { slot: k.to_u16_wrap(), x: q.x * 256, y: q.y * 256 })
 	Walk.walk(
-		{ from, poops, side: Walk.side },
+		{ from, poops, side: test_side },
 		{ depth: List.repeat(0, cs.len()), moving: [], park: park_of(cs) },
 		256,
 	)
@@ -1844,7 +1876,7 @@ expect {
 lay_of = |cs, ps, t, how| {
 	from = List.repeat(0, t + 1).concat(List.repeat(ps.len().to_u16_wrap(), 36 - t))
 	poops = ps.map(|q| { slot: q.slot, x: q.x * 256, y: q.y * 256 })
-	Walk.lay({ from, poops, words: 1 }, cs, how)
+	Walk.lay({ from, geo: Walk.geo_of(test_side), poops, words: 1 }, cs, how)
 }
 
 lone = { anchor: -1, laid: 0, pooper: 0, step: { x: 0, y: 0 } }
@@ -1912,7 +1944,7 @@ turn_of = |cs, ps, t, net, laid, away| {
 	poops = ps.map(|q| { slot: q.slot, x: q.x * 256, y: q.y * 256 })
 	park = park_of(cs)
 	Walk.forage_turn(
-		{ from, poops, side: Walk.side },
+		{ from, poops, side: test_side },
 		park,
 		park.crits.map(|c| { x: c.x - away * 256, y: c.y }),
 		[],

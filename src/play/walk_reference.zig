@@ -35,10 +35,17 @@ fn walks(kind: u8) bool {
     return rules.movers[kind] != null;
 }
 
-const world_side: i32 = @as(i32, world.world_tiles) * world.tile_px * 256;
-const half_world: i32 = @divTrunc(world_side, 2);
-const cells_a_side: i32 = @as(i32, world.world_tiles) * world.cell_per_tile;
 const cell_side: i32 = @divTrunc(@as(i32, world.tile_px) * 256, world.cell_per_tile);
+
+/// **THE WORLD THIS TICK WALKS IN** (a level's): `cells` a side, as the
+/// physics lends it, so `world` in 256ths, and half of it.
+pub const Geo = struct { world: i32, half: i32, cells: i32 };
+
+pub fn geoOf(side: usize) Geo {
+    if (side == 0 or side % world.cell_per_tile != 0) std.debug.panic("walk judge: the physics lends {d} cells a side, not whole tiles", .{side});
+    const w: i32 = @as(i32, @intCast(side / world.cell_per_tile)) * world.tile_px * 256;
+    return .{ .world = w, .half = @divTrunc(w, 2), .cells = @intCast(side) };
+}
 const poop_half: i32 = @as(i32, world.poop_px / 2) * 256;
 const poop_every: u64 = @as(u64, rules.poop.every) * 256;
 const poop_back: i32 = @as(i32, rules.poop.back) * 256;
@@ -72,6 +79,7 @@ pub const Result = struct {
 /// The world's state for one pixel-tick: the critters (changed in place),
 /// the poops (only read), and the walk's room.
 const Tick = struct {
+    geo: Geo,
     crits: []Crit,
     poops: []const Poop,
     moving: []u16,
@@ -83,11 +91,11 @@ const Tick = struct {
 /// `walk_most + 1`) gets the visit order; `depth` is room for one per
 /// critter. The leashed dog had walked `before` and the park has laid
 /// `laid` poops.
-pub fn pixelTick(crits: []Crit, poops: []const Poop, moving: []u16, depth: []u16, axis: i32, inc: i32, before: u32, laid: u32) Result {
-    var t: Tick = .{ .crits = crits, .poops = poops, .moving = moving, .depth = depth };
+pub fn pixelTick(geo: Geo, crits: []Crit, poops: []const Poop, moving: []u16, depth: []u16, axis: i32, inc: i32, before: u32, laid: u32) Result {
+    var t: Tick = .{ .geo = geo, .crits = crits, .poops = poops, .moving = moving, .depth = depth };
     const from = pt(crits[0]);
     const d = drag(&t, axis, inc);
-    const step = delta(from, pt(crits[0]));
+    const step = delta(t.geo, from, pt(crits[0]));
     var res: Result = .{ .step_x = step.x, .step_y = step.y, .walked = d.walked, .bump_kind = d.bump_kind, .bump_at = d.bump_at, .poop_slot = -1, .poop_x = 0, .poop_y = 0, .moving_len = 0 };
     if (step.x != 0 or step.y != 0) {
         const w = walk(&t, measure(step));
@@ -119,14 +127,14 @@ pub fn pixelTick(crits: []Crit, poops: []const Poop, moving: []u16, depth: []u16
 fn lay(t: *const Tick, pooper: usize, anchor: i32, step: Pt, laid: u32) ?struct { slot: i32, at: Pt } {
     const p = pt(t.crits[pooper]);
     const ahead = if (anchor >= 0) pt(t.crits[@intCast(anchor)]) else plus(p, step);
-    const v = delta(ahead, p);
+    const v = delta(t.geo, ahead, p);
     const back: Pt = if (v.x == 0 and v.y == 0) .{ .x = poop_back, .y = 0 } else .{
         .x = @intCast(@divTrunc(@as(i64, v.x) * poop_back, measure(v))),
         .y = @intCast(@divTrunc(@as(i64, v.y) * poop_back, measure(v))),
     };
     const spot = plus(p, back);
     const slot: i32 = @intCast(laid % rules.poop.slots);
-    if (fits(t, wrapped(spot), slot)) return .{ .slot = slot, .at = wrapped(spot) };
+    if (fits(t, wrapped(t.geo, spot), slot)) return .{ .slot = slot, .at = wrapped(t.geo, spot) };
     var r: i32 = poop_grid;
     while (r <= poop_reach) : (r += poop_grid) {
         // The ring's 8r/grid points: along the top west to east, down the
@@ -144,14 +152,14 @@ fn lay(t: *const Tick, pooper: usize, anchor: i32, step: Pt, laid: u32) ?struct 
 }
 
 fn try_at(t: *const Tick, spot: Pt, d: Pt, slot: i32) ?Pt {
-    const q = wrapped(plus(spot, d));
+    const q = wrapped(t.geo, plus(spot, d));
     return if (fits(t, q, slot)) q else null;
 }
 
 /// A poop at `q` overlaps no critter and no poop but the one in `slot`.
 fn fits(t: *const Tick, q: Pt, slot: i32) bool {
-    for (t.crits) |c| if (overlap(q, poop_half, pt(c), c.half)) return false;
-    for (t.poops) |o| if (o.slot != slot and overlap(q, poop_half, .{ .x = o.x, .y = o.y }, poop_half)) return false;
+    for (t.crits) |c| if (overlap(t.geo, q, poop_half, pt(c), c.half)) return false;
+    for (t.poops) |o| if (o.slot != slot and overlap(t.geo, q, poop_half, .{ .x = o.x, .y = o.y }, poop_half)) return false;
     return true;
 }
 
@@ -166,7 +174,7 @@ fn drag(t: *Tick, axis: i32, inc: i32) Dragged {
     t.crits[0].kin = roc.no_kin;
     defer t.crits[0].kin = breed;
     const sw = sweep(t, axis, inc);
-    if (sw.by != 0) moveTo(t, 0, wrapped(plus(from, onAxis(axis, sw.by))));
+    if (sw.by != 0) moveTo(t, 0, wrapped(t.geo, plus(from, onAxis(axis, sw.by))));
     if (sw.bump.kind == roc.bump_none) return .{ .walked = abs(sw.by), .bump_kind = roc.bump_none, .bump_at = 0 };
     const more = goAround(t, axis, inc - sw.by, abs(inc), sw.bump);
     if (more.went) return .{ .walked = abs(sw.by) + more.walked, .bump_kind = roc.bump_none, .bump_at = 0 };
@@ -177,7 +185,7 @@ fn goAround(t: *Tick, axis: i32, rest: i32, size: i32, bump: Bump) struct { went
     const is_chicken = bump.kind == roc.bump_critter and !walks(t.crits[@intCast(bump.at)].kind);
     if (bump.kind == roc.bump_critter and !is_chicken) return .{ .went = false, .walked = 0 };
     if (is_chicken and stepWhole(t, 0, onAxis(axis, rest)).why == why_went) return .{ .went = true, .walked = abs(rest) };
-    const off = partOn(delta(pt(t.crits[0]), bump.stood), 1 - axis);
+    const off = partOn(delta(t.geo, pt(t.crits[0]), bump.stood), 1 - axis);
     const slid = stepWhole(t, 0, onAxis(1 - axis, if (off > 0) -size else size));
     return if (slid.why == why_went) .{ .went = true, .walked = size } else .{ .went = false, .walked = 0 };
 }
@@ -191,7 +199,7 @@ fn sweep(t: *const Tick, axis: i32, step: i32) struct { by: i32, bump: Bump } {
     var best = step;
     var bump: Bump = .{};
     for (t.crits[1..], 1..) |o, j| {
-        const got = sweepLimit(p, me.half, axis, step, pt(o), o.half);
+        const got = sweepLimit(t.geo, p, me.half, axis, step, pt(o), o.half);
         if (abs(got) < abs(best)) {
             best = got;
             bump = .{ .kind = roc.bump_critter, .at = @intCast(j), .stood = pt(o) };
@@ -201,7 +209,7 @@ fn sweep(t: *const Tick, axis: i32, step: i32) struct { by: i32, bump: Bump } {
     var poop: i64 = -1;
     var poop_at: Pt = .{ .x = 0, .y = 0 };
     for (t.poops) |q| {
-        const got = sweepLimit(p, me.half, axis, step, .{ .x = q.x, .y = q.y }, poop_half);
+        const got = sweepLimit(t.geo, p, me.half, axis, step, .{ .x = q.x, .y = q.y }, poop_half);
         if (abs(got) < abs(poop_best) or (poop >= 0 and abs(got) == abs(poop_best) and q.slot < poop)) {
             poop_best = got;
             poop = q.slot;
@@ -212,8 +220,8 @@ fn sweep(t: *const Tick, axis: i32, step: i32) struct { by: i32, bump: Bump } {
     return .{ .by = best, .bump = bump };
 }
 
-fn sweepLimit(p: Pt, h: i32, axis: i32, s: i32, o: Pt, oh: i32) i32 {
-    const d = delta(p, o);
+fn sweepLimit(g: Geo, p: Pt, h: i32, axis: i32, s: i32, o: Pt, oh: i32) i32 {
+    const d = delta(g, p, o);
     const hs = h + oh;
     const on_line = partOn(d, axis);
     if (abs(partOn(d, 1 - axis)) >= hs or s == 0) return s;
@@ -285,7 +293,7 @@ fn lineUp(t: *Tick, from: usize) void {
     var dist: [3]i32 = .{ 0, 0, 0 };
     for (t.crits, 0..) |o, j| {
         if (o.key == roc.visited or !walks(o.kind)) continue;
-        var d = measure(delta(pt(o), p));
+        var d = measure(delta(t.geo, pt(o), p));
         var jj: usize = j;
         // Insertion into the three, kept sorted.
         for (0..3) |k| {
@@ -337,11 +345,11 @@ fn wishOf(t: *const Tick, i: usize) Wished {
     var nearest_d: i64 = 0;
     for (t.moving[0..t.moving_len]) |j| {
         const o = t.crits[j];
-        const tx = short(o.x - me.x);
-        const ty = short(o.y - me.y);
+        const tx = short(t.geo, o.x - me.x);
+        const ty = short(t.geo, o.y - me.y);
         const n: Near = .{
-            .ax = turned(tx),
-            .ay = turned(ty),
+            .ax = turned(t.geo, tx),
+            .ay = turned(t.geo, ty),
             .tx = tx,
             .ty = ty,
             .half = o.half,
@@ -417,8 +425,8 @@ fn measure64(x: i64, y: i64) i64 {
 }
 
 /// A short-way difference turned round (at exactly half a world, kept).
-fn turned(d: i32) i32 {
-    return if (d == -half_world) d else -d;
+fn turned(g: Geo, d: i32) i32 {
+    return if (d == -g.half) d else -d;
 }
 
 fn stepAtMost(total: Pt, most: i32) Pt {
@@ -435,11 +443,11 @@ fn stepAtMost(total: Pt, most: i32) Pt {
 
 fn stepAround(t: *Tick, i: usize, step: Pt) void {
     const v = stepWhole(t, i, step);
-    if (v.why == why_chicken or v.why == why_poop) _ = stepWhole(t, i, sidestep(v, step));
+    if (v.why == why_chicken or v.why == why_poop) _ = stepWhole(t, i, sidestep(t.geo, v, step));
 }
 
-fn sidestep(v: Veto, step: Pt) Pt {
-    const d = delta(v.at, v.blocker);
+fn sidestep(g: Geo, v: Veto, step: Pt) Pt {
+    const d = delta(g, v.at, v.blocker);
     const size = measure(step);
     if (abs(d.x) >= abs(d.y)) return .{ .x = 0, .y = if (step.y != 0) step.y else if (d.y > 0) -size else size };
     return .{ .x = if (step.x != 0) step.x else if (d.x > 0) -size else size, .y = 0 };
@@ -470,7 +478,7 @@ fn stepWhole(t: *Tick, i: usize, step: Pt) Veto {
         const to = plus(from, step);
         if (poopUnder(t, to, me.half)) |q| return .{ .why = why_poop, .at = from, .blocker = q };
         for (t.crits, 0..) |o, j| {
-            if (!overlap(to, me.half, pt(o), o.half) or g.inMove(j)) continue;
+            if (!overlap(t.geo, to, me.half, pt(o), o.half) or g.inMove(j)) continue;
             if (!walks(o.kind)) {
                 if (g.ns == nudge_most) return .{ .why = why_chicken, .at = from, .blocker = pt(o) };
                 g.shoved[g.ns] = j;
@@ -491,26 +499,26 @@ fn stepWhole(t: *Tick, i: usize, step: Pt) Veto {
         var bad = poopUnder(t, land, c.half) != null;
         for (t.crits, 0..) |o, j| {
             if (bad) break;
-            bad = overlap(land, c.half, pt(o), o.half) and !g.inMove(j);
+            bad = overlap(t.geo, land, c.half, pt(o), o.half) and !g.inMove(j);
         }
         for (g.group[0..g.n]) |gj| {
             if (bad) break;
-            bad = overlap(land, c.half, plus(pt(t.crits[gj]), step), t.crits[gj].half);
+            bad = overlap(t.geo, land, c.half, plus(pt(t.crits[gj]), step), t.crits[gj].half);
         }
         for (0..m) |e| {
             if (bad) break;
-            bad = overlap(land, c.half, landOf(t, step, &g, e), c.half);
+            bad = overlap(t.geo, land, c.half, landOf(t, step, &g, e), c.half);
         }
         if (bad) return .{ .why = why_chicken, .at = pt(t.crits[g.by[m]]), .blocker = pt(c) };
     }
     for (0..g.ns) |m| moveTo(t, g.shoved[m], landOf(t, step, &g, m));
-    for (g.group[0..g.n]) |gj| moveTo(t, gj, wrapped(plus(pt(t.crits[gj]), step)));
+    for (g.group[0..g.n]) |gj| moveTo(t, gj, wrapped(t.geo, plus(pt(t.crits[gj]), step)));
     return .{};
 }
 
 fn landOf(t: *const Tick, step: Pt, g: *const Group, m: usize) Pt {
     const p = pt(t.crits[g.shoved[m]]);
-    return wrapped(plus(plus(p, step), shoveAside(step, delta(pt(t.crits[g.by[m]]), p))));
+    return wrapped(t.geo, plus(plus(p, step), shoveAside(step, delta(t.geo, pt(t.crits[g.by[m]]), p))));
 }
 
 fn shoveAside(step: Pt, d: Pt) Pt {
@@ -527,7 +535,7 @@ fn shoveAside(step: Pt, d: Pt) Pt {
 fn poopUnder(t: *const Tick, p: Pt, h: i32) ?Pt {
     var best: ?Poop = null;
     for (t.poops) |q| {
-        if ((best == null or q.slot < best.?.slot) and overlap(p, h, .{ .x = q.x, .y = q.y }, poop_half)) best = q;
+        if ((best == null or q.slot < best.?.slot) and overlap(t.geo, p, h, .{ .x = q.x, .y = q.y }, poop_half)) best = q;
     }
     return if (best) |q| .{ .x = q.x, .y = q.y } else null;
 }
@@ -540,8 +548,8 @@ fn moveTo(t: *Tick, j: usize, p: Pt) void {
 
 /// The cell a point stands in, round the torus (some critters are lent off
 /// the world's square, and stay there until they move).
-pub fn cellOf(p: Pt) u16 {
-    return @intCast(@divFloor(@mod(p.y, world_side), cell_side) * cells_a_side + @divFloor(@mod(p.x, world_side), cell_side));
+pub fn cellOf(g: Geo, p: Pt) u16 {
+    return @intCast(@divFloor(@mod(p.y, g.world), cell_side) * g.cells + @divFloor(@mod(p.x, g.world), cell_side));
 }
 
 // ── the torus ──────────────────────────────────────────────────────────
@@ -550,22 +558,22 @@ fn pt(c: Crit) Pt {
     return .{ .x = c.x, .y = c.y };
 }
 
-fn delta(a: Pt, b: Pt) Pt {
-    return .{ .x = short(b.x - a.x), .y = short(b.y - a.y) };
+fn delta(g: Geo, a: Pt, b: Pt) Pt {
+    return .{ .x = short(g, b.x - a.x), .y = short(g, b.y - a.y) };
 }
 
-/// A difference the short way round, in [-half_world, half_world).
-fn short(d: i32) i32 {
-    return @mod(d + half_world, world_side) - half_world;
+/// A difference the short way round, in [-half, half) of the world.
+fn short(g: Geo, d: i32) i32 {
+    return @mod(d + g.half, g.world) - g.half;
 }
 
-fn overlap(p: Pt, ph: i32, q: Pt, qh: i32) bool {
-    const d = delta(p, q);
+fn overlap(g: Geo, p: Pt, ph: i32, q: Pt, qh: i32) bool {
+    const d = delta(g, p, q);
     return abs(d.x) < ph + qh and abs(d.y) < ph + qh;
 }
 
-fn wrapped(p: Pt) Pt {
-    return .{ .x = @mod(p.x, world_side), .y = @mod(p.y, world_side) };
+fn wrapped(g: Geo, p: Pt) Pt {
+    return .{ .x = @mod(p.x, g.world), .y = @mod(p.y, g.world) };
 }
 
 fn plus(p: Pt, v: Pt) Pt {
@@ -606,17 +614,18 @@ pub fn Judge(comptime seen_most: usize, comptime moving_most: usize) type {
         res: Result = undefined,
         axis: i32 = 0,
         inc: i32 = 0,
+        geo: Geo = undefined,
 
         const Self = @This();
 
         pub fn before(self: *Self, crits: []const Crit, from: []const u16, poops: []const Poop, side: usize, axis: i32, inc: i32, walked: u32, laid: u32) void {
-            if (side != cells_a_side) std.debug.panic("walk judge: the physics lends {d} cells a side, world.zon makes {d}", .{ side, cells_a_side });
+            self.geo = geoOf(side);
             if (from.len == 0 or from[from.len - 1] != poops.len) std.debug.panic("walk judge: the poops' tile offsets end at {d}, {d} poops lent", .{ if (from.len == 0) 0 else from[from.len - 1], poops.len });
             self.n = crits.len;
             self.axis = axis;
             self.inc = inc;
             @memcpy(self.crits[0..self.n], crits);
-            self.res = pixelTick(self.crits[0..self.n], poops, &self.moving, &self.depth, axis, inc, walked, laid);
+            self.res = pixelTick(self.geo, self.crits[0..self.n], poops, &self.moving, &self.depth, axis, inc, walked, laid);
         }
 
         fn differ(self: *const Self, what: []const u8, index: usize, ref: i64, got: i64) noreturn {
@@ -645,7 +654,7 @@ pub fn Judge(comptime seen_most: usize, comptime moving_most: usize) type {
             for (cells) |word| bits += @popCount(word);
             if (bits != self.n) self.differ("cells' critters", 0, @intCast(self.n), @intCast(bits));
             for (crits, 0..) |c, j| {
-                const at_cell = cellOf(.{ .x = c.x, .y = c.y });
+                const at_cell = cellOf(self.geo, .{ .x = c.x, .y = c.y });
                 if (cells[@as(usize, at_cell) * words + j / 64] & (@as(u64, 1) << @intCast(j % 64)) == 0) self.differ("cells: not in its cell", j, at_cell, -1);
             }
         }
