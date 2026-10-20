@@ -101,7 +101,8 @@ extern fn roc_walk(mode: i32, axis: i32, inc: i32, side: i32, before: u32, laid:
 
 /// **THE WALK'S LISTS** (roc/Walk.roc's `Lent` and `Work`), for at most
 /// `seen_most` critters, `moving_most` of them in motion, `poops_most`
-/// poops, `tiles` tiles and `side` by `side` cells. The physics fills
+/// poops, `tiles` tiles and `side` by `side` cells (each call names its
+/// level's side, at most this). The physics fills
 /// `poops` and `from` whenever the poops change, and `crits` for each walk,
 /// and lends its own `cells` (`Cells`); the walk changes those two and
 /// fills `moving` (the leashed dog, then each visited); `depth` is its
@@ -130,12 +131,12 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
         /// the dog's net step, how far it walked (each move by its larger
         /// axis) and what it bumped; and the poop laid: its slot (-1, none)
         /// and where.
-        pub fn run(self: *@This(), cells: *Cells, axis: i32, inc: i32, before: u32, laid: u32) Ran {
+        pub fn run(self: *@This(), cells: *Cells, cells_side: usize, axis: i32, inc: i32, before: u32, laid: u32) Ran {
             const n = self.crits.len;
             self.depth.len = n;
             self.moving.len = 0;
             self.eaten.len = 0;
-            const r = self.call(cells, mode_pixel_tick, axis, inc, before, laid);
+            const r = self.call(cells, cells_side, mode_pixel_tick, axis, inc, before, laid);
             std.debug.assert(self.crits.len == n and self.from.refcount == 0 and self.poops.refcount == 0);
             return .{ .step_x = r.step_x, .step_y = r.step_y, .walked = r.walked, .bump_kind = r.bump_kind, .bump_at = r.bump_at, .poop_slot = r.poop_slot, .poop_x = r.poop_x, .poop_y = r.poop_y };
         }
@@ -144,20 +145,21 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
         /// The forage turn (roc/Walk.roc's `forage_turn`), the leashed dog's
         /// net move over the tick `net` and `laid` poops laid: the crits and
         /// cells as it left them, and the slots the foragers ate.
-        pub fn forage(self: *@This(), cells: *Cells, net: i32, laid: u32) []const u16 {
+        pub fn forage(self: *@This(), cells: *Cells, cells_side: usize, net: i32, laid: u32) []const u16 {
             const n = self.crits.len;
             self.depth.len = 0;
             self.moving.len = 0;
             self.eaten.len = 0;
             std.debug.assert(self.homes.len == n);
-            _ = self.call(cells, mode_forage, 0, net, 0, laid);
+            _ = self.call(cells, cells_side, mode_forage, 0, net, 0, laid);
             std.debug.assert(self.crits.len == n);
             return self.eaten.slice();
         }
-        fn call(self: *@This(), cells: *Cells, mode: i32, axis: i32, inc: i32, before: u32, laid: u32) Walked {
+        fn call(self: *@This(), cells: *Cells, cells_side: usize, mode: i32, axis: i32, inc: i32, before: u32, laid: u32) Walked {
+            std.debug.assert(cells_side <= side);
             const freed = deallocs.load(.monotonic);
             const asked = allocs.load(.monotonic);
-            const r = roc_walk(mode, axis, inc, side, before, laid, self.from.toRead(), self.poops.toRead(), self.homes.toRead(), cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.eaten.toChange(), self.moving.toChange());
+            const r = roc_walk(mode, axis, inc, @intCast(cells_side), before, laid, self.from.toRead(), self.poops.toRead(), self.homes.toRead(), cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.eaten.toChange(), self.moving.toChange());
             if (allocs.load(.monotonic) != asked) std.debug.panic("roc_alloc: Roc asked for memory in a call that returned, last from 0x{x}: a list grown past its room, or a lent list copied (docs/ROC-SPEED.md); `nm` on the archive names the function", .{alloc_from.load(.monotonic)});
             if (deallocs.load(.monotonic) != freed) @panic("roc_dealloc: Roc freed a list the physics lent it (a list kept, or a refcount word moved)");
             cells.back(r.cells);

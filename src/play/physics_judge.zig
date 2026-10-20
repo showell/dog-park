@@ -47,12 +47,13 @@ pub const Kept = struct {
     }
 };
 
-/// A set of the world's tiles, one bit each.
+/// A set of a world's tiles, one bit each, sized by the room (any level's
+/// tile is one of the room's).
 pub const Tiles = struct {
-    bits: std.StaticBitSet(tiles.world_tiles * tiles.world_tiles) = .initEmpty(),
+    bits: std.StaticBitSet(tiles.room_tiles * tiles.room_tiles) = .initEmpty(),
 
     fn index(t: tiles.Tile) usize {
-        return @as(usize, @intCast(t.row)) * tiles.world_tiles + @as(usize, @intCast(t.col));
+        return @as(usize, @intCast(t.row)) * tiles.room_tiles + @as(usize, @intCast(t.col));
     }
     pub fn holds(self: *const Tiles, t: tiles.Tile) bool {
         return self.bits.isSet(index(t));
@@ -77,9 +78,11 @@ pub const Verdict = enum { kept, differ, reload, unreadable };
 /// the answer goes to `out`.
 pub fn judge(kept: *Kept, physics_hash: u32, report: []const u8, out: *Text, findings: *Findings) Text.Error!Verdict {
     var lines: wire.Lines = .{ .rest = report };
+    // Every position and tile is bounded by the kept board's level's world.
+    const g = kept.board.geometry();
     const header = blk: {
         const first = lines.next() orelse break :blk null;
-        const parsed = wire.parse(first) catch break :blk null;
+        const parsed = wire.parse(g, first) catch break :blk null;
         break :blk switch (parsed) {
             .header => |h| h,
             else => null,
@@ -105,7 +108,7 @@ pub fn judge(kept: *Kept, physics_hash: u32, report: []const u8, out: *Text, fin
     }
     const from: ?wire.From = blk: {
         const second = lines.next() orelse break :blk null;
-        const parsed = wire.parse(second) catch break :blk null;
+        const parsed = wire.parse(g, second) catch break :blk null;
         break :blk switch (parsed) {
             .from => |f| f,
             else => null,
@@ -117,7 +120,7 @@ pub fn judge(kept: *Kept, physics_hash: u32, report: []const u8, out: *Text, fin
         try out.char('\n');
         return .reload;
     }
-    var named = namedIn(lines);
+    var named = namedIn(g, lines);
     var run: Run = .{ .kept = kept, .from = kept.tick, .lines = lines, .findings = findings };
     const differ = run.all();
     if (differ) |d| {
@@ -176,11 +179,11 @@ const Named = struct {
     }
 };
 
-fn namedIn(lines: wire.Lines) Named {
+fn namedIn(g: physics.Geometry, lines: wire.Lines) Named {
     var n: Named = .{};
     var it = lines;
     while (it.next()) |text| {
-        const line = wire.parse(text) catch continue;
+        const line = wire.parse(g, text) catch continue;
         switch (line) {
             .critter => |c| n.name(c.who),
             else => {},
@@ -195,7 +198,7 @@ fn namedIn(lines: wire.Lines) Named {
 pub fn refuseWhole(kept: *const Kept, report: []const u8, out: *Text) Text.Error!void {
     var lines: wire.Lines = .{ .rest = report };
     const header = lines.next() orelse "";
-    const named = namedIn(lines);
+    const named = namedIn(kept.board.geometry(), lines);
     try out.str("kept ");
     try out.dec(kept.tick);
     try out.str("\ndiffer ");
@@ -268,7 +271,7 @@ fn writeBoard(out: *Text, kept: *const Kept, t: Tick, named: *const Named) Text.
     if (leashed) |l| try boardEntry(out, b, .of(physics.leashed_kind, l));
     for (physics.ranked) |c| {
         if (leashed != null and c.kind == physics.leashed_kind and leashed.? == c.n) continue;
-        if (awake.has(c) or named.has(c)) try boardEntry(out, b, c);
+        if (b.known(c) == .present and (awake.has(c) or named.has(c))) try boardEntry(out, b, c);
     }
     // Every poop in the region's tiles, by number: the page drops its
     // others there.
@@ -374,7 +377,7 @@ const Run = struct {
         }
         var waiting: Waiting = .{};
         while (self.next()) |text| {
-            const line = wire.parse(text) catch return refuse(t, text);
+            const line = wire.parse(k.board.geometry(), text) catch return refuse(t, text);
             switch (line) {
                 .leash, .release, .grab, .letgo => {
                     const in = wire.human(line).?;
@@ -425,12 +428,13 @@ const Run = struct {
     fn regionHeld(self: *Run) bool {
         const k = self.kept;
         const l = k.board.leashedDog() orelse return true;
-        const span = physics.TileSpan.of(physics.region(k.board.of(physics.leashed_kind)[l]));
+        const g = k.board.geometry();
+        const span = physics.TileSpan.of(g, g.region(k.board.of(physics.leashed_kind)[l]));
         var row = span.row_lo;
         while (row <= span.row_hi) : (row += 1) {
             var col = span.col_lo;
             while (col <= span.col_hi) : (col += 1) {
-                if (!k.held.holds(physics.TileSpan.at(col, row))) return false;
+                if (!k.held.holds(g.tileAt(col, row))) return false;
             }
         }
         return true;
@@ -441,7 +445,7 @@ const Run = struct {
         for (server.slice()) |c| {
             const mine = wire.checkedLine(t, c);
             const text = self.next() orelse return .{ .tick = t, .says = .{ .server = mine } };
-            const theirs = wire.parse(text) catch {
+            const theirs = wire.parse(self.kept.board.geometry(), text) catch {
                 self.peeked = text;
                 return .{ .tick = t, .says = .{ .server = mine } };
             };
@@ -451,7 +455,7 @@ const Run = struct {
             }
         }
         if (self.next()) |text| {
-            const theirs = wire.parse(text) catch {
+            const theirs = wire.parse(self.kept.board.geometry(), text) catch {
                 // A malformed line that can only be one of this tick's is
                 // refused here; any other is the next tick's to refuse.
                 if (std.mem.startsWith(u8, text, " ") or std.mem.startsWith(u8, text, "bump ") or std.mem.startsWith(u8, text, "rest ")) return refuse(t, text).differ;

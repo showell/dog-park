@@ -20,13 +20,13 @@ fn roundTrip(line: wire.Line) !void {
     var a: [2048]u8 = undefined;
     var b: [2048]u8 = undefined;
     const text = written(line, &a);
-    const back = try wire.parse(text);
+    const back = try wire.parse(physics.room, text);
     try testing.expect(wire.same(line, back));
     try testing.expectEqualStrings(text, written(back, &b));
 }
 
 fn refused(text: []const u8) !void {
-    if (wire.parse(text)) |_| {
+    if (wire.parse(physics.room, text)) |_| {
         std.debug.print("parsed, and should not have: \"{s}\"\n", .{text});
         return error.TestUnexpectedResult;
     } else |_| {}
@@ -79,7 +79,7 @@ test "every kind of line round-trips: written, parsed, the same integers, writte
         .{ .t = .{ .tick = 1041, .ms = 0, .drag = drag } },
         .{ .t = .{ .tick = 1042, .ms = 63, .drag = .{} } },
         .{ .critter = .{ .who = .of(.dog, 23), .before = .{ .x = 0x45100, .y = 0x3e800 }, .after = .{ .x = 0x450f0, .y = 0x3e800 } } },
-        .{ .critter = .{ .who = .of(.cow, 7), .before = .{ .x = 0, .y = physics.world - 1 }, .after = .{ .x = 1, .y = 255 } } },
+        .{ .critter = .{ .who = .of(.cow, 7), .before = .{ .x = 0, .y = physics.room.world - 1 }, .after = .{ .x = 1, .y = 255 } } },
         .{ .bump = .{ .tick = 5, .who = .{ .critter = .of(.cow, 0) } } },
         .{ .bump = .{ .tick = 6, .who = .{ .poop = 2047 } } },
         .{ .bump = .{ .tick = 5, .who = .{ .critter = .of(.dog, 17) } } },
@@ -98,7 +98,7 @@ test "random critter lines and drags round-trip (seeded)" {
         const who: physics.Critter = if (rand.boolean()) .of(.dog, rand.uintLessThan(u16, physics.countOf(.dog))) else .of(.cow, rand.uintLessThan(u16, physics.countOf(.cow)));
         const p = struct {
             fn any(r: std.Random) physics.Point {
-                return .{ .x = r.intRangeLessThan(i32, 0, physics.world), .y = r.intRangeLessThan(i32, 0, physics.world) };
+                return .{ .x = r.intRangeLessThan(i32, 0, physics.room.world), .y = r.intRangeLessThan(i32, 0, physics.room.world) };
             }
         };
         try roundTrip(.{ .critter = .{ .who = who, .before = p.any(rand), .after = p.any(rand) } });
@@ -199,6 +199,6 @@ test "the physics hash is built from the physics' sources: eight hex digits on t
     var w: Text = .{ .buf = &buf };
     try w.hash(wire.physics_hash);
     try testing.expectEqual(@as(usize, 8), w.len);
-    const back = try wire.parse("dogpark 1 physics " ++ buf[0..8] ++ " page 1.1 req 1");
+    const back = try wire.parse(physics.room, "dogpark 1 physics " ++ buf[0..8] ++ " page 1.1 req 1");
     try testing.expectEqual(wire.physics_hash, back.header.physics);
 }

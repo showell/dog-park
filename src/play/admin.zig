@@ -321,7 +321,7 @@ pub fn largestHerd(b: *const physics.Board) usize {
         if (b.knownOf(.cow)[i] != .present) continue;
         for (i + 1..n) |j| {
             if (b.knownOf(.cow)[j] != .present) continue;
-            if (physics.measure(physics.delta(b.of(.cow)[i], b.of(.cow)[j])) <= link) parent[root(&parent, i)] = root(&parent, j);
+            if (physics.measure(b.geometry().delta(b.of(.cow)[i], b.of(.cow)[j])) <= link) parent[root(&parent, i)] = root(&parent, j);
         }
     }
     var sizes: [n]usize = @splat(0);
@@ -346,7 +346,7 @@ test "the herd: cows within two cow-widths link, through others, round the torus
     // As laid out, one cow a white tile: no two within 84 px.
     try std.testing.expectEqual(@as(usize, 1), largestHerd(&b));
     // A chain of three, each 80 px from the next, across the world's seam.
-    const w = physics.world;
+    const w = b.geometry().world;
     b.ofMut(.cow)[0] = .{ .x = physics.px(20), .y = physics.px(500) };
     b.ofMut(.cow)[1] = .{ .x = w - physics.px(60), .y = physics.px(500) };
     b.ofMut(.cow)[2] = .{ .x = w - physics.px(140), .y = physics.px(500) };

@@ -61,14 +61,14 @@ fn tileSet(cols: [2]i32, rows: [2]i32) wire.TileSet {
     var r = rows[0];
     while (r <= rows[1]) : (r += 1) {
         var c = cols[0];
-        while (c <= cols[1]) : (c += 1) s.add(physics.TileSpan.at(c, r)) catch unreachable;
+        while (c <= cols[1]) : (c += 1) s.add(physics.room.tileAt(c, r)) catch unreachable;
     }
     return s;
 }
 
 /// The region's tiles: the whole world, every tile once.
 pub fn exampleRegion() wire.TileSet {
-    const span = physics.TileSpan.of(physics.region(exampleBoard().of(.dog)[leashed]));
+    const span = physics.TileSpan.of(physics.room, physics.room.region(exampleBoard().of(.dog)[leashed]));
     return tileSet(.{ span.col_lo, span.col_hi }, .{ span.row_lo, span.row_hi });
 }
 
@@ -167,7 +167,7 @@ test "the worked example, dog 23's step at 1041 a 256th off: differ at that line
 test "the worked example's region is the world, and every critter on the board is seen: the two dogs, and every critter of every other kind" {
     var b = exampleBoard();
     b.hold = .{ .leashed = .{ .dog = leashed, .drag = .on } };
-    try testing.expectEqual(@as(usize, tiles.world_tiles * tiles.world_tiles), exampleRegion().slice().len);
+    try testing.expectEqual(@as(usize, tiles.room_tiles * tiles.room_tiles), exampleRegion().slice().len);
     const sc = physics.Scene.of(&b).?;
     try testing.expectEqual(@as(usize, 2 + physics.critter_count - physics.countOf(.dog)), sc.len);
 }

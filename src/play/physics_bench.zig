@@ -121,7 +121,7 @@ fn strewnSpot(spot: Busiest) Board {
             var gx: i32 = -ring;
             while (gx <= ring) : (gx += 1) {
                 if (@max(@abs(gx), @abs(gy)) != ring or n == strewn_poops) continue;
-                const q = physics.wrapped(.{ .x = at.x + physics.px(100 * gx), .y = at.y + physics.px(100 * gy) });
+                const q = b.geometry().wrapped(.{ .x = at.x + physics.px(100 * gx), .y = at.y + physics.px(100 * gy) });
                 if (!free(&sc, &b, q, n)) continue;
                 b.poops[n] = q;
                 b.poop_known[n] = .present;
@@ -134,8 +134,9 @@ fn strewnSpot(spot: Busiest) Board {
 }
 
 fn free(sc: *const physics.Scene, b: *const Board, q: Point, n: u16) bool {
-    for (sc.list(), 0..) |o, j| if (physics.squaresOverlap(q, physics.poop_half, sc.pos(j), o.half)) return false;
-    for (b.poops[0..n]) |p| if (physics.squaresOverlap(q, physics.poop_half, p, physics.poop_half)) return false;
+    const g = b.geometry();
+    for (sc.list(), 0..) |o, j| if (g.squaresOverlap(q, physics.poop_half, sc.pos(j), o.half)) return false;
+    for (b.poops[0..n]) |p| if (g.squaresOverlap(q, physics.poop_half, p, physics.poop_half)) return false;
     return true;
 }
 
@@ -160,11 +161,12 @@ fn busiestReport(spot: Busiest, w: *wire.Text) !judge.Kept {
     var view: wire.TileSet = .{};
     var t: physics.Tick = 1;
     while (t <= report_ticks) : (t += 1) {
-        const span = physics.TileSpan.of(physics.region(page.of(.dog)[busiest]));
+        const g = page.geometry();
+        const span = physics.TileSpan.of(g, g.region(page.of(.dog)[busiest]));
         var r = span.row_lo;
         while (r <= span.row_hi) : (r += 1) {
             var c = span.col_lo;
-            while (c <= span.col_hi) : (c += 1) try view.add(physics.TileSpan.at(c, r));
+            while (c <= span.col_hi) : (c += 1) try view.add(g.tileAt(c, r));
         }
         const drag = physics.mergeAndCap(&.{.{ .dx = physics.px(20), .dy = physics.px(if (t % 8 < 4) 10 else -10) }});
         const humans: []const physics.Human = if (page.hold.leashed.drag != .on) &.{.grab} else &.{};
@@ -190,8 +192,9 @@ fn busiestReport(spot: Busiest, w: *wire.Text) !judge.Kept {
 fn shifted(b: Board, by: i32) Board {
     var out = b;
     const d = by * physics.tile;
-    for (&out.points) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
-    for (&out.poops) |*p| p.* = physics.wrapped(.{ .x = p.x + d, .y = p.y + d });
+    const g = b.geometry();
+    for (&out.points) |*p| p.* = g.wrapped(.{ .x = p.x + d, .y = p.y + d });
+    for (&out.poops) |*p| p.* = g.wrapped(.{ .x = p.x + d, .y = p.y + d });
     return out;
 }
 
@@ -249,7 +252,7 @@ fn printLines(io: std.Io, full: physics.Capped, uneven: i32) !void {
 }
 
 /// The park's middle is this many tiles from the world's origin.
-const tiles_from_middle = @divExact(@import("tiles.zig").world_tiles, 2);
+const tiles_from_middle = @divExact(physics.room.world_tiles, 2);
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -338,7 +341,7 @@ pub fn main(init: std.process.Init) !void {
     const east = physics.mergeAndCap(&.{.{ .dx = physics.cap, .dy = 0 }});
     probe = strewn;
     _ = physics.tick(&probe, 1, &.{}, full.slice(), &lines);
-    std.debug.print("the busiest spot strewn with {d} poops in view: the full drag (the leashed dog {d} px, {s}): {d} lines, {d:.1} us a tick; 100 px east, {d:.1} us\n", .{ poopsSeen(&strewn), @divTrunc(physics.measure(physics.delta(strewn.of(.dog)[busiest], probe.of(.dog)[busiest])), physics.unit), if (probe.hold.leashed.drag == .on) "no bump" else "bumped", lines.len, timeTick(io, &strewn, &.{}, full.slice()), timeTick(io, &strewn, &.{}, east.slice()) });
+    std.debug.print("the busiest spot strewn with {d} poops in view: the full drag (the leashed dog {d} px, {s}): {d} lines, {d:.1} us a tick; 100 px east, {d:.1} us\n", .{ poopsSeen(&strewn), @divTrunc(physics.measure(strewn.geometry().delta(strewn.of(.dog)[busiest], probe.of(.dog)[busiest])), physics.unit), if (probe.hold.leashed.drag == .on) "no bump" else "bumped", lines.len, timeTick(io, &strewn, &.{}, full.slice()), timeTick(io, &strewn, &.{}, east.slice()) });
     probe = park;
     std.debug.print("the busiest spot, no poop, 100 px east: {d:.1} us a tick\n", .{timeTick(io, &probe, &.{}, east.slice())});
 
