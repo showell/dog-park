@@ -193,7 +193,7 @@ Every build needs its sibling checkouts beside this one:
 Zig runs a path dependency's build at every configure, so even a plain
 `zig build` needs all three.
 
-The tools: zig 0.16 (`build.zig.zon`), Roc (the nightly
+The tools: zig 0.17 (`build.zig.zon`), Roc (the nightly
 `roc/roc-version` pins, for every build: "Changing the game in Roc",
 above), and node for the node tests. Any
 world and rules that fit their types will play: Zig refuses at compile
