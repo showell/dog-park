@@ -152,7 +152,7 @@ function status(r, want, what) {
 
 // ── the session ─────────────────────────────────────────────────────────────
 
-const loadLine = (hash) => `dogpark 1 physics ${hash} load 1280x800\n`;
+const loadLine = (hash) => `dogpark 2 physics ${hash} load 1280x800\n`;
 
 /** The page (tools/lib/page_rig.mjs) wired to the guest: every answer recorded. */
 async function pageOn(port, cookie) {

@@ -69,7 +69,7 @@ const Rig = struct {
     }
 
     fn loadFrom(self: *Rig, size: []const u8, from: server_mod.Server.LoadFrom) ![]const u8 {
-        const body = try std.fmt.allocPrint(self.arena.allocator(), "dogpark 1 physics {x:0>8} load {s}\n", .{ self.server.physics_hash, size });
+        const body = try std.fmt.allocPrint(self.arena.allocator(), "dogpark {d} physics {x:0>8} load {s}\n", .{ wire.language, self.server.physics_hash, size });
         return self.arena.allocator().dupe(u8, try self.server.load(self.io(), self.arena.allocator(), body, from));
     }
 
@@ -357,7 +357,7 @@ test "4. a load picks the game up: after play, the critters where they stand, no
     // The page reloads: the game as it stands, the leash off.
     const answer = try rig.loadFrom("1280x800", .kept);
     var buf: [128]u8 = undefined;
-    try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "epoch {d}.2\nkept {d}\nstate leash none drag none laid 0 view 1280x800 held\n", .{ t0, kept }), answer);
+    try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "epoch {d}.2\nkept {d}\nlevel 2 of 2\nstate leash none drag none laid 0 view 1280x800 held\n", .{ t0, kept }), answer);
     try testing.expectEqualSlices(physics.Point, played.of(.dog), rig.server.kept.board.of(.dog));
     try testing.expectEqualSlices(physics.Point, played.of(.cow), rig.server.kept.board.of(.cow));
     try testing.expectEqual(physics.Hold.none, rig.server.kept.board.hold);
@@ -571,7 +571,7 @@ test "18 and 24. req ?: a garbled header gets req ? alone, every time, counted a
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
     try leashUp(&rig, &page, the_dog);
     const stored = try rig.arena.allocator().dupe(u8, rig.server.stored[0..rig.server.stored_len]);
-    for ([_][]const u8{ "", "\n", "dogpark 1 physics 5E0C91A2 page 1.1 req 3\nfrom 1\n", "dogpark 1 physics 5e0c91a2 page 1.1 req 03\n", "from 1\n" }, 1..) |garbled, n| {
+    for ([_][]const u8{ "", "\n", "dogpark 2 physics 5E0C91A2 page 1.1 req 3\nfrom 1\n", "dogpark 2 physics 5e0c91a2 page 1.1 req 03\n", "from 1\n" }, 1..) |garbled, n| {
         for (0..3) |_| try testing.expectEqualStrings("req ?\n", try rig.report(garbled));
         try testing.expectEqual(@as(u64, 3 * n), rig.server.unreadable);
     }
@@ -580,7 +580,7 @@ test "18 and 24. req ?: a garbled header gets req ? alone, every time, counted a
     try testing.expectEqualStrings(stored, rig.server.stored[0..rig.server.stored_len]);
     try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "entry finding ") != null);
     // A load that can't be read: req ? too.
-    try testing.expectEqualStrings("req ?\n", try rig.server.load(rig.io(), rig.arena.allocator(), "dogpark 1 physics 5e0c91a2 load 1280\n", .layout));
+    try testing.expectEqualStrings("req ?\n", try rig.server.load(rig.io(), rig.arena.allocator(), "dogpark 2 physics 5e0c91a2 load 1280\n", .layout));
 }
 
 test "19. a torn log tail at restart: dropped, and the board is where the last whole report left it; a damaged middle stops the start" {
@@ -593,7 +593,7 @@ test "19. a torn log tail at restart: dropped, and the board is where the last w
     const was = rig.server.kept;
     const log = rig.server.log_path;
     // A crash mid-append: half an entry.
-    const torn = "entry report 400\ndogpark 1 physics 00000000 page 1.1 req 9\nfrom 6 wall 1\nt 7 +0\n dog 25 ";
+    const torn = "entry report 400\ndogpark 2 physics 00000000 page 1.1 req 9\nfrom 6 wall 1\nt 7 +0\n dog 25 ";
     _ = try webbox.store.append(rig.io(), rig.arena.allocator(), log, torn);
     try rig.restart(t0 + 1000);
     try testing.expectEqual(torn.len, rig.started.board.applied.torn_bytes);
@@ -716,7 +716,7 @@ test "a reused request number with another body is refused (differ K+1 none its 
     try other.tick(&.{});
     const a = try rig.report(other.body());
     var buf: [128]u8 = undefined;
-    try testing.expect(std.mem.startsWith(u8, a, try std.fmt.bufPrint(&buf, "req {d}\nkept {d}\ndiffer {d} none dogpark 1 physics ", .{ page.req, page.from, page.from + 1 })));
+    try testing.expect(std.mem.startsWith(u8, a, try std.fmt.bufPrint(&buf, "req {d}\nkept {d}\ndiffer {d} none dogpark 2 physics ", .{ page.req, page.from, page.from + 1 })));
     try testing.expect(std.mem.indexOf(u8, a, "\nstate leash 25 ") != null);
     try testing.expectEqual(@as(u32, 1), rig.server.differs_in_a_row);
     try testing.expect(std.mem.indexOf(u8, try rig.logBytes(), "refused, a reused request number with another body") != null);
@@ -765,11 +765,11 @@ test "the header's order: language, physics, epoch, then the request number and 
     var page = try Page.loaded(&rig, try rig.load("1280x800"));
     var buf: [256]u8 = undefined;
     const h = rig.server.physics_hash;
-    try testing.expectEqualStrings("req 1\nreload language 1\n", try rig.report(try std.fmt.bufPrint(&buf, "dogpark 2 physics {x:0>8} page 9.9 req 1\nfrom 0\n", .{h})));
-    try testing.expect(std.mem.startsWith(u8, try rig.report(try std.fmt.bufPrint(&buf, "dogpark 1 physics {x:0>8} page 9.9 req 1\nfrom 0\n", .{h +% 1})), "req 1\nreload physics "));
-    try testing.expectEqualStrings("req 1\nreload epoch\n", try rig.report(try std.fmt.bufPrint(&buf, "dogpark 1 physics {x:0>8} page 9.1 req 1\nfrom 0\n", .{h})));
-    try testing.expectEqualStrings("req 1\nreload epoch\n", try rig.report(try std.fmt.bufPrint(&buf, "dogpark 1 physics {x:0>8} page {d}.2 req 1\nfrom 0\n", .{ h, t0 })));
-    try testing.expectEqualStrings("req 1\nreload from 0\n", try rig.report(try std.fmt.bufPrint(&buf, "dogpark 1 physics {x:0>8} page {d}.1 req 1\nfrom 3\n", .{ h, t0 })));
+    try testing.expectEqualStrings("req 1\nreload language 2\n", try rig.report(try std.fmt.bufPrint(&buf, "dogpark 3 physics {x:0>8} page 9.9 req 1\nfrom 0\n", .{h})));
+    try testing.expect(std.mem.startsWith(u8, try rig.report(try std.fmt.bufPrint(&buf, "dogpark 2 physics {x:0>8} page 9.9 req 1\nfrom 0\n", .{h +% 1})), "req 1\nreload physics "));
+    try testing.expectEqualStrings("req 1\nreload epoch\n", try rig.report(try std.fmt.bufPrint(&buf, "dogpark 2 physics {x:0>8} page 9.1 req 1\nfrom 0\n", .{h})));
+    try testing.expectEqualStrings("req 1\nreload epoch\n", try rig.report(try std.fmt.bufPrint(&buf, "dogpark 2 physics {x:0>8} page {d}.2 req 1\nfrom 0\n", .{ h, t0 })));
+    try testing.expectEqualStrings("req 1\nreload from 0\n", try rig.report(try std.fmt.bufPrint(&buf, "dogpark 2 physics {x:0>8} page {d}.1 req 1\nfrom 3\n", .{ h, t0 })));
     // A reload from K is an answer like any: R is answered, R + 1 is next.
     page.req = 1;
     try page.begin();

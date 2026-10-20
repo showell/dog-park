@@ -81,7 +81,7 @@ export async function rehearse(image) {
     expect(game.status === 200, `GET /dogpark: ${game.status}`);
     const hash = /dogpark-physics" content="([0-9a-f]{8})"/.exec(game.text)?.[1];
     expect(hash, "/dogpark names no physics hash");
-    const load = await req("POST", "/load", { cookie, body: `dogpark 1 physics ${hash} load 1280x800\n` });
+    const load = await req("POST", "/load", { cookie, body: `dogpark 2 physics ${hash} load 1280x800\n` });
     expect(load.status === 200, `POST /load: ${load.status}: ${load.text.slice(0, 200)}`);
 
     step = "/admin/game";

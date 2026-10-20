@@ -81,9 +81,9 @@ try {
 // reports holding one tile, each answered `kept 0`.
 const host = await scratchServer();
 try {
-  const hash = /^reload physics ([0-9a-f]{8})\n$/.exec((await host.post("/load", "dogpark 1 physics 00000000 load 1280x800\n")).text)[1];
-  const epoch = /^epoch (\S+)\n/.exec((await host.post("/load", `dogpark 1 physics ${hash} load 1280x800\n`)).text)[1];
-  const header = (req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\nfrom 0\n`;
+  const hash = /^reload physics ([0-9a-f]{8})\n$/.exec((await host.post("/load", "dogpark 2 physics 00000000 load 1280x800\n")).text)[1];
+  const epoch = /^epoch (\S+)\n/.exec((await host.post("/load", `dogpark 2 physics ${hash} load 1280x800\n`)).text)[1];
+  const header = (req) => `dogpark 2 physics ${hash} page ${epoch} req ${req}\nfrom 0\n`;
   await host.post("/report", header(1) + "view 1 1280x800 2,2\n");
   const n = 50;
   const t = performance.now();

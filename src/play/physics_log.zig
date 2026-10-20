@@ -17,7 +17,9 @@
 //! - `finding`: a line for people (an overlap, `req ?`, a refused reuse of a
 //!   request number, `stuck`); never applied.
 //!
-//! **A snapshot** is every critter's position, the last kept tick K, the
+//! **A snapshot** is the board's level, every present critter's position
+//! (a critter the level does not lay out has no line, and comes back
+//! absent), the last kept tick K, the
 //! inputs kept for K + 1, the hold (leash and drag), the physics hash, the
 //! run's start (so the next run's epochs are later), and the log file and
 //! byte offset it covers. One file, replaced whole.
@@ -277,15 +279,19 @@ pub fn logName(alloc: std.mem.Allocator, started: u64) ![]u8 {
     return std.fmt.allocPrint(alloc, "log-{d}", .{started});
 }
 
-/// The snapshot as text: a line each, critters in rank order (no leash
-/// first: positions, and a dog's walk), then each poop by number, `end`
-/// last.
+/// The snapshot's version: its first line, `dogpark snapshot N`. A
+/// snapshot of another version does not read (a release wipes the data).
+pub const snapshot_version = 4;
+
+/// The snapshot as text: a line each, the level (1-based, Level One 1),
+/// the present critters in rank order (no leash first: positions, and a
+/// dog's walk), then each poop by number, `end` last.
 pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
     var out: std.Io.Writer.Allocating = .init(alloc);
     const w = &out.writer;
     var hash: [8]u8 = undefined;
     _ = std.fmt.bufPrint(&hash, "{x:0>8}", .{s.physics}) catch unreachable;
-    try w.print("dogpark snapshot 3\nphysics {s}\nstarted {d}\nlog {d} {d}\nkept {d}\n", .{ &hash, s.started, s.log_started, s.log_offset, s.kept.tick });
+    try w.print("dogpark snapshot {d}\nlevel {d}\nphysics {s}\nstarted {d}\nlog {d} {d}\nkept {d}\n", .{ snapshot_version, @as(u32, s.kept.board.level) + 1, &hash, s.started, s.log_started, s.log_offset, s.kept.tick });
     switch (s.kept.board.hold) {
         .none => try w.writeAll("hold none\n"),
         .leashed => |l| switch (l.drag) {
@@ -306,7 +312,7 @@ pub fn writeSnapshot(alloc: std.mem.Allocator, s: *const Snapshot) ![]u8 {
         });
         try w.writeAll(t.bytes());
     }
-    for (physics.ranked) |c| try position(w, &s.kept.board, c);
+    for (physics.ranked) |c| if (s.kept.board.known(c) == .present) try position(w, &s.kept.board, c);
     for (s.kept.board.poops, s.kept.board.poop_known, 0..) |p, k, i| {
         if (k != .present) continue;
         var pb: [64]u8 = undefined;
@@ -329,15 +335,17 @@ fn position(w: *std.Io.Writer, b: *const Board, c: Critter) !void {
 
 pub const SnapshotError = error{SnapshotDoesNotRead};
 
-/// The snapshot a text holds: every line as `writeSnapshot` writes it, every
-/// critter once, in order.
+/// The snapshot a text holds: every line as `writeSnapshot` writes it, each
+/// present critter once, in rank order; every other critter absent.
 pub fn readSnapshot(bytes: []const u8) SnapshotError!Snapshot {
     return readSnapshotOr(bytes) catch error.SnapshotDoesNotRead;
 }
 
 fn readSnapshotOr(bytes: []const u8) !Snapshot {
     var lines: wire.Lines = .{ .rest = bytes };
-    if (!std.mem.eql(u8, lines.next() orelse "", "dogpark snapshot 3")) return error.Bad;
+    if (!std.mem.eql(u8, lines.next() orelse "", std.fmt.comptimePrint("dogpark snapshot {d}", .{snapshot_version}))) return error.Bad;
+    const level = try wire.parseDec(try after(lines.next(), "level "), physics.level_count);
+    if (level == 0) return error.Bad;
     var s: Snapshot = undefined;
     s.physics = try std.fmt.parseInt(u32, try after(lines.next(), "physics "), 16);
     s.started = try wire.parseDec(try after(lines.next(), "started "), std.math.maxInt(u63));
@@ -347,7 +355,7 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
         s.log_offset = try wire.parseDec(it.next() orelse "", std.math.maxInt(u63));
         if (it.next() != null) return error.Bad;
     }
-    s.kept = .{ .tick = try wire.parseDec(try after(lines.next(), "kept "), std.math.maxInt(u63)), .board = Board.laidOut() };
+    s.kept = .{ .tick = try wire.parseDec(try after(lines.next(), "kept "), std.math.maxInt(u63)), .board = Board.emptyAt(@intCast(level - 1)) };
     {
         const hold = try after(lines.next(), "hold ");
         if (std.mem.eql(u8, hold, "none")) {
@@ -371,27 +379,31 @@ fn readSnapshotOr(bytes: []const u8) !Snapshot {
         s.kept.pending[s.kept.pending_len] = in.h;
         s.kept.pending_len += 1;
     }
-    for (physics.ranked, 0..) |c, i| {
-        if (i > 0) text = lines.next() orelse return error.Bad;
-        var e = wire.Entries.of(s.kept.board.geometry(), text);
-        const one = (try e.next()) orelse return error.Bad;
-        if (one != .critter or !one.critter.who.eql(c) or try e.next() != null) return error.Bad;
-        s.kept.board.place(c, one.critter.at);
-        if (c.kind == physics.leashed_kind) s.kept.board.walked[c.n] = one.critter.walked;
-    }
-    // The poops, by rising number, then `end`.
+    // The present critters, by rising rank; then the poops, by rising
+    // number; then `end`.
     s.kept.board.poop_known = @splat(.absent);
+    var last_rank: ?u32 = null;
     var last: ?u16 = null;
-    while (true) {
-        text = lines.next() orelse return error.Bad;
-        if (std.mem.eql(u8, text, "end")) break;
+    while (!std.mem.eql(u8, text, "end")) : (text = lines.next() orelse return error.Bad) {
         var e = wire.Entries.of(s.kept.board.geometry(), text);
         const one = (try e.next()) orelse return error.Bad;
-        if (one != .poop or try e.next() != null) return error.Bad;
-        if (last != null and one.poop.n <= last.?) return error.Bad;
-        last = one.poop.n;
-        s.kept.board.poops[one.poop.n] = one.poop.at;
-        s.kept.board.poop_known[one.poop.n] = .present;
+        if (try e.next() != null) return error.Bad;
+        switch (one) {
+            .critter => |cr| {
+                const c = cr.who;
+                const r = physics.rank(null, c);
+                if (last != null or (last_rank != null and r <= last_rank.?)) return error.Bad;
+                last_rank = r;
+                s.kept.board.place(c, cr.at);
+                if (c.kind == physics.leashed_kind) s.kept.board.walked[c.n] = cr.walked;
+            },
+            .poop => |pp| {
+                if (last != null and pp.n <= last.?) return error.Bad;
+                last = pp.n;
+                s.kept.board.poops[pp.n] = pp.at;
+                s.kept.board.poop_known[pp.n] = .present;
+            },
+        }
     }
     if (lines.next() != null) return error.Bad;
     return s;

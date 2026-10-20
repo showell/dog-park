@@ -406,7 +406,7 @@ physics hash `5e0c91a2` in the examples is a placeholder; the real one is
 `physics_wire.physics_hash`, a compile-time CRC-32 of the physics' sources.)
 
 ```
-dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4
+dogpark 2 physics 5e0c91a2 page 1791935990000.3 req 4
 from 1040 wall 1791936000000
 t 1041 +0 drag -1.00,0@3 -2.00,0@19
  dog 19 3e8.00,3e8.00 > 3e5.00,3e8.00
@@ -434,7 +434,7 @@ let-go timer (320 ticks) runs from 1042.
 
 | line | says |
 |---|---|
-| `dogpark 1 physics H page E req R` | the language's version; the physics' version, a hash of the physics' sources built into both the wasm and the server, so a forgotten version change can't cause endless disagreement; this page load's epoch, which the server issued, unique across the server's runs (its start, Unix ms, a point, and a count: `1791935990000.3`); and the request number (below) |
+| `dogpark 2 physics H page E req R` | the language's version; the physics' version, a hash of the physics' sources built into both the wasm and the server, so a forgotten version change can't cause endless disagreement; this page load's epoch, which the server issued, unique across the server's runs (its start, Unix ms, a point, and a count: `1791935990000.3`); and the request number (below) |
 | `from T wall W` | the tick the report starts after (the last one the server kept), and the wall clock (Unix ms) at its first tick, data only (no `wall` on a report with no ticks) |
 | `leash T D` | the human leashed dog D at tick T: the park wakes around it |
 | `grab T` | the pointer went down on the leashed dog at tick T: a drag is on, and any let-go timer stops (a `leash` implies it) |
@@ -635,7 +635,7 @@ while a dog is leashed (its `release` must come first, at that tick), a
 input: after a bump the pointer is still down, and the page may well
 record its going up. Nothing is wrong there.
 
-**Loading the page.** The request is one line, `dogpark 1 physics H load
+**Loading the page.** The request is one line, `dogpark 2 physics H load
 WxH`, with the viewport's size. It picks the game up (below),
 clears the stored answer and the last answered request number. A load that gets no
 answer within 5 s, or a 5xx, is retried on the same backoff as a report
@@ -645,6 +645,7 @@ it is a `reload physics` or `stuck T` (the page stops on either):
 ```
 epoch E
 kept K
+level L of U
 state leash D|none drag on|ended E'|none view WxH c,r … held c,r …
 input <line>
 …
@@ -656,8 +657,15 @@ tile c,r dog N a cow M b …
   it takes the leash off, so the park sleeps, drops any inputs waiting,
   and snapshots that. The critters stay where they stand. After the
   player asked to start over (`POST /reset`), it puts the park back in
-  its first layout instead. Tick numbers carry on: K is the last kept
-  tick.
+  its level's first layout instead. Tick numbers carry on: K is the
+  last kept tick.
+- **The level:** `level L of U` is the level played and the highest the
+  player has unlocked, 1-based (Level One is 1). Each level's game is
+  kept apart. `POST /level` with `level N` switches: allowed when N is
+  at most U, or is U + 1 and the level played is won (every cow it has in
+  one herd); it answers `level N of U`, and the page loads afresh; else
+  409 `refused <why>` (`unreadable`, `no_such_level`, `locked`,
+  `not_won`).
 - **What it logs:** at K + 1, a `view` of the viewport's size and a
   `held`, both of the region's tiles; with nothing leashed after the
   reset, both empty. The `state` line is `leash none drag none` with that

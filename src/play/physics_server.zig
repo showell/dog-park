@@ -103,6 +103,10 @@ pub const Server = struct {
     long: std.mem.Allocator = undefined,
     /// The kept tick of the last snapshot.
     snapshot_tick: Tick = 0,
+    /// The highest level the player has unlocked, 1-based, for the load's
+    /// `level L of U` (app.zig keeps it, per player); never less than the
+    /// board's own.
+    unlocked: u32 = 0,
     /// The answer being written.
     answer: [most_answer]u8 = undefined,
 
@@ -148,6 +152,7 @@ pub const Server = struct {
         self.log_path = "";
         self.log_size = 0;
         self.snapshot_tick = 0;
+        self.unlocked = 0;
         const snap_path = try std.fs.path.join(alloc, &.{ dir, "snapshot" });
         var started: Started = undefined;
         var last_start: u64 = 0;
@@ -216,6 +221,22 @@ pub const Server = struct {
             found = try std.fs.path.join(alloc, &.{ dir, e.name });
         }
         return found;
+    }
+
+    /// The board's level, 1-based: Level One is 1.
+    pub fn level(self: *const Server) u32 {
+        return @as(u32, self.kept.board.level) + 1;
+    }
+
+    /// **LEAVES THIS GAME** (another level is played): a snapshot, so the
+    /// next start of it applies nothing, and the run's paths given back.
+    /// `self` is free for another `start`.
+    pub fn leave(self: *Server, io: Io, alloc: std.mem.Allocator) !void {
+        try self.snapshot(io, alloc);
+        self.long.free(self.log_path);
+        self.long.free(self.dir);
+        self.log_path = "";
+        self.dir = "";
     }
 
     fn snapshot(self: *Server, io: Io, alloc: std.mem.Allocator) !void {
@@ -479,7 +500,7 @@ pub const Server = struct {
 
     // ── a load ──────────────────────────────────────────────────────────────
 
-    /// **ANSWERS A LOAD**: `dogpark 1 physics H load WxH`. A new epoch; the
+    /// **ANSWERS A LOAD**: `dogpark 2 physics H load WxH`. A new epoch; the
     /// stored answer and the last request number cleared; at K + 1, a view
     /// of the region's tiles (none when nothing is leashed, after the inputs
     /// kept for K + 1) and a held of them, logged; the answer's `tile` lines
@@ -521,7 +542,7 @@ pub const Server = struct {
         // the log from here.
         switch (from) {
             .kept => self.kept.board.hold = .none,
-            .layout => self.kept.board = physics.Board.laidOut(),
+            .layout => self.kept.board = physics.Board.laidOutAt(self.kept.board.level),
         }
         self.kept.pending_len = 0;
         try self.snapshot(io, alloc);
@@ -576,6 +597,10 @@ pub const Server = struct {
         try out.dec(epoch);
         try out.str("\nkept ");
         try out.dec(self.kept.tick);
+        try out.str("\nlevel ");
+        try out.dec(self.level());
+        try out.str(" of ");
+        try out.dec(@max(self.unlocked, self.level()));
         try out.char('\n');
         try judge.stateAndInputs(&out, &self.kept, k1);
         // Every region tile goes out, then counts as named: the load's held.

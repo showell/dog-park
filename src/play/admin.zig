@@ -260,7 +260,7 @@ pub fn game(req: *Request, io: Io, alloc: Alloc, v: View) !void {
     }
     try b.appendSlice(alloc,
         \\<h2>The games</h2>
-        \\<table><tr><th>account</th><th>last request</th><th>leash</th><th>kept tick</th><th>epoch</th><th>herd</th><th>poops</th><th>logs</th><th>findings</th></tr>
+        \\<table><tr><th>account</th><th>level</th><th>last request</th><th>leash</th><th>kept tick</th><th>epoch</th><th>herd</th><th>poops</th><th>logs</th><th>findings</th></tr>
     );
     var started: usize = 0;
     for (v.games, 0..) |maybe, slot| {
@@ -277,14 +277,18 @@ pub fn game(req: *Request, io: Io, alloc: Alloc, v: View) !void {
             f.overlaps, f.idle_drags, g.unreadable, g.trips, if (g.stuck) |t| try std.fmt.allocPrint(alloc, "; STUCK at {d}", .{t}) else "",
         });
         const herd = largestHerd(&k.board);
-        try b.print(alloc, "<tr><td>{d}</td><td>{s}</td><td>{s}</td><td>{d}</td><td>{d}</td><td{s}>{d} of {d}</td><td>{d}</td><td>{s}</td><td{s}>{s}</td></tr>", .{
-            slot,                                                            ago,                                  leash,                 k.tick, g.epoch,
-            if (herd == physics.countOf(.cow)) " class=\"bad\"" else "",     herd,                                 physics.countOf(.cow), poops,  try html.htmlEscape(alloc, logs),
+        const cows = presentCows(&k.board);
+        try b.print(alloc, "<tr><td>{d}</td><td>{d} of {d}</td><td>{s}</td><td>{s}</td><td>{d}</td><td>{d}</td><td{s}>{d} of {d}</td><td>{d}</td><td>{s}</td><td{s}>{s}</td></tr>", .{
+            slot,                                                            g.level(),                            @max(g.unlocked, g.level()),
+            ago,                                                             leash,                                k.tick,
+            g.epoch,                                                         if (won(&k.board)) " class=\"bad\"" else "",
+            herd,                                                            cows,                                 poops,
+            try html.htmlEscape(alloc, logs),
             if (f.overlaps > 0 or g.stuck != null) " class=\"bad\"" else "", try html.htmlEscape(alloc, findings),
         });
     }
     try b.appendSlice(alloc, "</table>\n");
-    try b.print(alloc, "<p class=\"muted\">{d} games started this run (a game starts at its player's first load); the data: {s}. A herd of all {d} is a win.</p>\n", .{ started, try html.htmlEscape(alloc, v.data_dir), physics.countOf(.cow) });
+    try b.print(alloc, "<p class=\"muted\">{d} games started this run (a game starts at its player's first load); the data: {s}. A herd of all its level's cows is a win.</p>\n", .{ started, try html.htmlEscape(alloc, v.data_dir) });
     try b.appendSlice(alloc, "</body></html>\n");
     return respond(req, b.items);
 }
@@ -335,6 +339,19 @@ pub fn largestHerd(b: *const physics.Board) usize {
     return most;
 }
 
+/// The cows the board has: its level's.
+pub fn presentCows(b: *const physics.Board) usize {
+    var n: usize = 0;
+    for (b.knownOf(.cow)) |k| n += @intFromBool(k == .present);
+    return n;
+}
+
+/// **A WIN**: every cow the board's level lays out in one herd.
+pub fn won(b: *const physics.Board) bool {
+    const n = presentCows(b);
+    return n > 0 and largestHerd(b) == n;
+}
+
 fn root(parent: []usize, i: usize) usize {
     var x = i;
     while (parent[x] != x) x = parent[x];
@@ -351,6 +368,19 @@ test "the herd: cows within two cow-widths link, through others, round the torus
     b.ofMut(.cow)[1] = .{ .x = w - physics.px(60), .y = physics.px(500) };
     b.ofMut(.cow)[2] = .{ .x = w - physics.px(140), .y = physics.px(500) };
     try std.testing.expectEqual(@as(usize, 3), largestHerd(&b));
+}
+
+test "a win is every present cow in one herd: Level One's two, touching, round the torus; Level Two's eight" {
+    var one = physics.Board.laidOutAt(0);
+    try std.testing.expectEqual(@as(usize, 2), presentCows(&one));
+    try std.testing.expect(!won(&one));
+    const w = one.geometry().world;
+    one.ofMut(.cow)[0] = .{ .x = physics.px(10), .y = physics.px(100) };
+    one.ofMut(.cow)[1] = .{ .x = w - physics.px(10) - physics.px(physics.pxOf(.cow)), .y = physics.px(100) };
+    try std.testing.expect(won(&one));
+    var two = physics.Board.laidOut();
+    try std.testing.expectEqual(@as(usize, physics.countOf(.cow)), presentCows(&two));
+    try std.testing.expect(!won(&two));
 }
 
 test "a form's field; the key compared whole" {

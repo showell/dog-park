@@ -28,7 +28,7 @@ pub const hosting = struct {
             .secure => "__Host-dogpark, Secure (behind HTTPS)",
             .insecure => "dogpark, NOT Secure (DOGPARK_INSECURE_COOKIE=yes: plain-http development only)",
         } });
-        try w.print("the games: {s}/game-<slot>, each started at its player's first load\n", .{r.data_dir});
+        try w.print("the games: {s}/game-<slot>/level-<n>, each started at its player's first load\n", .{r.data_dir});
         try w.print("the operator's pages at /admin: the admin key {s} (the auth folder's _admin_key)\n", .{switch (r.admin_key) {
             .found => "found",
             .made => "made anew",

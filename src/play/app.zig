@@ -1,8 +1,15 @@
 //! Dog Park, played: the server for `solo/`, as webbox serves it
-//! (`webbox.site.Site(App)`). The physics protocol (physics_server.zig)
-//! keeps the board, its log and its snapshots under `data/physics/`, seeded
-//! on a first start from the first layout (`physics.Board.laidOut()`). A
-//! dogs.json or cows.json an older server left in the data dir is ignored.
+//! (`webbox.site.Site(App)`).
+//!
+//! **A PLAYER'S GAMES, ONE A LEVEL** (`data/game-<slot>/`):
+//!   level            `L U\n`: the level played and the highest unlocked,
+//!                    1-based (Level One is 1); a new player's is `1 1`
+//!   level-<n>/physics/  level n's game: the physics protocol's board, log
+//!                    and snapshots (physics_server.zig), seeded on its first
+//!                    start from the level's first layout
+//!                    (`physics.Board.laidOutAt(n - 1)`)
+//! Only the level played has a running server; switching snapshots it and
+//! starts the other from its own folder, so no level loses its progress.
 //!
 //! **WHO MAY PLAY** (players.zig): at most five devices, each its own game,
 //! one playing at a time.
@@ -13,7 +20,11 @@
 //!                    one taken: solo/full.html
 //!   GET  /dogpark    solo/index.html, the game, for a device with an
 //!                    account; 303 to / for one without
-//!   POST /reset      this device's next load starts its game afresh
+//!   POST /reset      this device's next load starts its level's game afresh
+//!   POST /level      `level N\n`: play level N, when N is unlocked, or is
+//!                    the next and the level played is won (every one of its
+//!                    cows in one herd, admin.zig's `won`): `level N of U`;
+//!                    else 409 `refused <why>`. The page then loads afresh
 //!   /admin, /admin/login, /admin/host, /admin/log, /admin/game: the operator's pages
 //!                    (admin.zig), by the admin key
 //!   GET  /NAME.js    solo/NAME.js, read from disk each time: the page's
@@ -42,6 +53,7 @@ const physics_server = @import("physics_server.zig");
 const players = @import("players.zig");
 const admin = @import("admin.zig");
 const shale = @import("shale.zig");
+const wire = @import("physics_wire.zig");
 
 /// Where the page lives, from the directory the server runs in.
 const page_dir = "solo";
@@ -52,6 +64,7 @@ const page_dir = "solo";
 pub fn bodyLimit(path: []const u8) u64 {
     if (physicsRoute(path) != null) return physics_server.most_body;
     if (std.mem.eql(u8, path, "/admin/login")) return admin.most_login_body;
+    if (std.mem.eql(u8, path, "/level")) return most_level_body;
     // **AN UPLOAD, SO ITS SENDER IS KNOWN FIRST** (the box's cold review of
     // 214): a cap past webbox's `before_turn_most` makes it one, and an
     // upload is read only once `uploader` names who sent it, from the head:
@@ -69,11 +82,14 @@ fn physicsRoute(path: []const u8) ?PhysicsRoute {
     return null;
 }
 
-/// **THE GAMES**, one per account, each the physics protocol's server with
-/// its own board, log and snapshots (`<data>/game-<slot>`), started when its
-/// player first loads. One handler runs at a time (webbox's hosts), so all
+/// **THE GAMES**, one per account, each the physics protocol's server for
+/// the level its player plays, with its own board, log and snapshots
+/// (`<data>/game-<slot>/level-<n>`), started when its player first loads. One handler runs at a time (webbox's hosts), so all
 /// of this is shared plainly.
 var games: [players.most_players]?*physics_server.Server = @splat(null);
+/// Each slot's level and the highest it has unlocked (`<data>/game-<slot>/level`),
+/// read when its game starts.
+var levels: [players.most_players]Levels = @splat(.new);
 /// A slot whose next load starts its game afresh (`POST /reset`).
 var reset_next: [players.most_players]bool = @splat(false);
 /// Each slot's last load or report, Unix ms (0: none this run), for the
@@ -113,6 +129,11 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     // games' folders come later, at each player's first load.
     try webbox.store.makeDir(io, base, data_root);
     try webbox.store.makeDir(io, base, auth_root);
+    // Nothing from another setup (a test's) carries over.
+    games = @splat(null);
+    levels = @splat(.new);
+    reset_next = @splat(false);
+    last_ms = @splat(0);
     claimed = try players.readClaimed(io, base, data_root);
     started_ms = nowMs(io);
     var secret: @FieldType(StartReport, "secret") = .found;
@@ -124,17 +145,108 @@ pub fn setup(io: Io, base: std.mem.Allocator, roots: ?webbox.site.Roots) !StartR
     return .{ .claimed = claimed, .secret = secret, .admin_key = admin_key, .cookie_mode = cookie_mode, .data_dir = data_root };
 }
 
-/// Slot `s`'s game, started (from its snapshot and log, or the first
-/// layout) the first time its player loads.
+/// Slot `s`'s game, its level's, started (from its snapshot and log, or
+/// the level's first layout) the first time its player loads.
 pub fn game(io: Io, s: players.Slot) !*physics_server.Server {
     if (games[s]) |g| return g;
+    var arena: std.heap.ArenaAllocator = .init(long_alloc);
+    defer arena.deinit();
+    const lv = try readLevels(io, arena.allocator(), s);
     const g = try long_alloc.create(physics_server.Server);
     errdefer long_alloc.destroy(g);
-    const dir = try std.fmt.allocPrint(long_alloc, "{s}/game-{d}", .{ data_root, s });
-    const seed = physics.Board.laidOut();
-    _ = try g.start(io, long_alloc, dir, &seed, nowMs(io));
+    try startLevel(io, arena.allocator(), g, s, lv, nowMs(io));
     games[s] = g;
+    levels[s] = lv;
     return g;
+}
+
+/// **A PLAYER'S LEVEL**: the one played, and the highest unlocked, 1-based.
+pub const Levels = struct {
+    at: u32,
+    unlocked: u32,
+
+    pub const new: Levels = .{ .at = 1, .unlocked = 1 };
+};
+
+/// The most a `POST /level` body holds: `level N\n`.
+const most_level_body = 64;
+
+fn levelsPath(alloc: std.mem.Allocator, s: players.Slot) ![]const u8 {
+    return std.fmt.allocPrint(alloc, "{s}/game-{d}/level", .{ data_root, s });
+}
+
+/// Slot `s`'s levels from its file; a new player's (`1 1`) written when
+/// there is none. A file that does not read stops its game: never a guess.
+fn readLevels(io: Io, alloc: std.mem.Allocator, s: players.Slot) !Levels {
+    const path = try levelsPath(alloc, s);
+    const bytes = (try webbox.store.readOrNull(io, alloc, path, .limited(64))) orelse {
+        try writeLevels(io, alloc, s, .new);
+        return .new;
+    };
+    return parseLevels(bytes) orelse error.LevelFileDoesNotRead;
+}
+
+fn writeLevels(io: Io, alloc: std.mem.Allocator, s: players.Slot, lv: Levels) !void {
+    try webbox.store.replace(io, alloc, try levelsPath(alloc, s), try std.fmt.allocPrint(alloc, "{d} {d}\n", .{ lv.at, lv.unlocked }), .{});
+}
+
+/// `L U\n`, 1 <= L <= U <= the levels there are; null for anything else.
+fn parseLevels(bytes: []const u8) ?Levels {
+    if (!std.mem.endsWith(u8, bytes, "\n")) return null;
+    var it = std.mem.splitScalar(u8, bytes[0 .. bytes.len - 1], ' ');
+    const at = wire.parseDec(it.next() orelse "", physics.level_count) catch return null;
+    const unlocked = wire.parseDec(it.next() orelse "", physics.level_count) catch return null;
+    if (it.next() != null or at == 0 or at > unlocked) return null;
+    return .{ .at = @intCast(at), .unlocked = @intCast(unlocked) };
+}
+
+/// Starts `g` on slot `s`'s level `lv.at`, from its own folder.
+fn startLevel(io: Io, alloc: std.mem.Allocator, g: *physics_server.Server, s: players.Slot, lv: Levels, now: u64) !void {
+    const dir = try std.fmt.allocPrint(alloc, "{s}/game-{d}/level-{d}", .{ data_root, s, lv.at });
+    const seed = physics.Board.laidOutAt(@intCast(lv.at - 1));
+    _ = try g.start(io, long_alloc, dir, &seed, now);
+    if (g.level() != lv.at) return error.LevelFolderHoldsAnotherLevel;
+    g.unlocked = lv.unlocked;
+}
+
+/// What `POST /level` does: play level `to`, or refuse, and why.
+pub const LevelAnswer = union(enum) {
+    to: u32,
+    refused: enum { unreadable, no_such_level, locked, not_won },
+};
+
+/// **THE LEVEL RULE**: `level N\n` is allowed when N is unlocked, or is
+/// the next one and the level played is won.
+pub fn decideLevel(body: []const u8, lv: Levels, won: bool) LevelAnswer {
+    const line = if (std.mem.endsWith(u8, body, "\n")) body[0 .. body.len - 1] else body;
+    if (!std.mem.startsWith(u8, line, "level ")) return .{ .refused = .unreadable };
+    const n = wire.parseDec(line["level ".len..], std.math.maxInt(u32)) catch return .{ .refused = .unreadable };
+    if (n == 0 or n > physics.level_count) return .{ .refused = .no_such_level };
+    if (n <= lv.unlocked) return .{ .to = @intCast(n) };
+    if (n > lv.unlocked + 1) return .{ .refused = .locked };
+    if (!won) return .{ .refused = .not_won };
+    return .{ .to = @intCast(n) };
+}
+
+test "the level rule: an unlocked level any time; the next only once the level played is won; nothing else" {
+    const one: Levels = .new;
+    try std.testing.expectEqual(LevelAnswer{ .to = 1 }, decideLevel("level 1\n", one, false));
+    try std.testing.expectEqual(LevelAnswer{ .refused = .not_won }, decideLevel("level 2\n", one, false));
+    try std.testing.expectEqual(LevelAnswer{ .to = 2 }, decideLevel("level 2\n", one, true));
+    try std.testing.expectEqual(LevelAnswer{ .to = 1 }, decideLevel("level 1\n", .{ .at = 2, .unlocked = 2 }, false));
+    try std.testing.expectEqual(LevelAnswer{ .to = 2 }, decideLevel("level 2\n", .{ .at = 1, .unlocked = 2 }, false));
+    try std.testing.expectEqual(LevelAnswer{ .refused = .no_such_level }, decideLevel("level 3\n", .{ .at = 2, .unlocked = 2 }, true));
+    try std.testing.expectEqual(LevelAnswer{ .refused = .no_such_level }, decideLevel("level 0\n", one, true));
+    for ([_][]const u8{ "", "level\n", "level 01\n", "level 2 \n", "levels 2\n", "level x\n" }) |bad| {
+        try std.testing.expectEqual(LevelAnswer{ .refused = .unreadable }, decideLevel(bad, one, true));
+    }
+}
+
+test "the levels file: `L U`, L at most U, both levels there are" {
+    try std.testing.expectEqual(Levels{ .at = 1, .unlocked = 2 }, parseLevels("1 2\n").?);
+    for ([_][]const u8{ "1 1", "2 1\n", "0 1\n", "1 3\n", "1  1\n", "1 1 1\n", "" }) |bad| {
+        try std.testing.expectEqual(@as(?Levels, null), parseLevels(bad));
+    }
 }
 
 /// Whether a report carries ticks: a `t T` line (never its first, the
@@ -166,6 +278,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     if (std.mem.eql(u8, path, "/begin")) return begin(req, io, alloc);
     if (std.mem.eql(u8, path, "/dogpark")) return gamePage(req, io, alloc);
     if (std.mem.eql(u8, path, "/reset")) return resetGame(req, io, alloc);
+    if (std.mem.eql(u8, path, "/level")) return levelRoute(req, io, alloc);
     if (std.mem.eql(u8, path, "/version")) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         const now = nowMs(io);
@@ -337,8 +450,39 @@ fn adminRoute(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, p
     return http.notFound(req);
 }
 
-/// `POST /reset`: this device's next load starts its game from the first
-/// layout. The page reloads after it.
+/// `POST /level`: `level N\n` in; `level N of U\n`, or 409 `refused
+/// <why>\n`. A switch snapshots the level left and starts the other from
+/// its folder; the level file is written first, so a failed start is
+/// retried from it at the next load.
+fn levelRoute(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void {
+    if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
+    const s = (try players.slotOfRequest(cookie_mode, io, alloc, req, auth_root, nowUnix(io))) orelse return plain(req, .forbidden, "no account\n");
+    const body = (try http.readLimitedBody(req, alloc, most_level_body)) orelse return;
+    last_ms[s] = nowMs(io);
+    const g = try game(io, s);
+    const lv = levels[s];
+    switch (decideLevel(body, lv, admin.won(&g.kept.board))) {
+        .refused => |why| return plain(req, .conflict, try std.fmt.allocPrint(alloc, "refused {t}\n", .{why})),
+        .to => |n| {
+            const next: Levels = .{ .at = n, .unlocked = @max(lv.unlocked, n) };
+            if (next.at != lv.at or next.unlocked != lv.unlocked) try writeLevels(io, alloc, s, next);
+            levels[s] = next;
+            if (next.at != lv.at) {
+                errdefer games[s] = null;
+                const after = g.started + 1;
+                try g.leave(io, alloc);
+                try startLevel(io, alloc, g, s, next, @max(nowMs(io), after));
+                reset_next[s] = false;
+            }
+            g.unlocked = next.unlocked;
+            return plain(req, .ok, try std.fmt.allocPrint(alloc, "level {d} of {d}\n", .{ next.at, next.unlocked }));
+        },
+    }
+}
+
+/// `POST /reset`: this device's next load starts its level's game from the
+/// level's first layout; the other levels' games stay. The page reloads
+/// after it.
 fn resetGame(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void {
     if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
     const s = (try players.slotOfRequest(cookie_mode, io, alloc, req, auth_root, nowUnix(io))) orelse return plain(req, .forbidden, "no account\n");

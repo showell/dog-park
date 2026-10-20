@@ -115,9 +115,9 @@ test("a background script cannot write: it stops naming atomic, and the file is 
 test("the cookbook on the files a real game writes", async () => {
   // A load starts the game (its folder, its first log, its snapshot); two
   // reports the server cannot read are two `req ?` findings in its log.
-  const wrong = await server.post("/load", "dogpark 1 physics 00000000 load 1280x800\n");
+  const wrong = await server.post("/load", "dogpark 2 physics 00000000 load 1280x800\n");
   const hash = wrong.text.match(/^reload physics ([0-9a-f]{8})\n$/)[1];
-  assert.equal((await server.post("/load", `dogpark 1 physics ${hash} load 1280x800\n`)).status, 200);
+  assert.equal((await server.post("/load", `dogpark 2 physics ${hash} load 1280x800\n`)).status, 200);
   assert.equal((await server.post("/report", "hello\n")).text, "req ?\n");
   assert.equal((await server.post("/report", "hello again\n")).text, "req ?\n");
 
@@ -136,7 +136,7 @@ test("the cookbook on the files a real game writes", async () => {
 test("play goes on while a scan of every game's logs runs: the worst wait a report saw", async () => {
   // Five more games' hours of logs, as the server frames them: 1 MiB logs of
   // reports, a finding in each (a scan's worst: everything read).
-  const report = "entry report 60\ndogpark 1 physics 00000000 page 1.1 req 1\nfrom 0\nheld 1\nend\n";
+  const report = "entry report 60\ndogpark 2 physics 00000000 page 1.1 req 1\nfrom 0\nheld 1\nend\n";
   const finding = "entry finding 26\nreq ? number 1 at kept 0\nend\n";
   const differ = "entry finding 24\nreq 1 differ at tick 9\nend\n";
   const log = finding + differ + report.repeat(Math.floor((1 << 20) / report.length));
