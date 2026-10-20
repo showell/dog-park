@@ -147,9 +147,11 @@ export fn poopKnown(b: u32) [*]u8 {
 
 // ── the boards ──────────────────────────────────────────────────────────────
 
-/// A page load: every board empty, nothing leashed.
-export fn reset() void {
-    boards = @splat(physics.Board.empty());
+/// A page load: every board empty on level `level` (Level One is 0),
+/// nothing leashed.
+export fn reset(level: u32) void {
+    if (level >= physics.level_count) @panic("reset: no such level");
+    boards = @splat(physics.Board.emptyAt(@intCast(level)));
     begun = @splat(.{});
 }
 

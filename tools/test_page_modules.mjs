@@ -10,6 +10,20 @@ const pointer = await import("../solo/pointer.js");
 const blit = await import("../solo/blit.js");
 const engine = await import("../solo/engine.js");
 const park = await import("../solo/park.js");
+// The tests below were written in Level Two's world; Level One's are its own.
+scene.setLevel(2);
+
+test("the levels: each sets the page's world, Level One a 4 x 4-tile world with a 2 x 2 park and 2 cows; their names; the goal met, both cows or all of them", () => {
+  scene.setLevel(1);
+  assert.deepEqual([scene.level, scene.world_tiles, scene.park_tiles, scene.cow_count, scene.world_px], [1, 4, 2, 2, 4 * scene.tile_px]);
+  assert.equal(scene.wrapped(scene.world_px + 5), 5);
+  scene.setLevel(2);
+  assert.deepEqual([scene.level, scene.world_tiles, scene.park_tiles, scene.cow_count], [2, 6, 4, 8]);
+  assert.throws(() => scene.setLevel(scene.levels.length + 1), /no level/);
+  assert.deepEqual([1, 2, 3].map(scene.levelName), ["Level One", "Level Two", "Level Three"]);
+  assert.equal(scene.wonText(2), "You have herded both cows! 🎉");
+  assert.equal(scene.wonText(8), "All 8 cows herded together! 🎉");
+});
 
 test("every module imports without a DOM", () => {
   assert.equal(typeof document, "undefined");

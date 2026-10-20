@@ -37,7 +37,8 @@ function script() {
 // Dogs 0 and 1 and cow 0 in tile 3,3 (the world's middle).
 const tileLine = `tile 3,3 cow 0 ${hex(1260)},${hex(1260)} dog 0 ${hex(1120)},${hex(1120)} dog 1 ${hex(1190)},${hex(1155)}`;
 
-const loadAnswer = (k = 10) => `epoch 1791935990000.1\nkept ${k}\nstate leash none drag none laid 0 view 1280x800 held\n`;
+// Level Two's, the world these tests were written in.
+const loadAnswer = (k = 10) => `epoch 1791935990000.1\nkept ${k}\nlevel 2 of 2\nstate leash none drag none laid 0 view 1280x800 held\n`;
 
 // A loaded page: the load answered, the first report (its view) waiting.
 async function loadedPage(s, answer = loadAnswer()) {

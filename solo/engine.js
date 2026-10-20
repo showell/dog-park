@@ -31,7 +31,8 @@
 //
 //   engine.load(measure, at)  POST /load; `measure()` -> { width, height };
 //                         `at` a viewport top-left { parkX, parkY } to
-//                         open on (tests), or "none" (the world's
+//                         open on (tests), a function giving one once the
+//                         load has set the level, or "none" (the world's
 //                         centre, the park's middle); a
 //                         leashed dog is put in the middle of the screen
 //   engine.resize({ width, height })
@@ -49,7 +50,7 @@
 //   engine.debug()        the protocol's state, for tests and the console
 
 import { LIVE, KEPT, SCRATCH, flag } from "./physics.js";
-import { tileKey, subscription, world_px, most_tiles, wrappedPoint, offset, dog_looks, kinds, drawn_kinds } from "./scene.js";
+import { tileKey, subscription, world_px, most_tiles, wrappedPoint, offset, dog_looks, kinds, drawn_kinds, setLevel, levels } from "./scene.js";
 import { edgeScroll } from "./pointer.js";
 import { bumpedKind } from "./quips.js";
 
@@ -123,6 +124,10 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
   // and held tiles in effect there.
   let keptInputs = [];
   let keptView = { width: 0, height: 0, tiles: new Map() };
+  // **THE LEVEL** this load plays, and the highest the player has unlocked
+  // (the load's `level L of U`, 1-based); the boards and scene.js's
+  // geometry are set to it before anything else of the load is read.
+  let level = { now: 1, unlocked: 1 };
   let keptHeld = new Map();
   // The record past K, and how much of it the live board has run.
   let record = [];
@@ -707,16 +712,20 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     if (first.startsWith("stuck ")) return done(stop(`the physics disagrees with itself at tick ${first.slice(6)}`));
     const e = /^epoch (\d+)\.(\d+)$/.exec(first);
     const k = /^kept (\d+)$/.exec(lines[1] ?? "");
+    const lv = /^level (\d+) of (\d+)$/.exec(lines[2] ?? "");
     if (!e || !k) return done(stop(`a load answer that doesn't read: "${first}"`));
-    physics.reset();
+    if (!lv || Number(lv[1]) < 1 || Number(lv[1]) > levels.length || Number(lv[2]) < Number(lv[1])) return done(stop(`a load's level line that doesn't read: "${lines[2] ?? ""}"`));
+    level = { now: Number(lv[1]), unlocked: Number(lv[2]) };
+    setLevel(level.now);
+    physics.reset(level.now - 1);
     epoch = { ms: Number(e[1]), count: Number(e[2]) };
     K = Number(k[1]);
-    const s = physics.readState(lines[2] ?? "", KEPT);
-    if (s === "malformed") return done(stop(`a load's state line that doesn't read: "${lines[2]}"`));
+    const s = physics.readState(lines[3] ?? "", KEPT);
+    if (s === "malformed") return done(stop(`a load's state line that doesn't read: "${lines[3]}"`));
     keptView = { width: s.view.width, height: s.view.height, tiles: keyed(s.view.tiles) };
     keptHeld = keyed(s.held);
     keptInputs = [];
-    let i = 3;
+    let i = 4;
     for (; (lines[i] ?? "").startsWith("input "); i++) {
       const input = physics.readInput(lines[i]);
       if (input === "malformed") return done(stop(`a load's input line that doesn't read: "${lines[i]}"`));
@@ -736,12 +745,15 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     // The viewport: on the leashed dog, else `at`, else the world's centre
     // (the populated park's middle).
     const leashedDog = physics.leashed(LIVE);
+    // `at` may be a function: asked once the level is known (a viewport is
+    // kept per level).
+    const where = typeof at === "function" ? at() : at;
     if (leashedDog !== "none") {
       const d = dogs.get(leashedDog);
       lastLeashed = { kind: "dog", dogId: leashedDog };
       moveViewport(d.parkX - viewport.width / 2, d.parkY - viewport.height / 2);
-    } else if (at !== "none") {
-      moveViewport(at.parkX, at.parkY);
+    } else if (where !== "none") {
+      moveViewport(where.parkX, where.parkY);
     } else {
       viewport.parkX = Math.round(world_px / 2 - viewport.width / 2);
       viewport.parkY = Math.round(world_px / 2 - viewport.height / 2);
@@ -850,7 +862,17 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
         holding,
         bumped: { ...bumped },
         visits: new Map(visits),
+        level: { ...level },
       };
+    },
+
+    // **ANOTHER LEVEL** (`POST /level`): the server says whether it may be
+    // played (an unlocked one, or the next once this one is won); then the
+    // page loads afresh into it. `(answer) -> "ok" | the server's refusal`.
+    async goLevel(n) {
+      const r = await post("/level", `level ${n}\n`);
+      if (r.status === 200 && r.text.startsWith(`level ${n} of `)) return "ok";
+      return r.text.trim() || `the level was answered ${r.status}`;
     },
 
     debug() {

@@ -111,7 +111,7 @@ export function createPhysics(x) {
     raw: x,
     hash: (x.physicsHash() >>> 0).toString(16).padStart(8, "0"),
     ticksPerSecond: () => x.ticksPerSecond(),
-    reset: () => x.reset(),
+    reset: (level) => x.reset(level),
     copy: (from, to) => x.copyBoard(from, to),
     clearBegun: (b) => x.clearBegun(b),
     leashed(b) {

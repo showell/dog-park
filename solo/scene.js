@@ -42,14 +42,44 @@ export function parkFromViewport(viewport, viewportX, viewportY) {
 // (docs/PHYSICS.md decision 14): its right edge meets its left, its bottom
 // its top. The populated park is the `park_tiles` by `park_tiles` tiles in
 // its middle, a cow in each white tile, a ring of empty tiles round it
-// (Steve, 2026-10-15). These are world.js's, which roc/world.roc prints, as
-// it prints the physics' world. A page subscribes to at most `most_tiles`
-// (the server refuses more): the whole world fits.
-import { tile_px, world_tiles, park_tiles, cow_count } from "./world.js";
-export { tile_px, world_tiles, park_tiles, cow_count };
+// (Steve, 2026-10-15). **THEY ARE THE LEVEL'S** (world.js's `levels`, which
+// roc/World.roc says; Level One first): `setLevel(n)` sets them, and every
+// module that imports them sees the level's (live bindings). A page plays
+// one level at a time, set by its load. A page subscribes to at most
+// `most_tiles` (the server refuses more): the whole world fits.
+import { tile_px, levels } from "./world.js";
+export { tile_px, levels };
 export const most_tiles = 64;
-if (world_tiles * world_tiles > most_tiles) throw new Error("the page holds the whole world: it must fit in a view");
-export const world_px = world_tiles * tile_px;
+export let level = 1;
+export let world_tiles = 0;
+export let park_tiles = 0;
+export let cow_count = 0;
+export let world_px = 0;
+export let overview_tiles = 0;
+export function setLevel(n) {
+  const lv = levels[n - 1];
+  if (lv === undefined) throw new Error(`no level ${n}: world.js has ${levels.length}`);
+  if (lv.world_tiles * lv.world_tiles > most_tiles) throw new Error(`level ${n}: the page holds the whole world, so it must fit in a view`);
+  level = n;
+  world_tiles = lv.world_tiles;
+  park_tiles = lv.park_tiles;
+  cow_count = lv.counts[kinds.findIndex((k) => k.name === "cow")];
+  world_px = world_tiles * tile_px;
+  overview_tiles = world_tiles;
+}
+setLevel(1);
+
+// A level's name: "Level One", "Level Two", ...
+const numberWords = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+export function levelName(n) {
+  return `Level ${numberWords[n - 1] ?? n}`;
+}
+
+// The goal met: both cows, or all of them (Steve, 2026-10-20: "You have
+// herded both cows!").
+export function wonText(cows) {
+  return cows === 2 ? "You have herded both cows! 🎉" : `All ${cows} cows herded together! 🎉`;
+}
 
 // **EVERY PARK POINT HAS ONE NAME IN [0, world_px)**, and many copies a
 // whole world apart; the page stores the name and draws the copy nearest
@@ -134,7 +164,6 @@ export function subscription() {
 // thumb on it as long, and as far along, as the window is in the world;
 // the thumb wraps too, its part past the track's end drawn from its start.
 export const overview_margin_px = 20;
-export const overview_tiles = world_tiles;
 const scrollbar_px = 12;
 
 export function overviewFrame(width, height, at) {

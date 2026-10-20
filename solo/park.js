@@ -34,7 +34,7 @@
 // wires the DOM to it, and runs the frame loop and the drawing. It starts
 // only where there is a DOM, so node can import every module.
 
-import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px, largestHerd, cow_count } from "./scene.js";
+import { nearScene, overviewScene, messageScene, dogOfTarget, world_px, tile_px, largestHerd, cow_count, level, levels, levelName, wonText } from "./scene.js";
 import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
@@ -64,21 +64,22 @@ async function loadPhysics() {
 // player's game up, so it opens where the player last looked. A new game,
 // or Start over, opens on the park's middle (the key is cleared). Storage
 // may be missing or refuse: then every load opens on the middle.
-// The key names the geometry (the tile and the world): a view kept under
-// another would open on the wrong ground.
-const viewport_key = `dogpark.viewport.${tile_px}.${world_px}`;
+// The key names the geometry (the tile, the world, the level): a view kept
+// under another would open on the wrong ground. Read after the load sets
+// the level.
+const viewportKey = () => `dogpark.viewport.${tile_px}.${world_px}.${level}`;
 function savedViewport() {
   try {
-    const v = JSON.parse(localStorage.getItem(viewport_key) ?? "null");
+    const v = JSON.parse(localStorage.getItem(viewportKey()) ?? "null");
     if (v && Number.isFinite(v.parkX) && Number.isFinite(v.parkY)) return { parkX: v.parkX, parkY: v.parkY };
   } catch { /* none kept */ }
   return "none";
 }
 function saveViewport(v) {
-  try { localStorage.setItem(viewport_key, JSON.stringify({ parkX: v.parkX, parkY: v.parkY })); } catch { /* not kept */ }
+  try { localStorage.setItem(viewportKey(), JSON.stringify({ parkX: v.parkX, parkY: v.parkY })); } catch { /* not kept */ }
 }
 function forgetViewport() {
-  try { localStorage.removeItem(viewport_key); } catch { /* nothing kept */ }
+  try { localStorage.removeItem(viewportKey()); } catch { /* nothing kept */ }
 }
 
 // ── the page ────────────────────────────────────────────────────────────────
@@ -120,7 +121,8 @@ async function start() {
     canvas.height = Math.floor(height * ratio);
     return { width, height };
   }
-  await engine.load(fit, savedViewport());
+  await engine.load(fit, savedViewport);
+  overviewAt = { parkX: world_px / 2, parkY: world_px / 2 };
   const score = document.getElementById("score");
   // Kept at most twice a second, when it moved.
   let savedAt = { parkX: NaN, parkY: NaN };
@@ -213,11 +215,12 @@ async function start() {
     if (v.cows.length > 0) {
       const herd = largestHerd(v.cows);
       const won = herd === cow_count;
-      const text = won ? `All ${cow_count} cows herded together! 🎉` : `Herd: ${herd} of ${cow_count} cows`;
+      const text = won ? wonText(cow_count) : `Herd: ${herd} of ${cow_count} cows`;
       if (score && score.textContent !== text) {
         score.textContent = text;
         score.classList.toggle("won", won);
       }
+      showLevels(v.level, won);
     }
     if (mapButton) {
       const label = mode === "overview" ? "Back (m)" : "Map (m)";
@@ -236,10 +239,53 @@ async function start() {
   };
   requestAnimationFrame(frame);
 
+  // **THE LEVELS** (Steve, 2026-10-20): a level won offers the next, which
+  // the player may take or not ("Keep playing here": some practise, some
+  // explore); once more than one is unlocked, a button each, so a player
+  // moves between them freely. Each level's game is kept apart, on the
+  // server. Shown only when what it says changes.
+  const levelsBox = document.getElementById("levels");
+  const nextBox = document.getElementById("next");
+  let shownLevels = "";
+  let declined = false;
+  function showLevels(lv, won) {
+    const offerNext = won && !declined && lv.now < levels.length && lv.unlocked <= lv.now;
+    const key = `${lv.now} ${lv.unlocked} ${offerNext}`;
+    if (key === shownLevels) return;
+    shownLevels = key;
+    if (nextBox) {
+      nextBox.hidden = !offerNext;
+      const go = document.getElementById("next-go");
+      if (go) go.textContent = `Go to ${levelName(lv.now + 1)}`;
+    }
+    if (levelsBox) {
+      levelsBox.replaceChildren();
+      levelsBox.hidden = lv.unlocked < 2;
+      for (let n = 1; n <= lv.unlocked; n++) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = levelName(n);
+        if (n === lv.now) b.setAttribute("aria-current", "true");
+        else b.addEventListener("click", () => goLevel(n));
+        levelsBox.append(b);
+      }
+    }
+  }
+  async function goLevel(n) {
+    const said = await engine.goLevel(n);
+    if (said !== "ok") return console.error(`/level ${n}: ${said}`);
+    location.reload();
+  }
+  document.getElementById("next-go")?.addEventListener("click", () => goLevel(level + 1));
+  document.getElementById("next-stay")?.addEventListener("click", () => {
+    declined = true;
+    shownLevels = "";
+  });
+
   // **START OVER**: this device's game back to its first layout, at the
   // next load (`POST /reset`), and the page loads again.
   document.getElementById("reset")?.addEventListener("click", async () => {
-    if (!confirm("Start over? Every critter goes back to where the game began.")) return;
+    if (!confirm(`Start over ${levelName(level)}? Every critter goes back to where the level began.`)) return;
     const r = await post("/reset", "");
     if (r.status !== 200) return console.error(`/reset: ${r.status} ${r.text}`);
     forgetViewport();

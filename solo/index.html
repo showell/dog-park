@@ -11,6 +11,11 @@
   canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
   #score { position: fixed; top: 10px; left: 10px; font: 600 16px system-ui, sans-serif; color: #234; background: rgba(255,255,255,0.85); border: 1px solid #9ab; border-radius: 8px; padding: 6px 12px; pointer-events: none; }
   #score.won { background: #ffe680; border-color: #c9a400; font-size: 20px; }
+  #next { position: fixed; top: 56px; left: 10px; font: 15px system-ui, sans-serif; color: #234; background: #fff8d6; border: 1px solid #c9a400; border-radius: 8px; padding: 8px 10px; }
+  #next button, #levels button { font: 600 14px system-ui, sans-serif; margin: 0 4px; padding: 4px 10px; border-radius: 6px; border: 1px solid #9ab; background: #fff; cursor: pointer; }
+  #next-go { background: #2a7a2a; color: #fff; border-color: #1d5c1d; }
+  #levels { position: fixed; bottom: 10px; left: 10px; }
+  #levels button[aria-current="true"] { background: #234; color: #fff; cursor: default; }
   #debug { position: fixed; top: 10px; right: 220px; font: 600 14px system-ui, sans-serif; color: #234; background: rgba(255,255,255,0.85); border: 1px solid #9ab; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
   #debug[aria-pressed="true"] { color: white; background: #556; border-color: #556; }
   #map { position: fixed; top: 10px; right: 120px; font: 600 14px system-ui, sans-serif; color: white; background: #1f6fd1; border: 0; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
@@ -22,6 +27,8 @@
 <body>
 <canvas id="park"></canvas>
 <div id="score"></div>
+<div id="next" hidden><button id="next-go" type="button">Go to the next level</button><button id="next-stay" type="button">Keep playing here</button></div>
+<div id="levels" hidden></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <button id="map" type="button">Map (m)</button>
 <button id="debug" type="button" aria-pressed="false" title="Show each dog's number and the last walk's places">Debug (d)</button>
