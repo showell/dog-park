@@ -17,13 +17,17 @@ const physics = @import("physics.zig");
 const world = @import("world.zig").world;
 const px = physics.px;
 
+/// The level the board lays out: Level Two, the last, until a game names
+/// its own.
+const level = world.levels[world.levels.len - 1];
+
 /// Each kind's spots as the physics' points, made once at compile time,
 /// critter n of kind k at `homes[k][n]`.
 const homes = h: {
     var out: [physics.kind_count][]const physics.Point = undefined;
-    for (world.kinds, &out) |k, *ps| {
-        var points: [k.spots.len]physics.Point = undefined;
-        for (k.spots, &points, 0..) |s, *p, n| {
+    for (world.kinds, level.spots, &out) |k, spots, *ps| {
+        var points: [spots.len]physics.Point = undefined;
+        for (spots, &points, 0..) |s, *p, n| {
             // Every park point has one name, in [0, world) on each axis.
             if (s.x < 0 or s.y < 0 or s.x >= physics.world or s.y >= physics.world)
                 @compileError(std.fmt.comptimePrint("world.zon: {s} {d} starts outside the world, at ({d}, {d})", .{ k.name, n, s.x, s.y }));

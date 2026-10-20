@@ -83,7 +83,7 @@
  
 --- a/roc/World.roc
 +++ b/roc/World.roc
-@@ -100,6 +100,15 @@
+@@ -118,6 +118,15 @@
  			kin: Herd,
  			leash: Bool.False,
  		},
@@ -101,7 +101,7 @@
  	## The critters are kept by cells: a tile cut `cell_per_tile` ways on
 --- a/roc/world.roc
 +++ b/roc/world.roc
-@@ -51,7 +51,7 @@
+@@ -58,7 +58,7 @@
  px : I64 -> I64
  px = |n| n * 256
  
@@ -110,16 +110,16 @@
  
  Spot : { kind : Kind, x : I64, y : I64 }
  
-@@ -71,7 +71,7 @@
+@@ -79,7 +79,7 @@
  		{ kind: Dog, x: far, y: far },
  	]
  	if (col + row) % 2 == 0 {
 -		dogs.concat([{ kind: Cow, x: mid, y: mid }])
 +		dogs.concat([{ kind: Cow, x: mid, y: mid }, { kind: Sheep, x: mid, y: corner_in }])
  	} else {
- 		chickens = dogs.concat([
- 			{ kind: Chicken, x: mid - chicken_off, y: mid },
-@@ -122,6 +122,7 @@
+ 		chickens = if lv.chickens {
+ 			dogs.concat([
+@@ -156,6 +156,7 @@
  	Cow => cow_px // 2
  	Chicken => chicken_px // 2
  	Goat => goat_px // 2
@@ -127,7 +127,7 @@
  }
  
  ## The short way between two coordinates round the torus, its length.
-@@ -173,6 +174,8 @@
+@@ -207,6 +208,8 @@
  		Chicken
  	} else if name == "goat" {
  		Goat
@@ -136,7 +136,7 @@
  	} else {
  		crash "world.roc: a kind World.kinds names that the park does not lay out"
  	}
-@@ -210,6 +213,7 @@
+@@ -244,6 +247,7 @@
  		Cow => "cow"
  		Chicken => "chicken"
  		Goat => "goat"
@@ -144,7 +144,7 @@
  	}
  	var $names = []
  	var $n = 0
-@@ -224,7 +228,7 @@
+@@ -258,7 +262,7 @@
  expect World.kinds.keep_if(|k| k.leash).len() == 1
  expect World.kinds.map(|k| k.rank).len() == World.kinds.len() and World.kinds.keep_if(|k| k.rank < 0 or k.rank >= World.kinds.len().to_i64_wrap()).len() == 0
  

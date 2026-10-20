@@ -18,6 +18,24 @@ World := [].{
 	park_tiles : I64
 	park_tiles = 4
 
+	## **THE LEVELS**, Level One first, each a world `world_tiles` tiles a
+	## side with its park `park_tiles` a side in the middle, laid out by
+	## roc/world.roc's rule, with the chickens and the goats or without. A
+	## level is its geometry and its first layout alone: the kinds, their
+	## sizes and their rules are every level's (Steve, 2026-10-20). The
+	## largest is `world_tiles` and `park_tiles` above, by which the physics
+	## sizes its room.
+	Level : { world_tiles : I64, park_tiles : I64, chickens : Bool, goats : Bool }
+
+	level_one : Level
+	level_one = { world_tiles: 4, park_tiles: 2, chickens: Bool.False, goats: Bool.False }
+
+	level_two : Level
+	level_two = { world_tiles: 6, park_tiles: 4, chickens: Bool.True, goats: Bool.True }
+
+	levels : List(Level)
+	levels = [level_one, level_two]
+
 	## The critters' squares, in whole pixels, as the physics moves them and
 	## the page draws them (each centred on its point); a dog's poop is a
 	## square too, drawn as a circle. Dogs and cows at 70% of their first

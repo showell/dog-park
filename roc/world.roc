@@ -40,12 +40,19 @@ chicken_off = World.chicken_off
 
 goat_above = World.goat_above
 
-park_first : I64
-park_first = (world_tiles - park_tiles) // 2
+Level : World.Level
 
-expect park_first >= 0 and park_first * 2 + park_tiles == world_tiles
-expect park_tiles % 2 == 0
+## Where a level's park begins: its first tile on each axis, so the park
+## sits in the middle of its world.
+park_first : Level -> I64
+park_first = |lv| (lv.world_tiles - lv.park_tiles) // 2
+
+expect World.levels.keep_if(|lv| park_first(lv) < 0 or park_first(lv) * 2 + lv.park_tiles != lv.world_tiles or lv.park_tiles % 2 != 0).len() == 0
 expect breeds == 4
+
+## The largest level is the world the physics sizes its room by.
+expect World.levels.map(|lv| lv.world_tiles).keep_if(|t| t > world_tiles).len() == 0
+expect World.levels.keep_if(|lv| lv.world_tiles == world_tiles and lv.park_tiles == park_tiles).len() > 0
 
 ## Pixels to the physics' units, 256ths of a pixel.
 px : I64 -> I64
@@ -59,9 +66,10 @@ Spot : { kind : Kind, x : I64, y : I64 }
 ## top-left corner. Every tile holds a dog of each breed, breed b in corner
 ## b (NW, NE, SW, SE); a white tile (column plus row even) a cow in the middle; a blue
 ## one two chickens either side of it, and a blue tile in an even row and
-## odd column (four of the eight) a goat above them.
-tile_spots : I64, I64 -> List(Spot)
-tile_spots = |col, row| {
+## odd column (four of the eight in Level Two) a goat above them; a level
+## without chickens or goats leaves them out.
+tile_spots : Level, I64, I64 -> List(Spot)
+tile_spots = |lv, col, row| {
 	far = tile_px - corner_in
 	mid = tile_px // 2
 	dogs = [
@@ -73,11 +81,15 @@ tile_spots = |col, row| {
 	if (col + row) % 2 == 0 {
 		dogs.concat([{ kind: Cow, x: mid, y: mid }])
 	} else {
-		chickens = dogs.concat([
-			{ kind: Chicken, x: mid - chicken_off, y: mid },
-			{ kind: Chicken, x: mid + chicken_off, y: mid },
-		])
-		if row % 2 == 0 and col % 2 == 1 {
+		chickens = if lv.chickens {
+			dogs.concat([
+				{ kind: Chicken, x: mid - chicken_off, y: mid },
+				{ kind: Chicken, x: mid + chicken_off, y: mid },
+			])
+		} else {
+			dogs
+		}
+		if lv.goats and row % 2 == 0 and col % 2 == 1 {
 			chickens.concat([{ kind: Goat, x: mid, y: mid - goat_above }])
 		} else {
 			chickens
@@ -85,19 +97,19 @@ tile_spots = |col, row| {
 	}
 }
 
-## Every spot in the park, tile by tile, row by row, in world pixels.
-park : List(Spot)
-park = {
+## Every spot in a level's park, tile by tile, row by row, in world pixels.
+park : Level -> List(Spot)
+park = |lv| {
 	var $all = []
 	var $row = 0
-	while $row < park_tiles {
+	while $row < lv.park_tiles {
 		var $col = 0
-		while $col < park_tiles {
-			for s in tile_spots($col, $row) {
+		while $col < lv.park_tiles {
+			for s in tile_spots(lv, $col, $row) {
 				$all = $all.append({
 					kind: s.kind,
-					x: (park_first + $col) * tile_px + s.x,
-					y: (park_first + $row) * tile_px + s.y,
+					x: (park_first(lv) + $col) * tile_px + s.x,
+					y: (park_first(lv) + $row) * tile_px + s.y,
 				})
 			}
 			$col = $col + 1
@@ -107,13 +119,35 @@ park = {
 	$all
 }
 
-## One kind's spots, in their order: each kind is numbered on its own.
-of_kind : Kind -> List(Spot)
-of_kind = |kind| park.keep_if(|s| s.kind == kind)
+## One kind's spots in a level, in their order: each kind is numbered on
+## its own, and critter n of a kind is critter n in every level.
+of_kind : Level, Kind -> List(Spot)
+of_kind = |lv, kind| park(lv).keep_if(|s| s.kind == kind)
 
-expect of_kind(Dog).len() == (park_tiles * park_tiles * breeds).to_u64_wrap()
-expect of_kind(Cow).len() + of_kind(Chicken).len() // 2 == (park_tiles * park_tiles).to_u64_wrap()
-expect of_kind(Goat).len() == 4
+## Level One: the dogs, and a cow on each of its two white tiles; Level Two:
+## the dogs, eight cows, sixteen chickens and four goats.
+level_one = World.level_one
+
+level_two = World.level_two
+
+expect [Dog, Cow, Chicken, Goat].map(|k| of_kind(level_one, k).len()) == [16, 2, 0, 0]
+expect [Dog, Cow, Chicken, Goat].map(|k| of_kind(level_two, k).len()) == [64, 8, 16, 4]
+expect World.levels.keep_if(|lv| of_kind(lv, Dog).len() != (lv.park_tiles * lv.park_tiles * breeds).to_u64_wrap()).len() == 0
+
+## The most of a kind any level has: the physics' room for it.
+most : Kind -> U64
+most = |kind| {
+	var $n = 0
+	for lv in World.levels {
+		here = of_kind(lv, kind).len()
+		if here > $n {
+			$n = here
+		} else {
+			{}
+		}
+	}
+	$n
+}
 
 ## A critter's square's half side, in pixels.
 half : Kind -> I64
@@ -160,7 +194,7 @@ no_overlap = |spots| {
 	$ok
 }
 
-expect no_overlap(park)
+expect World.levels.keep_if(|lv| !no_overlap(park(lv))).len() == 0
 
 ## A kind's tag, by its name in `World.kinds`.
 tag_of : Str -> Kind
@@ -185,16 +219,16 @@ kin_zon = |k| match k {
 	NoKin => ".none"
 }
 
-## Each kind in kind-number order: world.zon's `.kinds` (`Zon`), with its
-## spots in the first layout, or world.js's `kinds` (`Js`).
+## Each kind in kind-number order: world.zon's `.kinds` (`Zon`), or
+## world.js's `kinds` (`Js`), its count the most any level has.
 looks : [Zon, Js] -> Str
 looks = |form| {
 	var $out = ""
 	for k in World.kinds {
 		$out = $out.concat(
 			match form {
-				Zon => "        .{ .name = \"${k.name}\", .px = ${k.px.to_str()}, .colour = \"${k.colour}\", .rank = ${k.rank.to_str()}, .kin = ${kin_zon(k.kin)}, .leash = ${if (k.leash) "true" else "false"}, .spots = .{\n${points(tag_of(k.name))}        } },\n"
-				Js => "  { name: \"${k.name}\", px: ${k.px.to_str()}, colour: \"${k.colour}\", emoji: \"${k.emoji}\", rank: ${k.rank.to_str()}, count: ${of_kind(tag_of(k.name)).len().to_str()} },\n"
+				Zon => "        .{ .name = \"${k.name}\", .px = ${k.px.to_str()}, .colour = \"${k.colour}\", .rank = ${k.rank.to_str()}, .kin = ${kin_zon(k.kin)}, .leash = ${if (k.leash) "true" else "false"} },\n"
+				Js => "  { name: \"${k.name}\", px: ${k.px.to_str()}, colour: \"${k.colour}\", emoji: \"${k.emoji}\", rank: ${k.rank.to_str()}, count: ${most(tag_of(k.name)).to_str()} },\n"
 			},
 		)
 	}
@@ -228,11 +262,35 @@ expect World.kinds.len() == 4
 expect half(Dog) * 2 == dog_px and half(Cow) * 2 == cow_px and half(Chicken) * 2 == chicken_px and half(Goat) * 2 == goat_px
 expect !no_overlap([{ kind: Dog, x: 10, y: 10 }, { kind: Cow, x: 40, y: 30 }])
 
-points : Kind -> Str
-points = |kind| {
+points : Level, Kind -> Str
+points = |lv, kind| {
 	var $out = ""
-	for s in of_kind(kind) {
-		$out = $out.concat("            .{ .x = ${px(s.x).to_str()}, .y = ${px(s.y).to_str()} },\n")
+	for s in of_kind(lv, kind) {
+		$out = $out.concat("                .{ .x = ${px(s.x).to_str()}, .y = ${px(s.y).to_str()} },\n")
+	}
+	$out
+}
+
+## Each level: world.zon's `.levels` (`Zon`), its geometry and each kind's
+## spots in kind-number order; or world.js's `levels` (`Js`), its geometry
+## and each kind's count there.
+level_lines : [Zon, Js] -> Str
+level_lines = |form| {
+	var $out = ""
+	for lv in World.levels {
+		match form {
+			Zon => {
+				var $spots = ""
+				for k in World.kinds {
+					$spots = $spots.concat("            .{\n${points(lv, tag_of(k.name))}            },\n")
+				}
+				$out = $out.concat("        .{ .world_tiles = ${lv.world_tiles.to_str()}, .park = .{ .first = ${park_first(lv).to_str()}, .tiles = ${lv.park_tiles.to_str()} }, .spots = .{\n${$spots}        } },\n")
+			}
+			Js => {
+				counts = World.kinds.map(|k| of_kind(lv, tag_of(k.name)).len().to_str())
+				$out = $out.concat("  { world_tiles: ${lv.world_tiles.to_str()}, park_tiles: ${lv.park_tiles.to_str()}, counts: [${Str.join_with(counts, ", ")}] },\n")
+			}
+		}
 	}
 	$out
 }
@@ -244,12 +302,14 @@ zon =
 	\\.{
 	\\    .tile_px = ${tile_px.to_str()},
 	\\    .world_tiles = ${world_tiles.to_str()},
-	\\    .park = .{ .first = ${park_first.to_str()}, .tiles = ${park_tiles.to_str()} },
+	\\    .park = .{ .first = ${((world_tiles - park_tiles) // 2).to_str()}, .tiles = ${park_tiles.to_str()} },
 	\\    .poop_px = ${poop_px.to_str()},
 	\\    .kinds = .{
 	\\${looks(Zon)}    },
 	\\    .breeds = ${breeds.to_str()},
 	\\    .cell_per_tile = ${cell_per_tile.to_str()},
+	\\    .levels = .{
+	\\${level_lines(Zon)}    },
 	\\}
 	\\
 
@@ -262,7 +322,7 @@ js =
 	\\export const tile_px = ${tile_px.to_str()};
 	\\export const world_tiles = ${world_tiles.to_str()};
 	\\export const park_tiles = ${park_tiles.to_str()};
-	\\export const cow_count = ${of_kind(Cow).len().to_str()};
+	\\export const cow_count = ${of_kind(level_two, Cow).len().to_str()};
 	\\export const dog_px = ${dog_px.to_str()};
 	\\export const cow_px = ${cow_px.to_str()};
 	\\export const chicken_px = ${chicken_px.to_str()};
@@ -271,6 +331,10 @@ js =
 	\\// Each kind of critter, its number its place here (roc/World.roc).
 	\\export const kinds = [
 	\\${looks(Js)}];
+	\\// The levels, Level One first: each its world and park, in tiles, and how
+	\\// many of each kind it lays out (roc/World.roc's `levels`).
+	\\export const levels = [
+	\\${level_lines(Js)}];
 	\\
 
 main! = |args| {

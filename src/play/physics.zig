@@ -50,11 +50,14 @@ const kind_names = names: {
     const all = n;
     break :names all;
 };
-/// How many critters of each kind, and where each kind's begin among all
-/// (`critterIndex`): the kinds in their order, each its critters in theirs.
+/// How many critters of each kind, the most any level lays out, and where
+/// each kind's begin among all (`critterIndex`): the kinds in their order,
+/// each its critters in theirs.
 pub const counts: [kind_count]u16 = c: {
-    var out: [kind_count]u16 = undefined;
-    for (kinds, &out) |k, *n| n.* = k.spots.len;
+    var out: [kind_count]u16 = @splat(0);
+    for (world_file.levels) |lv| for (lv.spots, &out) |s, *n| {
+        n.* = @max(n.*, s.len);
+    };
     break :c out;
 };
 pub const bases: [kind_count]u16 = b: {
