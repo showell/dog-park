@@ -1,15 +1,20 @@
--- Dog Park's games, one a row: the last kept tick (the snapshot's), the
+-- Dog Park's games, one a row for each level a player has played
+-- (`game-<slot>/level-<n>`): the last kept tick (the snapshot's), the
 -- newest log's start and size (its last activity), and its logs' count and
--- bytes. A game is data/game-<slot>/physics: a `snapshot` and its logs,
+-- bytes. A level's game is data/game-<slot>/level-<n>/physics: a
+-- `snapshot` and its logs,
 -- `log-<start ms>`, each rotated at 1 MiB and kept for an hour
 -- (docs/PHYSICS.md). Reads only: a listing a game, a stat a log, and the
 -- snapshot's first lines. A file in the folder whose name is no log's
 -- (`log-` and a number) is passed by.
 
 local rows = {}
-for name in ls("") do
+for slot in ls("") do
+  if starts_with(slot, "game-") and is_dir(slot) then
+  for lv in ls(slot) do
+  local name = path(slot, lv)
   local dir = path(name, "physics")
-  if starts_with(name, "game-") and is_dir(dir) then
+  if starts_with(lv, "level-") and is_dir(dir) then
     local logs = 0
     local bytes = 0
     local newest = 0
@@ -36,6 +41,8 @@ for name in ls("") do
     local last = "none"
     if newest > 0 then last = date(newest // 1000) end
     push(rows, {game = name, kept = kept, last_log = last, last_log_size = human(newest_bytes), logs = logs, bytes = human(bytes)})
+  end
+  end
   end
 end
 sort(rows, "game")

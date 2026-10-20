@@ -126,11 +126,11 @@ test("the cookbook on the files a real game writes", async () => {
 
   assert.equal((await send(envelope(cookbook("games.shale")))).status, 202);
   const games = await ended();
-  assert.match(games, /\n1 games\ngame +kept +last_log +last_log_size +logs +bytes\ngame-0 +0 +\d{4}-\d\d-\d\dT[\d:]+Z +[\d.]+ (B|KiB) +1 +[\d.]+ (B|KiB)\n$/);
+  assert.match(games, /\n1 games\ngame +kept +last_log +last_log_size +logs +bytes\ngame-0\/level-1 +0 +\d{4}-\d\d-\d\dT[\d:]+Z +[\d.]+ (B|KiB) +1 +[\d.]+ (B|KiB)\n$/);
 
   assert.equal((await send(envelope(cookbook("trouble.shale")))).status, 202);
   const trouble = await ended();
-  assert.match(trouble, /\n1 games, the last hour\ngame +logs +reports +differs +unreadable +overlaps +idle_drags +stuck +refused\ngame-0 +1 +0 +0 +2 +0 +0 +0 +0\n$/);
+  assert.match(trouble, /\n1 games, the last hour\ngame +logs +reports +differs +unreadable +overlaps +idle_drags +stuck +refused\ngame-0\/level-1 +1 +0 +0 +2 +0 +0 +0 +0\n$/);
 });
 
 test("play goes on while a scan of every game's logs runs: the worst wait a report saw", async () => {
@@ -142,7 +142,7 @@ test("play goes on while a scan of every game's logs runs: the worst wait a repo
   const log = finding + differ + report.repeat(Math.floor((1 << 20) / report.length));
   const start = Date.now() - 30 * 60_000;
   for (let g = 1; g <= 5; g++) {
-    const dir = join(data, `game-${g}`, "physics");
+    const dir = join(data, `game-${g}`, "level-2", "physics");
     mkdirSync(dir, { recursive: true });
     for (let i = 0; i < 10; i++) writeFileSync(join(dir, `log-${start + i * 60_000}`), log);
   }
@@ -165,7 +165,7 @@ test("play goes on while a scan of every game's logs runs: the worst wait a repo
     if (!/ running: /.test((await timed(status)).text)) break;
   }
   const done = await ended();
-  assert.match(done, /game-5 +10 +\d+ +10 +10 +0 +0 +0 +0\n$/);
+  assert.match(done, /game-5\/level-2 +10 +\d+ +10 +10 +0 +0 +0 +0\n$/);
   console.log(`# a scan of 50 MiB of logs ran beside ${reports} reports; the worst wait a request saw: ${worst.toFixed(1)} ms`);
   // A slice, and the request's own time: never the scan's.
   assert.ok(worst < 250, `a request waited ${worst} ms`);

@@ -30,7 +30,7 @@ test("a load: a new epoch, kept 0, nothing leashed, no tiles", async () => {
   const a = await post("/load", `dogpark 2 physics ${hash} load 1280x800\n`);
   assert.equal(a.status, 200);
   assert.equal(a.type, "text/plain; charset=utf-8");
-  const m = a.text.match(/^epoch (\d+)\.1\nkept 0\nstate leash none drag none laid 0 view 1280x800 held\n$/);
+  const m = a.text.match(/^epoch (\d+)\.1\nkept 0\nlevel 1 of 1\nstate leash none drag none laid 0 view 1280x800 held\n$/);
   assert.ok(m, a.text);
   epoch = `${m[1]}.1`;
   assert.ok(Math.abs(Number(m[1]) - Date.now()) < 60_000, "the epoch is the run's start, Unix ms");
@@ -71,7 +71,7 @@ test("a second load takes over; a restart issues a new epoch, and the old page i
   // The new run's log is made by its first entry: this load's.
   assert.match((await post("/load", `dogpark 2 physics ${hash} load 640x480\n`)).text, /^epoch \d+\.1\n/);
   // The account's game: its own folder, a log for each run, a snapshot.
-  const files = readdirSync(join(server.dir, "data", "game-0", "physics")).sort();
+  const files = readdirSync(join(server.dir, "data", "game-0", "level-1", "physics")).sort();
   assert.equal(files.filter((f) => f.startsWith("log-")).length, 2, files.join(" "));
   assert.ok(files.includes("snapshot"));
 });
