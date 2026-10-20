@@ -31,12 +31,12 @@ const mid: i32 = (tiles.room_tiles * tiles.tile_px) / 2;
 
 test "physics.zig's Kind numbers the kinds as World.roc's kinds does, each its size" {
     const kinds = @import("world.zig").world.kinds;
-    const fields = @typeInfo(physics.Kind).@"enum".fields;
-    try testing.expectEqual(fields.len, kinds.len);
-    inline for (fields) |f| {
-        try testing.expectEqualStrings(f.name, kinds[f.value].name);
-        const half = physics.Critter.half(.{ .kind = @enumFromInt(f.value), .n = 0 });
-        try testing.expectEqual(physics.px(kinds[f.value].px / 2), half);
+    const info = @typeInfo(physics.Kind).@"enum";
+    try testing.expectEqual(info.field_names.len, kinds.len);
+    inline for (info.field_names, info.field_values) |name, value| {
+        try testing.expectEqualStrings(name, kinds[value].name);
+        const half = physics.Critter.half(.{ .kind = @fromBackingInt(@intCast(value)), .n = 0 });
+        try testing.expectEqual(physics.px(kinds[value].px / 2), half);
     }
 }
 

@@ -50,7 +50,7 @@ pub const Kept = struct {
 /// A set of a world's tiles, one bit each, sized by the room (any level's
 /// tile is one of the room's).
 pub const Tiles = struct {
-    bits: std.StaticBitSet(tiles.room_tiles * tiles.room_tiles) = .initEmpty(),
+    bits: std.StaticBitSet(tiles.room_tiles * tiles.room_tiles) = .empty,
 
     fn index(t: tiles.Tile) usize {
         return @as(usize, @intCast(t.row)) * tiles.room_tiles + @as(usize, @intCast(t.col));

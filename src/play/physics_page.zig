@@ -239,7 +239,7 @@ export fn writeHeader(epoch_ms: f64, epoch_count: f64, req: f64, from: f64, wall
 pub const HumanKind = enum(u32) { release = 0, leash = 1, grab = 2, letgo = 3 };
 
 fn humanOf(kind: u32, dog: u32) physics.Human {
-    return switch (@as(HumanKind, @enumFromInt(kind))) {
+    return switch (@as(HumanKind, @fromBackingInt(@intCast(kind)))) {
         .release => .{ .release = @intCast(dog) },
         .leash => .{ .leash = @intCast(dog) },
         .grab => .grab,
@@ -253,8 +253,8 @@ fn humanOf(kind: u32, dog: u32) physics.Human {
 /// unchanged.
 export fn human(b: u32, kind: u32, t: f64, dog: u32) i32 {
     const h = humanOf(kind, dog);
-    if (h != .grab and h != .letgo and dog >= physics.countOf(physics.leashed_kind)) return -1 - @as(i32, @intFromEnum(physics.Refusal.leash_no_such_dog));
-    if (physics.input(board(b), &begun[b], h)) |r| return -1 - @as(i32, @intFromEnum(r));
+    if (h != .grab and h != .letgo and dog >= physics.countOf(physics.leashed_kind)) return -1 - @as(i32, @backingInt(physics.Refusal.leash_no_such_dog));
+    if (physics.input(board(b), &begun[b], h)) |r| return -1 - @as(i32, @backingInt(r));
     var w = out();
     const at: Tick = tickOf(t);
     wire.write(&w, switch (h) {
@@ -573,14 +573,14 @@ export fn readInput(len: u32) i32 {
     return switch (h.h) {
         .release => |d| blk: {
             ints_buf[0] = d;
-            break :blk @intFromEnum(HumanKind.release);
+            break :blk @backingInt(HumanKind.release);
         },
         .leash => |d| blk: {
             ints_buf[0] = d;
-            break :blk @intFromEnum(HumanKind.leash);
+            break :blk @backingInt(HumanKind.leash);
         },
-        .grab => @intFromEnum(HumanKind.grab),
-        .letgo => @intFromEnum(HumanKind.letgo),
+        .grab => @backingInt(HumanKind.grab),
+        .letgo => @backingInt(HumanKind.letgo),
     };
 }
 
@@ -610,7 +610,7 @@ fn leashAndDrag(report: *std.ArrayList(u8), k: *judge.Kept, n: u32) !void {
     boards[kept] = boards[live];
     k.* = .{ .tick = 0, .board = physics.Board.laidOut() };
     try report.appendSlice(testing.allocator, outText(writeHeader(1791935990000, 1, 1, 0, 1791936000000)));
-    try report.appendSlice(testing.allocator, outText(@intCast(human(live, @intFromEnum(HumanKind.leash), 1, the_dog))));
+    try report.appendSlice(testing.allocator, outText(@intCast(human(live, @backingInt(HumanKind.leash), 1, the_dog))));
     const r = regionTiles(live);
     const span = physics.TileSpan.of(physics.room, physics.room.region(boards[live].of(physics.leashed_kind)[the_dog]));
     try testing.expectEqual(@as(u32, @intCast((span.col_hi - span.col_lo + 1) * (span.row_hi - span.row_lo + 1))), r);
@@ -633,7 +633,7 @@ test "regionTiles: the region is the world, every tile named once, wherever the 
     reset(physics.last_level);
     boards[live] = physics.Board.laidOut();
     boards[live].place(.of(.dog, the_dog), .{ .x = physics.px(200), .y = physics.px(200) });
-    _ = human(live, @intFromEnum(HumanKind.leash), 1, the_dog);
+    _ = human(live, @backingInt(HumanKind.leash), 1, the_dog);
     const n = regionTiles(live);
     try testing.expectEqual(@as(u32, tiles.room_tiles * tiles.room_tiles), n);
     var named: wire.TileSet = .{};
@@ -695,7 +695,7 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
     try testing.expectEqual(@as(f64, 12), dragOf(scratch));
     try testing.expectEqualSlices(i32, &.{ 640, 480, 2, 3, 4, 5, 5, 1, 5, 5 }, ints_buf[0..10]);
 
-    try testing.expectEqual(@as(i32, @intFromEnum(HumanKind.leash)), readInput(putLine("input leash 9 19")));
+    try testing.expectEqual(@as(i32, @backingInt(HumanKind.leash)), readInput(putLine("input leash 9 19")));
     try testing.expectEqual(@as(i32, 19), ints_buf[0]);
     try testing.expectEqual(@as(f64, 9), lineTick());
     try testing.expectEqual(@as(i32, -1), readInput(putLine("input view 9 1x1")));
@@ -714,9 +714,9 @@ test "a differ's state, input and board lines read back onto a board; a tile lin
 test "a refused input leaves the board and writes nothing" {
     reset(physics.last_level);
     boards[live] = physics.Board.laidOut();
-    try testing.expectEqual(@as(i32, -1 - @as(i32, @intFromEnum(physics.Refusal.grab_unleashed))), human(live, @intFromEnum(HumanKind.grab), 1, 0));
-    try testing.expect(human(live, @intFromEnum(HumanKind.leash), 1, 4) > 0);
+    try testing.expectEqual(@as(i32, -1 - @as(i32, @backingInt(physics.Refusal.grab_unleashed))), human(live, @backingInt(HumanKind.grab), 1, 0));
+    try testing.expect(human(live, @backingInt(HumanKind.leash), 1, 4) > 0);
     try testing.expectEqualStrings("leash 1 4\n", out_buf[0..10]);
-    try testing.expectEqual(@as(i32, -1 - @as(i32, @intFromEnum(physics.Refusal.leash_while_leashed))), human(live, @intFromEnum(HumanKind.leash), 1, 5));
+    try testing.expectEqual(@as(i32, -1 - @as(i32, @backingInt(physics.Refusal.leash_while_leashed))), human(live, @backingInt(HumanKind.leash), 1, 5));
     try testing.expectEqual(@as(i32, 4), leashedDog(live));
 }

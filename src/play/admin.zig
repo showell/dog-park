@@ -279,11 +279,10 @@ pub fn game(req: *Request, io: Io, alloc: Alloc, v: View) !void {
         const herd = largestHerd(&k.board);
         const cows = presentCows(&k.board);
         try b.print(alloc, "<tr><td>{d}</td><td>{d} of {d}</td><td>{s}</td><td>{s}</td><td>{d}</td><td>{d}</td><td{s}>{d} of {d}</td><td>{d}</td><td>{s}</td><td{s}>{s}</td></tr>", .{
-            slot,                                                            g.level(),                            @max(g.unlocked, g.level()),
-            ago,                                                             leash,                                k.tick,
-            g.epoch,                                                         if (won(&k.board)) " class=\"bad\"" else "",
-            herd,                                                            cows,                                 poops,
-            try html.htmlEscape(alloc, logs),
+            slot,                                                            g.level(),                                   @max(g.unlocked, g.level()),
+            ago,                                                             leash,                                       k.tick,
+            g.epoch,                                                         if (won(&k.board)) " class=\"bad\"" else "", herd,
+            cows,                                                            poops,                                       try html.htmlEscape(alloc, logs),
             if (f.overlaps > 0 or g.stuck != null) " class=\"bad\"" else "", try html.htmlEscape(alloc, findings),
         });
     }

@@ -71,14 +71,14 @@ pub const bases: [kind_count]u16 = b: {
 };
 pub const critter_count: comptime_int = bases[kind_count - 1] + counts[kind_count - 1];
 pub inline fn countOf(k: Kind) u16 {
-    return counts[@intFromEnum(k)];
+    return counts[@backingInt(k)];
 }
 /// The kind a human leashes: the world's one with `leash`.
 pub const leashed_kind: Kind = l: {
     var found: ?Kind = null;
     for (kinds, 0..) |k, i| if (k.leash) {
         if (found != null) @compileError("world.zon: two kinds leash");
-        found = @enumFromInt(i);
+        found = @fromBackingInt(@intCast(i));
     };
     break :l found orelse @compileError("world.zon: no kind leashes");
 };
@@ -88,7 +88,7 @@ pub const by_rank: [kind_count]Kind = r: {
     var out: [kind_count]Kind = undefined;
     var n: usize = 0;
     for (0..kind_count) |rk| for (kinds, 0..) |k, i| if (k.rank == rk) {
-        out[n] = @enumFromInt(i);
+        out[n] = @fromBackingInt(@intCast(i));
         n += 1;
     };
     if (n != kind_count) @compileError("world.zon: the kinds' ranks are not 0 .. kinds - 1, each once");
@@ -100,7 +100,7 @@ pub const by_rank: [kind_count]Kind = r: {
 pub const ranked: [critter_count]Critter = r: {
     var out: [critter_count]Critter = undefined;
     var n: usize = 0;
-    for (by_rank) |k| for (0..counts[@intFromEnum(k)]) |i| {
+    for (by_rank) |k| for (0..counts[@backingInt(k)]) |i| {
         out[n] = .{ .kind = k, .n = i };
         n += 1;
     };
@@ -111,8 +111,8 @@ const rank_base: [kind_count]u32 = r: {
     var out: [kind_count]u32 = undefined;
     var sum: u32 = 1;
     for (by_rank) |k| {
-        out[@intFromEnum(k)] = sum;
-        sum += counts[@intFromEnum(k)];
+        out[@backingInt(k)] = sum;
+        sum += counts[@backingInt(k)];
     }
     break :r out;
 };
@@ -283,10 +283,10 @@ comptime {
 /// spacings below (Steve, 2026-10-15: "on a small screen we need a little
 /// more density"); chickens and poop kept.
 pub inline fn pxOf(k: Kind) i32 {
-    return kinds[@intFromEnum(k)].px;
+    return kinds[@backingInt(k)].px;
 }
 pub inline fn halfOf(k: Kind) i32 {
-    return halves[@intFromEnum(k)];
+    return halves[@backingInt(k)];
 }
 const halves: [kind_count]i32 = h: {
     var out: [kind_count]i32 = undefined;
@@ -427,7 +427,7 @@ pub const Board = struct {
     known_at: [critter_count]Known,
     /// How far each critter of the leashed kind has walked, in 256ths (its
     /// steps' larger axes): its poops so far are this over `poop_every`.
-    walked: [counts[@intFromEnum(leashed_kind)]]u32,
+    walked: [counts[@backingInt(leashed_kind)]]u32,
     /// The poop slots, and how many poops the park has laid since its
     /// layout: the next takes slot `laid` mod `poop_count`.
     poops: [poop_count]Point,
@@ -492,16 +492,16 @@ pub const Board = struct {
     /// Kind `k`'s points, critter n at n; and whether the board has each
     /// (`ofMut` and `knownOfMut` to change them).
     pub fn of(self: *const Board, k: Kind) []const Point {
-        return self.points[bases[@intFromEnum(k)]..][0..countOf(k)];
+        return self.points[bases[@backingInt(k)]..][0..countOf(k)];
     }
     pub fn knownOf(self: *const Board, k: Kind) []const Known {
-        return self.known_at[bases[@intFromEnum(k)]..][0..countOf(k)];
+        return self.known_at[bases[@backingInt(k)]..][0..countOf(k)];
     }
     pub fn ofMut(self: *Board, k: Kind) []Point {
-        return self.points[bases[@intFromEnum(k)]..][0..countOf(k)];
+        return self.points[bases[@backingInt(k)]..][0..countOf(k)];
     }
     pub fn knownOfMut(self: *Board, k: Kind) []Known {
-        return self.known_at[bases[@intFromEnum(k)]..][0..countOf(k)];
+        return self.known_at[bases[@backingInt(k)]..][0..countOf(k)];
     }
 
     pub fn leashedDog(self: *const Board) ?u16 {
@@ -516,7 +516,7 @@ pub const Board = struct {
 /// n is 1 + cows + n, chicken n after every dog. Lower is more alpha.
 pub fn rank(leashed: ?u16, c: Critter) u32 {
     if (c.kind == leashed_kind and leashed != null and leashed.? == c.n) return 0;
-    return rank_base[@intFromEnum(c.kind)] + c.n;
+    return rank_base[@backingInt(c.kind)] + c.n;
 }
 
 /// A closed rectangle, in 256ths, in some frame (`nearestCopy`): its
@@ -762,7 +762,7 @@ pub const Lines = struct {
 
 /// A critter's index among all: dog n is n, cow n is dogs + n.
 pub fn critterIndex(c: Critter) usize {
-    return bases[@intFromEnum(c.kind)] + @as(usize, c.n);
+    return bases[@backingInt(c.kind)] + @as(usize, c.n);
 }
 
 /// A critter the physics sees this tick: in a tile the region meets.
@@ -840,9 +840,9 @@ pub const Scene = struct {
             if (k != leashed_kind or i != l) s.consider(.of(k, @intCast(i)), span, l);
         };
         s.cells.clear(s.geo.span_cells);
-        s.poop_listed = .initEmpty();
+        s.poop_listed = .empty;
         s.poop_head = @splat(@splat(no_poop));
-        s.poop_laid = .initEmpty();
+        s.poop_laid = .empty;
         for (0..poop_count) |i| {
             if (b.poop_known[i] == .present and span.holdsPoint(b.poops[i])) s.listPoop(@intCast(i));
         }
@@ -1206,7 +1206,7 @@ fn lendCrits(sc: *Scene) void {
             .x = p.x,
             .y = p.y,
             .half = o.half,
-            .kind = @intFromEnum(o.who.kind),
+            .kind = @backingInt(o.who.kind),
             .kin = kinOf(o.who) orelse roc.no_kin,
             .key = if (j == 0) roc.visited else roc.not_lined_up,
         });
@@ -1247,9 +1247,9 @@ fn onPoop(sc: *const Scene, p: Point, h: i32) bool {
 /// Who nudges whom, by the kind's `kin` (world.zon): a breed kind's
 /// critters, each breed one kin; a herd kind's, all one; nobody.
 fn kinOf(c: Critter) ?u8 {
-    return switch (kinds[@intFromEnum(c.kind)].kin) {
+    return switch (kinds[@backingInt(c.kind)].kin) {
         .breed => @intCast(c.n % breeds),
-        .herd => herd_kin[@intFromEnum(c.kind)],
+        .herd => herd_kin[@backingInt(c.kind)],
         .none => null,
     };
 }

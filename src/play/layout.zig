@@ -46,14 +46,14 @@ const homes = h: {
 /// (docs/PHYSICS.md, "Poop and chickens"). Only a critter the level lays
 /// out has one.
 pub fn home(level: physics.Level, c: physics.Critter) physics.Point {
-    return homes[level][@intFromEnum(c.kind)][c.n];
+    return homes[level][@backingInt(c.kind)][c.n];
 }
 
 /// `level`'s first layout: the critters it lays out present, at their
 /// homes, every other critter absent, no one leashed.
 pub fn board(level: physics.Level) physics.Board {
     var b = physics.Board.emptyAt(level);
-    for (0..physics.kind_count) |k| for (homes[level][k], 0..) |p, n| b.place(.of(@enumFromInt(k), @intCast(n)), p);
+    for (0..physics.kind_count) |k| for (homes[level][k], 0..) |p, n| b.place(.of(@fromBackingInt(@intCast(k)), @intCast(n)), p);
     return b;
 }
 
@@ -65,7 +65,7 @@ fn noOverlap(b: *const physics.Board) !void {
     var all: [physics.critter_count]struct { p: physics.Point, half: i32 } = undefined;
     var len: usize = 0;
     for (0..physics.kind_count) |k| for (0..physics.counts[k]) |n| {
-        const c: physics.Critter = .of(@enumFromInt(k), @intCast(n));
+        const c: physics.Critter = .of(@fromBackingInt(@intCast(k)), @intCast(n));
         if (b.known(c) != .present) continue;
         all[len] = .{ .p = b.at(c), .half = c.half() };
         len += 1;
@@ -83,7 +83,7 @@ test "the first layout: no two critters overlap (a load puts it back without res
 test "the first layout: every critter present, at its home" {
     const b = board(physics.last_level);
     for (0..physics.kind_count) |k| for (0..physics.counts[k]) |n| {
-        const c: physics.Critter = .of(@enumFromInt(k), @intCast(n));
+        const c: physics.Critter = .of(@fromBackingInt(@intCast(k)), @intCast(n));
         try testing.expectEqual(physics.Known.present, b.known(c));
         try testing.expectEqual(b.at(c), home(b.level, c));
     };
@@ -97,10 +97,10 @@ test "Level One's first layout: 16 dogs and 2 cows present at their homes (and w
     try testing.expectEqual(physics.px(4 * 350), g.world);
     var present: [physics.kind_count]usize = undefined;
     for (world.levels[0].spots, &present) |spots, *n| n.* = spots.len;
-    try testing.expectEqual(@as(usize, 16), present[@intFromEnum(physics.Kind.dog)]);
-    try testing.expectEqual(@as(usize, 2), present[@intFromEnum(physics.Kind.cow)]);
+    try testing.expectEqual(@as(usize, 16), present[@backingInt(physics.Kind.dog)]);
+    try testing.expectEqual(@as(usize, 2), present[@backingInt(physics.Kind.cow)]);
     for (0..physics.kind_count) |k| for (0..physics.counts[k]) |n| {
-        const c: physics.Critter = .of(@enumFromInt(k), @intCast(n));
+        const c: physics.Critter = .of(@fromBackingInt(@intCast(k)), @intCast(n));
         if (n < present[k]) {
             try testing.expectEqual(physics.Known.present, b.known(c));
             try testing.expectEqual(home(0, c), b.at(c));

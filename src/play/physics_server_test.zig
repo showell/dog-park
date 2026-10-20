@@ -1091,7 +1091,7 @@ test "the closed logs kept: one goes an hour after it ended (its successor's sta
     // Four closed logs before the one being written, each 100 bytes.
     const now = t0 + 10 * hour;
     const ids = [_]u64{ now - 3 * hour, now - 2 * hour, now - hour / 2, now - hour / 4 };
-    for (ids) |id| try webbox.store.write(rig.io(), a, try std.fs.path.join(a, &.{ rig.server.dir, try std.fmt.allocPrint(a, "log-{d}", .{id}) }), "x" ** 100, .{});
+    for (ids) |id| try webbox.store.write(rig.io(), a, try std.fs.path.join(a, &.{ rig.server.dir, try std.fmt.allocPrint(a, "log-{d}", .{id}) }), &@as([100]u8, @splat('x')), .{});
     rig.server.log_started = now - 60_000;
     try webbox.store.write(rig.io(), a, try std.fs.path.join(a, &.{ rig.server.dir, try std.fmt.allocPrint(a, "log-{d}", .{rig.server.log_started}) }), "y", .{});
     // The run's own first log (t0) ended when the first of ours began: stale.

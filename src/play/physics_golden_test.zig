@@ -79,7 +79,6 @@ fn played(dog: u16, n_ticks: physics.Tick) u64 {
         const drag = [1]physics.Disp{.{ .dx = physics.px(hx * r.intRangeAtMost(i32, 20, 100)), .dy = physics.px(hy * r.intRangeAtMost(i32, 20, 100)) }};
         const humans: []const physics.Human = if (b.hold == .leashed and b.hold.leashed.drag != .on) &.{.grab} else &.{};
         if (physics.tick(&b, t, humans, &drag, &lines)) |refusal| std.debug.panic("refused: {t}", .{refusal});
-
     }
     return hashOf(&b);
 }

@@ -54,7 +54,7 @@ pub fn build(b: *std.Build) void {
     // `.embedded` names it for a kernel's build, and compiled into this
     // build's play server by the same name, which serves it as
     // /physics-<hash>.wasm.
-    const physics_page_wasm = pageWasm(b, wasm32, .ReleaseSafe, physics_mod, roc_lib);
+    const physics_page_wasm = pageWasm(b, wasm32, .safe, physics_mod, roc_lib);
     const page_wasm_install = b.addInstallArtifact(physics_page_wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } });
     b.getInstallStep().dependOn(&page_wasm_install.step);
     const page_wasm = physics_page_wasm.getEmittedBin();
@@ -83,7 +83,7 @@ pub fn build(b: *std.Build) void {
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);
-    if (b.args) |args| play_run.addArgs(args);
+    play_run.addPassthruArgs();
     b.step("play", "Serve the played Dog Park (solo/) on port 9103, every interface unless DOGPARK_BIND names one").dependOn(&play_run.step);
 
     // **DOG PARK ON METAL** (metal-vmm QUEUE 215): zig-metal-unikernel's
@@ -113,7 +113,7 @@ pub fn build(b: *std.Build) void {
                 .name = "dogpark.elf",
                 .module = metal_app,
                 .assets = b.path("assets.zon"),
-                .optimize = .ReleaseSafe,
+                .optimize = .safe,
             });
             metal_step.dependOn(&b.addInstallArtifact(dogpark_elf, .{}).step);
         }
@@ -244,7 +244,7 @@ pub fn build(b: *std.Build) void {
 
     const slow = b.step("slow", "The slow tier: the full fuzz natively, the physics' tests on wasm32 in ReleaseSafe (as served) with the full fuzz, every node test");
     slow.dependOn(units.all(.full));
-    units.onWasm(wasi, wasm32, .ReleaseSafe, .full, slow);
+    units.onWasm(wasi, wasm32, .safe, .full, slow);
     for (node_fast ++ node_server) |f| slow.dependOn(nodeTest(b, f));
 
     // ── the benches (no tier runs them) ─────────────────────────────────────
@@ -253,7 +253,7 @@ pub fn build(b: *std.Build) void {
     const physics_bench = b.addExecutable(.{ .name = "physics_bench", .root_module = b.createModule(.{
         .root_source_file = b.path("src/play/physics_bench.zig"),
         .target = target,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{.{ .name = "physics_options", .module = physics_mod }},
     }) });
     linkRoc(roc_lib, physics_bench.root_module, null);
@@ -261,7 +261,7 @@ pub fn build(b: *std.Build) void {
     // `zig build physics-bench -- herd` (or `busiest`, `strewn`, `rerun`): one of the
     // bench's ticks alone, a fixed number of runs, for a profiler (metal-vmm
     // QUEUE 202).
-    if (b.args) |args| physics_bench_run.addArgs(args);
+    physics_bench_run.addPassthruArgs();
     b.step("physics-bench", "Time a physics tick natively (ReleaseSafe); -- herd, busiest, strewn or rerun: that one alone, for a profiler").dependOn(&physics_bench_run.step);
 
     // **THE WALK'S JUDGE**: the bench's `-- judge` (its `lines` workload:
@@ -272,7 +272,7 @@ pub fn build(b: *std.Build) void {
     const judged_bench = b.addExecutable(.{ .name = "physics_bench_judged", .root_module = b.createModule(.{
         .root_source_file = b.path("src/play/physics_bench.zig"),
         .target = target,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{.{ .name = "physics_options", .module = physicsOptions(b, true) }},
     }) });
     linkRoc(roc_lib, judged_bench.root_module, null);
@@ -284,15 +284,15 @@ pub fn build(b: *std.Build) void {
 
     // A 16-tick report's round trip through POST /report, in process
     // (ReleaseSafe): the route, the judge's re-run, the log's append.
-    const webbox_rs = b.dependency("webbox", .{ .target = target, .optimize = .ReleaseSafe });
+    const webbox_rs = b.dependency("webbox", .{ .target = target, .optimize = .safe });
     const server_bench_mod = b.createModule(.{
         .root_source_file = b.path("src/play/physics_server_bench.zig"),
         .target = target,
-        .optimize = .ReleaseSafe,
+        .optimize = .safe,
         .imports = &.{
             .{ .name = "webbox", .module = webbox_rs.module("webbox") },
             .{ .name = "host_io", .module = webbox_rs.module("host_io") },
-            .{ .name = "shale", .module = b.dependency("shale", .{ .target = target, .optimize = .ReleaseSafe }).module("shale") },
+            .{ .name = "shale", .module = b.dependency("shale", .{ .target = target, .optimize = .safe }).module("shale") },
             .{ .name = "physics_options", .module = physics_mod },
             .{ .name = "dogpark_build", .module = build_mod },
         },
@@ -428,9 +428,9 @@ fn rocCompiler(b: *std.Build) []const u8 {
     const named = b.option([]const u8, "roc", "the Roc compiler (default: `roc` on the PATH); every build needs one, the version roc/roc-version pins") orelse "roc";
     const none = "Dog Park's physics is built from Roc, and there is no Roc compiler at `{s}`: put Roc {s} (roc/roc-version) on the PATH, or name it with -Droc=<path>";
     const found = if (std.mem.indexOfScalar(u8, named, '/') == null)
-        b.findProgram(&.{named}, &.{}) catch std.process.fatal(none, .{ named, roc_pin })
+        b.findProgram(.{ .names = &.{named} }) orelse std.process.fatal(none, .{ named, roc_pin })
     else
-        b.build_root.handle.realPathFileAlloc(b.graph.io, named, b.allocator) catch std.process.fatal(none, .{ named, roc_pin });
+        b.root.root_dir.handle.realPathFileAlloc(b.graph.io, named, b.allocator) catch std.process.fatal(none, .{ named, roc_pin });
     const said = std.mem.trim(u8, b.run(&.{ found, "version" }), " \n");
     const version = if (std.mem.lastIndexOfScalar(u8, said, ' ')) |i| said[i + 1 ..] else said;
     if (!std.mem.eql(u8, version, roc_pin)) std.process.fatal("Dog Park's physics is pinned to Roc {s} (roc/roc-version), and `{s}` is {s}: put the pinned one on the PATH or name it with -Droc=<path>, or move the pin on purpose (a new Roc is new archives: judge them)", .{ roc_pin, found, version });
@@ -471,7 +471,7 @@ const Stamp = enum { on, off };
 fn buildOptions(b: *std.Build, stamp: Stamp) *std.Build.Module {
     const options = b.addOptions();
     options.addOption([]const u8, "commit", switch (stamp) {
-        .on => commitOf(b, b.pathFromRoot(".")),
+        .on => commitOf(b, pathFromRoot(b, ".")),
         .off => "unstamped",
     });
     options.addOption([]const u8, "roc", roc_pin);
@@ -492,7 +492,7 @@ fn commitOf(b: *std.Build, dir: []const u8) []const u8 {
 /// The physics' build options, `physics_options`: its hash.
 fn physicsOptions(b: *std.Build, walk_judge: bool) *std.Build.Module {
     const options = b.addOptions();
-    options.addOption(u32, "physics_hash", physicsHash(b, b.pathFromRoot("src/play")));
+    options.addOption(u32, "physics_hash", physicsHash(b, pathFromRoot(b, "src/play")));
     options.addOption(bool, "walk_judge", walk_judge);
     return options.createModule();
 }
@@ -505,7 +505,8 @@ fn physicsHash(b: *std.Build, dir: []const u8) u32 {
     const list_path = b.fmt("{s}/physics_sources.zon", .{dir});
     const list = std.Io.Dir.cwd().readFileAlloc(io, list_path, b.allocator, .limited(1 << 16)) catch |e|
         std.process.fatal("the physics hash's sources: {s} does not read ({t})", .{ list_path, e });
-    const names = std.zon.parse.fromSliceAlloc([]const []const u8, b.allocator, b.allocator.dupeZ(u8, list) catch @panic("out of memory"), null, .{}) catch
+    var diag: std.zon.parse.Diagnostics = undefined;
+    const names = std.zon.parse.fromSlice([]const []const u8, .{ .gpa = b.allocator, .arena = b.allocator, .source = b.allocator.dupeSentinel(u8, list, 0) catch @panic("out of memory"), .diagnostics = &diag }) catch
         std.process.fatal("{s} is not a list of file names", .{list_path});
     var crc = std.hash.Crc32.init();
     for (names) |name| {
@@ -514,4 +515,16 @@ fn physicsHash(b: *std.Build, dir: []const u8) u32 {
             std.process.fatal("the physics hash's source {s} does not read ({t})", .{ path, e }));
     }
     return crc.final();
+}
+
+/// `builder`'s build root as an absolute path: 0.17's `b.root` may hold a
+/// relative one, and these paths are handed to other processes and builds.
+fn rootOf(builder: *std.Build) []const u8 {
+    return builder.root.root_dir.handle.realPathFileAlloc(builder.graph.io, builder.root.subPathOrDot(), builder.allocator) catch |e|
+        std.debug.panic("the build root {f}: {t}", .{ builder.root, e });
+}
+
+/// `sub` under this build's root, absolute (0.17 removed `b.pathFromRoot`).
+fn pathFromRoot(b: *std.Build, sub: []const u8) []const u8 {
+    return b.pathJoin(&.{ rootOf(b), sub });
 }
