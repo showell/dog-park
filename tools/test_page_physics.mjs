@@ -91,7 +91,7 @@ test("1. an unleashed pan: the view brings its tiles' critters, then the page ho
     await rig.load();
     await rig.ticks(8);
     const [first, second] = reports(rig);
-    assert.match(first, /^dogpark 1 physics [0-9a-f]{8} page \d+\.1 req 1\nfrom 0\nview 1 1280x800( \d+,\d+)+\n$/);
+    assert.match(first, /^dogpark 2 physics [0-9a-f]{8} page \d+\.1 req 1\nfrom 0\nview 1 1280x800( \d+,\d+)+\n$/);
     const viewTiles = first.split("\n")[2].split(" ").slice(3);
     // The answer: its tiles' critters, a tile line each.
     const a1 = wire.answers.find((a) => a.sent === first);

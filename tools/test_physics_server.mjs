@@ -25,18 +25,18 @@ let epoch;
 
 test("a load: a new epoch, kept 0, nothing leashed, no tiles", async () => {
   // The hash: a load with a wrong one is told the server's.
-  const wrong = await post("/load", "dogpark 1 physics 00000000 load 1280x800\n");
+  const wrong = await post("/load", "dogpark 2 physics 00000000 load 1280x800\n");
   hash = wrong.text.match(/^reload physics ([0-9a-f]{8})\n$/)[1];
-  const a = await post("/load", `dogpark 1 physics ${hash} load 1280x800\n`);
+  const a = await post("/load", `dogpark 2 physics ${hash} load 1280x800\n`);
   assert.equal(a.status, 200);
   assert.equal(a.type, "text/plain; charset=utf-8");
-  const m = a.text.match(/^epoch (\d+)\.1\nkept 0\nstate leash none drag none laid 0 view 1280x800 held\n$/);
+  const m = a.text.match(/^epoch (\d+)\.1\nkept 0\nlevel 1 of 1\nstate leash none drag none laid 0 view 1280x800 held\n$/);
   assert.ok(m, a.text);
   epoch = `${m[1]}.1`;
   assert.ok(Math.abs(Number(m[1]) - Date.now()) < 60_000, "the epoch is the run's start, Unix ms");
 });
 
-const header = (req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\nfrom 0\n`;
+const header = (req) => `dogpark 2 physics ${hash} page ${epoch} req ${req}\nfrom 0\n`;
 
 test("an unleashed pan: a view gets its tiles' critters; the resend gets the same bytes", async () => {
   const body = header(1) + "view 1 1280x800 1,1 0,1\n";
@@ -53,7 +53,7 @@ test("an unleashed pan: a view gets its tiles' critters; the resend gets the sam
 
 test("req ?, reload epoch, and a body past 64 KiB is a 413 (64 KiB itself is read)", async () => {
   assert.equal((await post("/report", "hello\n")).text, "req ?\n");
-  assert.equal((await post("/report", `dogpark 1 physics ${hash} page 1.1 req 3\nfrom 0\n`)).text, "req 3\nreload epoch\n");
+  assert.equal((await post("/report", `dogpark 2 physics ${hash} page 1.1 req 3\nfrom 0\n`)).text, "req 3\nreload epoch\n");
   assert.equal((await post("/report", "x".repeat(64 * 1024 + 1))).status, 413);
   const at = await post("/report", "x".repeat(64 * 1024));
   assert.equal(at.status, 200);
@@ -61,17 +61,17 @@ test("req ?, reload epoch, and a body past 64 KiB is a 413 (64 KiB itself is rea
 });
 
 test("a second load takes over; a restart issues a new epoch, and the old page is told reload epoch", async () => {
-  const second = await post("/load", `dogpark 1 physics ${hash} load 640x480\n`);
+  const second = await post("/load", `dogpark 2 physics ${hash} load 640x480\n`);
   assert.match(second.text, /^epoch \d+\.2\n/);
   assert.equal((await post("/report", header(3) + "held 1\n")).text, "req 3\ntaken over\n");
   const newest = second.text.match(/^epoch (\S+)\n/)[1];
   await server.restart();
-  const old = `dogpark 1 physics ${hash} page ${newest} req 1\nfrom 0\n`;
+  const old = `dogpark 2 physics ${hash} page ${newest} req 1\nfrom 0\n`;
   assert.equal((await post("/report", old)).text, "req 1\nreload epoch\n");
   // The new run's log is made by its first entry: this load's.
-  assert.match((await post("/load", `dogpark 1 physics ${hash} load 640x480\n`)).text, /^epoch \d+\.1\n/);
+  assert.match((await post("/load", `dogpark 2 physics ${hash} load 640x480\n`)).text, /^epoch \d+\.1\n/);
   // The account's game: its own folder, a log for each run, a snapshot.
-  const files = readdirSync(join(server.dir, "data", "game-0", "physics")).sort();
+  const files = readdirSync(join(server.dir, "data", "game-0", "level-1", "physics")).sort();
   assert.equal(files.filter((f) => f.startsWith("log-")).length, 2, files.join(" "));
   assert.ok(files.includes("snapshot"));
 });

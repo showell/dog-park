@@ -22,7 +22,7 @@ const doc_hash: u32 = 0x5e0c91a2;
 /// The doc's report, golden: on a retune its test fails with the page's
 /// own run printed, which goes here and into the doc.
 pub const example_report =
-    \\dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4
+    \\dogpark 2 physics 5e0c91a2 page 1791935990000.3 req 4
     \\from 1040 wall 1791936000000
     \\t 1041 +0 drag -1.00,0@3 -2.00,0@19
     \\ dog 19 3e8.00,3e8.00 > 3e5.00,3e8.00
@@ -94,7 +94,7 @@ pub fn exampleKept() judge_mod.Kept {
 pub fn examplePageRun(buf: []u8) ![]const u8 {
     var b = exampleBoard();
     var w: wire.Text = .{ .buf = buf };
-    try wire.write(&w, .{ .header = .{ .language = 1, .physics = doc_hash, .epoch = .{ .ms = 1791935990000, .count = 3 }, .req = 4 } });
+    try wire.write(&w, .{ .header = .{ .language = wire.language, .physics = doc_hash, .epoch = .{ .ms = 1791935990000, .count = 3 }, .req = 4 } });
     try wire.write(&w, .{ .from = .{ .tick = 1040, .wall = 1791936000000 } });
     var lines: physics.Lines = .{};
     const drag = physics.mergeAndCap(&.{ .{ .dx = -256, .dy = 0, .ms = 3 }, .{ .dx = -512, .dy = 0, .ms = 19 } });
@@ -175,7 +175,7 @@ test "the worked example's region is the world, and every critter on the board i
 test "a report with no ticks is kept at its own from, its inputs waiting for the next tick" {
     var k = exampleKept();
     var buf: [1024]u8 = undefined;
-    const report = "dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040\ngrab 1041\n";
+    const report = "dogpark 2 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040\ngrab 1041\n";
     try testing.expectEqualStrings("req 4\nkept 1040\n", try judged(report, &buf, &k));
     try testing.expectEqualSlices(physics.Human, &.{ .{ .leash = 19 }, .grab }, k.pendingSlice());
     try testing.expectEqual(physics.Hold.none, k.board.hold);
@@ -187,7 +187,7 @@ test "a tick whose region meets a tile not held is refused at its t line" {
     var k = exampleKept();
     k.held = .{};
     var buf: [4096]u8 = undefined;
-    const report = "dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040 wall 1791936000000\nt 1041 +0\n";
+    const report = "dogpark 2 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040 wall 1791936000000\nt 1041 +0\n";
     const answer = try judged(report, &buf, &k);
     try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1040\ndiffer 1041 none t 1041 +0\nstate leash none drag none laid 0 view 1280x800"));
     // The kept leash waits for 1041, and the answer says so.
@@ -197,10 +197,10 @@ test "a tick whose region meets a tile not held is refused at its t line" {
 test "the header: another language or physics reloads; an unreadable one gets req ? alone; another from, reload from K" {
     var buf: [256]u8 = undefined;
     var k = exampleKept();
-    try testing.expectEqualStrings("req ?\n", try judged("dogpark 1 physics 5E0C91A2 page 1.3 req 4\n", &buf, &k));
-    try testing.expectEqualStrings("req 4\nreload language 1\n", try judged("dogpark 2 physics 5e0c91a2 page 1.3 req 4\nfrom 1040\n", &buf, &k));
-    try testing.expectEqualStrings("req 4\nreload physics 5e0c91a2\n", try judged("dogpark 1 physics 5e0c91a3 page 1.3 req 4\nfrom 1040\n", &buf, &k));
-    try testing.expectEqualStrings("req 4\nreload from 1040\n", try judged("dogpark 1 physics 5e0c91a2 page 1.3 req 4\nfrom 1039\n", &buf, &k));
+    try testing.expectEqualStrings("req ?\n", try judged("dogpark 2 physics 5E0C91A2 page 1.3 req 4\n", &buf, &k));
+    try testing.expectEqualStrings("req 4\nreload language 2\n", try judged("dogpark 3 physics 5e0c91a2 page 1.3 req 4\nfrom 1040\n", &buf, &k));
+    try testing.expectEqualStrings("req 4\nreload physics 5e0c91a2\n", try judged("dogpark 2 physics 5e0c91a3 page 1.3 req 4\nfrom 1040\n", &buf, &k));
+    try testing.expectEqualStrings("req 4\nreload from 1040\n", try judged("dogpark 2 physics 5e0c91a2 page 1.3 req 4\nfrom 1039\n", &buf, &k));
 }
 
 test "a held naming a tile never sent is refused at that line" {
@@ -208,7 +208,7 @@ test "a held naming a tile never sent is refused at that line" {
     k.sent = .{};
     k.held = .{};
     var buf: [4096]u8 = undefined;
-    const report = "dogpark 1 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040\nheld 1041 2,3\n";
+    const report = "dogpark 2 physics 5e0c91a2 page 1791935990000.3 req 4\nfrom 1040\nheld 1041 2,3\n";
     const answer = try judged(report, &buf, &k);
     try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1040\ndiffer 1041 none held 1041 2,3\n"));
 }
@@ -216,7 +216,7 @@ test "a held naming a tile never sent is refused at that line" {
 test "a refused input: a leash while one is leashed is differ none at that line" {
     var k = exampleKept();
     var buf: [4096]u8 = undefined;
-    const report = "dogpark 1 physics 5e0c91a2 page 1.3 req 4\nfrom 1040 wall 5\nleash 1041 7\n";
+    const report = "dogpark 2 physics 5e0c91a2 page 1.3 req 4\nfrom 1040 wall 5\nleash 1041 7\n";
     const answer = try judged(report, &buf, &k);
     try testing.expect(std.mem.startsWith(u8, answer, "req 4\nkept 1040\ndiffer 1041 none leash 1041 7\n"));
 }

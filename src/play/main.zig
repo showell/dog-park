@@ -37,7 +37,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         // exist when a config names a data_dir and no auth_dir): the site
         // secret that signs the players' cookies.
         .default_auth_dir = "~/DogParkAuth",
-        .routes_hint = "(/, POST /begin, /dogpark, POST /reset, /*.js, /physics-H.wasm, POST /load, /report)",
+        .routes_hint = "(/, POST /begin, /dogpark, POST /reset, POST /level, /*.js, /physics-H.wasm, POST /load, /report)",
         .free_space = unread,
     }, report);
 }

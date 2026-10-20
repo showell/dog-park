@@ -115,9 +115,9 @@ test("a background script cannot write: it stops naming atomic, and the file is 
 test("the cookbook on the files a real game writes", async () => {
   // A load starts the game (its folder, its first log, its snapshot); two
   // reports the server cannot read are two `req ?` findings in its log.
-  const wrong = await server.post("/load", "dogpark 1 physics 00000000 load 1280x800\n");
+  const wrong = await server.post("/load", "dogpark 2 physics 00000000 load 1280x800\n");
   const hash = wrong.text.match(/^reload physics ([0-9a-f]{8})\n$/)[1];
-  assert.equal((await server.post("/load", `dogpark 1 physics ${hash} load 1280x800\n`)).status, 200);
+  assert.equal((await server.post("/load", `dogpark 2 physics ${hash} load 1280x800\n`)).status, 200);
   assert.equal((await server.post("/report", "hello\n")).text, "req ?\n");
   assert.equal((await server.post("/report", "hello again\n")).text, "req ?\n");
 
@@ -126,23 +126,23 @@ test("the cookbook on the files a real game writes", async () => {
 
   assert.equal((await send(envelope(cookbook("games.shale")))).status, 202);
   const games = await ended();
-  assert.match(games, /\n1 games\ngame +kept +last_log +last_log_size +logs +bytes\ngame-0 +0 +\d{4}-\d\d-\d\dT[\d:]+Z +[\d.]+ (B|KiB) +1 +[\d.]+ (B|KiB)\n$/);
+  assert.match(games, /\n1 games\ngame +kept +last_log +last_log_size +logs +bytes\ngame-0\/level-1 +0 +\d{4}-\d\d-\d\dT[\d:]+Z +[\d.]+ (B|KiB) +1 +[\d.]+ (B|KiB)\n$/);
 
   assert.equal((await send(envelope(cookbook("trouble.shale")))).status, 202);
   const trouble = await ended();
-  assert.match(trouble, /\n1 games, the last hour\ngame +logs +reports +differs +unreadable +overlaps +idle_drags +stuck +refused\ngame-0 +1 +0 +0 +2 +0 +0 +0 +0\n$/);
+  assert.match(trouble, /\n1 games, the last hour\ngame +logs +reports +differs +unreadable +overlaps +idle_drags +stuck +refused\ngame-0\/level-1 +1 +0 +0 +2 +0 +0 +0 +0\n$/);
 });
 
 test("play goes on while a scan of every game's logs runs: the worst wait a report saw", async () => {
   // Five more games' hours of logs, as the server frames them: 1 MiB logs of
   // reports, a finding in each (a scan's worst: everything read).
-  const report = "entry report 60\ndogpark 1 physics 00000000 page 1.1 req 1\nfrom 0\nheld 1\nend\n";
+  const report = "entry report 60\ndogpark 2 physics 00000000 page 1.1 req 1\nfrom 0\nheld 1\nend\n";
   const finding = "entry finding 26\nreq ? number 1 at kept 0\nend\n";
   const differ = "entry finding 24\nreq 1 differ at tick 9\nend\n";
   const log = finding + differ + report.repeat(Math.floor((1 << 20) / report.length));
   const start = Date.now() - 30 * 60_000;
   for (let g = 1; g <= 5; g++) {
-    const dir = join(data, `game-${g}`, "physics");
+    const dir = join(data, `game-${g}`, "level-2", "physics");
     mkdirSync(dir, { recursive: true });
     for (let i = 0; i < 10; i++) writeFileSync(join(dir, `log-${start + i * 60_000}`), log);
   }
@@ -165,7 +165,7 @@ test("play goes on while a scan of every game's logs runs: the worst wait a repo
     if (!/ running: /.test((await timed(status)).text)) break;
   }
   const done = await ended();
-  assert.match(done, /game-5 +10 +\d+ +10 +10 +0 +0 +0 +0\n$/);
+  assert.match(done, /game-5\/level-2 +10 +\d+ +10 +10 +0 +0 +0 +0\n$/);
   console.log(`# a scan of 50 MiB of logs ran beside ${reports} reports; the worst wait a request saw: ${worst.toFixed(1)} ms`);
   // A slice, and the request's own time: never the scan's.
   assert.ok(worst < 250, `a request waited ${worst} ms`);

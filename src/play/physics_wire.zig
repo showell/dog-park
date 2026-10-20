@@ -22,7 +22,9 @@ const Critter = physics.Critter;
 const Disp = physics.Disp;
 const Tick = physics.Tick;
 
-pub const language = 1;
+/// The wire's version: a page or server on another is told to reload.
+/// 2: `/load`'s `level L of U` line, and the levels.
+pub const language = 2;
 pub const most_tiles = tiles.most_subscribed;
 
 /// **THE PHYSICS HASH**: a CRC-32 of the sources that decide a tick's lines

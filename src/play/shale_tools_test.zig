@@ -33,14 +33,16 @@ const Data = struct {
         self.root = try std.fs.path.join(a, &.{ ".zig-cache", "tmp", &self.tmp.sub_path, "data" });
         const io = self.threaded.io();
         const d = self.tmp.dir;
-        try d.createDirPath(io, "data/game-0/physics");
-        try d.createDirPath(io, "data/game-1/physics");
+        try d.createDirPath(io, "data/game-0/level-2/physics");
+        try d.createDirPath(io, "data/game-1/level-1/physics");
+        try d.writeFile(io, .{ .sub_path = "data/game-0/level", .data = "2 2\n" });
+        try d.writeFile(io, .{ .sub_path = "data/game-1/level", .data = "1 1\n" });
         try d.writeFile(io, .{ .sub_path = "data/players", .data = "3\n" });
         // Game 0: a snapshot, a recent log with one of every finding, an
         // old one, and a stray file whose name is no log's.
         const kept: judge.Kept = .{ .tick = 1200, .board = physics.Board.laidOut() };
         const snap: plog.Snapshot = .{ .physics = 0x0102_0304, .started = recent_ms, .log_started = recent_ms, .log_offset = 0, .kept = kept };
-        try d.writeFile(io, .{ .sub_path = "data/game-0/physics/snapshot", .data = try plog.writeSnapshot(a, &snap) });
+        try d.writeFile(io, .{ .sub_path = "data/game-0/level-2/physics/snapshot", .data = try plog.writeSnapshot(a, &snap) });
         var log: std.ArrayList(u8) = .empty;
         for ([_]struct { plog.Kind, []const u8 }{
             .{ .report, "req 1 tick 10\n" },
@@ -51,15 +53,15 @@ const Data = struct {
             .{ .finding, "stuck at tick 44: the physics disagrees with itself\n" },
             .{ .finding, "refused, a request number used again: req 6\n" },
         }) |e| try log.appendSlice(a, try plog.framed(a, e[0], e[1]));
-        const recent = try std.fmt.allocPrint(a, "data/game-0/physics/{s}", .{try plog.logName(a, recent_ms)});
+        const recent = try std.fmt.allocPrint(a, "data/game-0/level-2/physics/{s}", .{try plog.logName(a, recent_ms)});
         try d.writeFile(io, .{ .sub_path = recent, .data = log.items });
-        const old = try std.fmt.allocPrint(a, "data/game-0/physics/{s}", .{try plog.logName(a, old_ms)});
+        const old = try std.fmt.allocPrint(a, "data/game-0/level-2/physics/{s}", .{try plog.logName(a, old_ms)});
         try d.writeFile(io, .{ .sub_path = old, .data = try plog.framed(a, .report, "req 0 tick 1\n") });
         // Written then, as the old log was: the hour's edge is its time.
         try d.setTimestamps(io, old, .{ .modify_timestamp = .{ .new = .{ .nanoseconds = @as(i96, @intCast(old_ms)) * std.time.ns_per_ms } } });
-        try d.writeFile(io, .{ .sub_path = "data/game-0/physics/log-x", .data = "not a log\n" });
+        try d.writeFile(io, .{ .sub_path = "data/game-0/level-2/physics/log-x", .data = "not a log\n" });
         // Game 1: started, nothing kept yet.
-        try d.writeFile(io, .{ .sub_path = "data/game-1/physics/log-" ++ std.fmt.comptimePrint("{d}", .{recent_ms + 1000}), .data = "" });
+        try d.writeFile(io, .{ .sub_path = "data/game-1/level-1/physics/log-" ++ std.fmt.comptimePrint("{d}", .{recent_ms + 1000}), .data = "" });
         try d.writeFile(io, .{ .sub_path = "data/README", .data = "not a game\n" });
     }
 
@@ -112,9 +114,9 @@ test "tools/shale/games.shale: each game's last kept tick, its newest log, and i
     defer d.deinit();
     try testing.expectEqualStrings(
         \\2 games
-        \\game    kept  last_log              last_log_size  logs  bytes
-        \\game-0  1200  2026-10-13T23:50:00Z  378 B             2  411 B
-        \\game-1  none  2026-10-13T23:50:01Z  0 B               1  0 B
+        \\game            kept  last_log              last_log_size  logs  bytes
+        \\game-0/level-2  1200  2026-10-13T23:50:00Z  378 B             2  411 B
+        \\game-1/level-1  none  2026-10-13T23:50:01Z  0 B               1  0 B
         \\
     , try d.run("games"));
 }
@@ -125,9 +127,9 @@ test "tools/shale/trouble.shale: each game's findings over the last hour, a stra
     defer d.deinit();
     try testing.expectEqualStrings(
         \\2 games, the last hour
-        \\game    logs  reports  differs  unreadable  overlaps  idle_drags  stuck  refused
-        \\game-0     1        2        1           1         2           1      1        1
-        \\game-1     1        0        0           0         0           0      0        0
+        \\game            logs  reports  differs  unreadable  overlaps  idle_drags  stuck  refused
+        \\game-0/level-2     1        2        1           1         2           1      1        1
+        \\game-1/level-1     1        0        0           0         0           0      0        0
         \\
     , try d.run("trouble"));
 }

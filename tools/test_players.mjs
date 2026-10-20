@@ -19,7 +19,7 @@ const cookieOf = (r) => r.headers["set-cookie"]?.[0]?.split(";")[0];
 let hash;
 // The other four accounts' cookies, once Begin Game has handed them out.
 let others = [];
-const loadLine = () => `dogpark 1 physics ${hash} load 1280x800\n`;
+const loadLine = () => `dogpark 2 physics ${hash} load 1280x800\n`;
 
 test("the landing page has the button; /dogpark without an account goes back to it", async () => {
   const landing = await server.as(undefined, "GET", "/");
@@ -67,7 +67,7 @@ test("Begin Game: a device with an account keeps it; the rest get one each, up t
 });
 
 test("up to most_playing at once: each plays its own game; the next loads and pans freely, but its ticks wait, told how long; a player plays on", async () => {
-  const header = (epoch, req) => `dogpark 1 physics ${hash} page ${epoch} req ${req}\n`;
+  const header = (epoch, req) => `dogpark 2 physics ${hash} page ${epoch} req ${req}\n`;
   // A tick from an account: it loads its game, and its first report carries a tick.
   const play = async (cookie) => {
     const loaded = await server.as(cookie, "POST", "/load", loadLine());

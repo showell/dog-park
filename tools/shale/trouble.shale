@@ -1,4 +1,5 @@
--- Each game's trouble over the last hour, from its logs' entries: the
+-- Each game's trouble over the last hour, a row for each level a player
+-- has played (`game-<slot>/level-<n>`), from its logs' entries: the
 -- reports kept, the reports answered `differ` (the page and the server
 -- disagreed), `req ?` (a header the server could not read), the overlaps
 -- and drags with no drag on that reports' checks found, the times it was
@@ -47,9 +48,12 @@ end
 
 local since = now() * 1000 - HOUR_MS
 local rows = {}
-for name in ls("") do
+for slot in ls("") do
+  if starts_with(slot, "game-") and is_dir(slot) then
+  for lv in ls(slot) do
+  local name = path(slot, lv)
   local dir = path(name, "physics")
-  if starts_with(name, "game-") and is_dir(dir) then
+  if starts_with(lv, "level-") and is_dir(dir) then
     local t = {game = name, logs = 0, reports = 0, differs = 0, unreadable = 0, overlaps = 0, idle_drags = 0, stuck = 0, refused = 0}
     -- The logs begun in the hour, and the one before them if it runs into it.
     local before = 0
@@ -76,6 +80,8 @@ for name in ls("") do
       end
     end
     push(rows, t)
+  end
+  end
   end
 end
 sort(rows, "game")

@@ -55,13 +55,13 @@ async function loadedPage(s, answer = loadAnswer()) {
 test("a load: its line names the wasm's hash and the screen; the first report is req 1 from K with the view, and the next holds what came", async () => {
   const s = script();
   const rig = await loadedPage(s);
-  assert.equal(rig.sent[0].text, `dogpark 1 physics ${rig.physics.hash} load 1280x800\n`);
+  assert.equal(rig.sent[0].text, `dogpark 2 physics ${rig.physics.hash} load 1280x800\n`);
   const first = reports(rig)[0];
-  assert.match(first, new RegExp(`^dogpark 1 physics ${rig.physics.hash} page 1791935990000\\.1 req 1\\nfrom 10\\nview 11 1280x800( \\d+,\\d+)+\\n$`));
+  assert.match(first, new RegExp(`^dogpark 2 physics ${rig.physics.hash} page 1791935990000\\.1 req 1\\nfrom 10\\nview 11 1280x800( \\d+,\\d+)+\\n$`));
   assert.match(first, / 3,3[ \n]/);
   await s.answer(rig, "/report", `req 1\nkept 10\n${tileLine}\n`);
   await rig.ticks(5);
-  assert.equal(reports(rig)[1], `dogpark 1 physics ${rig.physics.hash} page 1791935990000.1 req 2\nfrom 10\nheld 11 3,3\n`);
+  assert.equal(reports(rig)[1], `dogpark 2 physics ${rig.physics.hash} page 1791935990000.1 req 2\nfrom 10\nheld 11 3,3\n`);
   const v = rig.engine.view();
   assert.deepEqual(v.dogs.get(1), { id: 1, emoji: "🐩", parkX: 1190, parkY: 1155 });
   assert.deepEqual(v.cows, [{ id: 0, parkX: 1260, parkY: 1260 }]);

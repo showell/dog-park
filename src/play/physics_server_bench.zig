@@ -53,7 +53,7 @@ pub fn main(init: std.process.Init) !void {
     const s = try app.game(io, 0);
 
     // The leash, kept, as a page's load and first request leave it.
-    _ = try s.load(io, a, try std.fmt.allocPrint(a, "dogpark 1 physics {x:0>8} load 1920x1080\n", .{s.physics_hash}), .layout);
+    _ = try s.load(io, a, try std.fmt.allocPrint(a, "dogpark {d} physics {x:0>8} load 1920x1080\n", .{ wire.language, s.physics_hash }), .layout);
     const dog: u16 = 25;
     s.kept.board.hold = .{ .leashed = .{ .dog = dog, .drag = .on } };
     s.last = 1;
