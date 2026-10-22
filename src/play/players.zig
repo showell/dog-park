@@ -140,7 +140,23 @@ pub const Turn = struct {
     holders: [most_playing]Holder = undefined,
     len: usize = 0,
 
-    const Holder = struct { slot: Slot, until_ms: u64 };
+    pub const Holder = struct {
+        slot: Slot,
+        until_ms: u64,
+
+        /// Whether it holds its turn at `now_ms`. One whose time is up holds
+        /// none, though it stays in `holders` until the next ask frees it.
+        pub fn holds(h: Holder, now_ms: u64) bool {
+            return now_ms < h.until_ms;
+        }
+    };
+
+    /// The turns held at `now_ms`.
+    pub fn held(t: *const Turn, now_ms: u64) usize {
+        var n: usize = 0;
+        for (t.holders[0..t.len]) |h| n += @intFromBool(h.holds(now_ms));
+        return n;
+    }
 
     pub const Asked = union(enum) {
         /// Slot `s` holds a turn now, until `turn_ms` from now.
@@ -159,7 +175,7 @@ pub const Turn = struct {
             return .granted;
         };
         var kept: usize = 0;
-        for (t.holders[0..t.len]) |h| if (now_ms < h.until_ms) {
+        for (t.holders[0..t.len]) |h| if (h.holds(now_ms)) {
             t.holders[kept] = h;
             kept += 1;
         };
@@ -174,6 +190,15 @@ pub const Turn = struct {
         return .{ .wait_s = (soonest - now_ms + 999) / 1000 };
     }
 };
+
+test "a turn whose time ran out is not held, though it is still listed" {
+    var t: Turn = .{};
+    _ = t.ask(1, 1000);
+    _ = t.ask(2, 1000);
+    try std.testing.expectEqual(@as(usize, 2), t.held(1000));
+    try std.testing.expectEqual(@as(usize, 0), t.held(1000 + turn_ms));
+    try std.testing.expectEqual(@as(usize, 2), t.len);
+}
 
 test "claim: a device with a slot keeps it; a new one takes the next; none past the most" {
     try std.testing.expectEqual(Claim{ .has = 3 }, claim(3, most_players));

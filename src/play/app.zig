@@ -282,7 +282,7 @@ pub fn routes(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator, _
     if (std.mem.eql(u8, path, "/version")) {
         if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
         const now = nowMs(io);
-        const body = try versionText(alloc, @import("dogpark_build").commit, @import("dogpark_build").roc, started_ms, now, claimed, turnsHeld(&turn, now));
+        const body = try versionText(alloc, @import("dogpark_build").commit, @import("dogpark_build").roc, started_ms, now, claimed, turn.held(now));
         return req.respond(body, .{ .extra_headers = &.{http.json_ct} });
     }
     if (std.mem.eql(u8, path, "/admin") or std.mem.startsWith(u8, path, "/admin/")) return adminRoute(req, io, alloc, path);
@@ -308,16 +308,6 @@ fn versionText(alloc: std.mem.Allocator, commit: []const u8, roc: []const u8, st
     , .{ commit, roc, started, now, accounts, players.most_players, held, players.most_playing });
 }
 
-/// The turns held at `now`: a holder whose time has run out holds none, though
-/// it stays in the list until the next ask.
-fn turnsHeld(t: *const players.Turn, now: u64) usize {
-    var n: usize = 0;
-    for (t.holders[0..t.len]) |h| {
-        if (now < h.until_ms) n += 1;
-    }
-    return n;
-}
-
 test "/version says the commit, the Roc that built the physics, the start, the time, the accounts and the turns, as JSON with no secret" {
     const text = try versionText(std.testing.allocator, "47ad787", "nightly-2026-10-18-1df370f", 1_789_000_000_000, 1_789_000_060_000, 3, 2);
     defer std.testing.allocator.free(text);
@@ -340,14 +330,6 @@ test "/version says the commit, the Roc that built the physics, the start, the t
     try std.testing.expectEqual(@as(u8, 3), parsed.value.accounts);
     try std.testing.expectEqual(@as(u8, players.most_players), parsed.value.accounts_most);
     try std.testing.expectEqual(@as(usize, 2), parsed.value.turns_held);
-}
-
-test "a turn whose time ran out is not held, though it is still listed" {
-    var t: players.Turn = .{};
-    _ = t.ask(1, 1000);
-    _ = t.ask(2, 1000);
-    try std.testing.expectEqual(@as(usize, 2), turnsHeld(&t, 1000));
-    try std.testing.expectEqual(@as(usize, 0), turnsHeld(&t, 1000 + players.turn_ms));
 }
 
 fn nowMs(io: Io) u64 {

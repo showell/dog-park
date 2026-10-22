@@ -244,16 +244,15 @@ pub fn host(req: *Request, io: Io, alloc: Alloc) !void {
 
 /// The accounts and turns counted, and the turns' table.
 fn turnsSection(b: *std.ArrayList(u8), alloc: Alloc, claimed: u8, turn: *const players.Turn, now_ms: u64) !void {
-    try b.print(alloc, "<p>{d} of {d} accounts handed out; {d} of {d} turns held.</p>\n", .{ claimed, players.most_players, turn.len, players.most_playing });
+    try b.print(alloc, "<p>{d} of {d} accounts handed out; {d} of {d} turns held.</p>\n", .{ claimed, players.most_players, turn.held(now_ms), players.most_playing });
     try b.appendSlice(alloc, "<h2>The turns</h2>\n");
-    if (turn.len == 0) {
+    if (turn.held(now_ms) == 0) {
         try b.appendSlice(alloc, "<p class=\"muted\">Nobody is playing.</p>\n");
     } else {
         try b.appendSlice(alloc, "<table><tr><th>account</th><th>held for another</th></tr>");
-        for (turn.holders[0..turn.len]) |h| {
-            const left: u64 = if (h.until_ms > now_ms) h.until_ms - now_ms else 0;
-            try b.print(alloc, "<tr><td>{d}</td><td>{d} s</td></tr>", .{ h.slot, (left + 999) / 1000 });
-        }
+        for (turn.holders[0..turn.len]) |h| if (h.holds(now_ms)) {
+            try b.print(alloc, "<tr><td>{d}</td><td>{d} s</td></tr>", .{ h.slot, (h.until_ms - now_ms + 999) / 1000 });
+        };
         try b.appendSlice(alloc, "</table>\n");
     }
 }
