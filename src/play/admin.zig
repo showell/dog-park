@@ -242,22 +242,27 @@ pub fn host(req: *Request, io: Io, alloc: Alloc) !void {
     return respond(req, b.items);
 }
 
-/// `GET /admin/game`: the accounts, the turns, and every game started.
-pub fn game(req: *Request, io: Io, alloc: Alloc, v: View) !void {
-    var b: std.ArrayList(u8) = .empty;
-    try begin(&b, alloc, "🐕 The game", true);
-    try b.print(alloc, "<p>{d} of {d} accounts handed out; {d} of {d} turns held.</p>\n", .{ v.claimed, players.most_players, v.turn.len, players.most_playing });
+/// The accounts and turns counted, and the turns' table.
+fn turnsSection(b: *std.ArrayList(u8), alloc: Alloc, claimed: u8, turn: *const players.Turn, now_ms: u64) !void {
+    try b.print(alloc, "<p>{d} of {d} accounts handed out; {d} of {d} turns held.</p>\n", .{ claimed, players.most_players, turn.len, players.most_playing });
     try b.appendSlice(alloc, "<h2>The turns</h2>\n");
-    if (v.turn.len == 0) {
+    if (turn.len == 0) {
         try b.appendSlice(alloc, "<p class=\"muted\">Nobody is playing.</p>\n");
     } else {
         try b.appendSlice(alloc, "<table><tr><th>account</th><th>held for another</th></tr>");
-        for (v.turn.holders[0..v.turn.len]) |h| {
-            const left: u64 = if (h.until_ms > v.now_ms) h.until_ms - v.now_ms else 0;
+        for (turn.holders[0..turn.len]) |h| {
+            const left: u64 = if (h.until_ms > now_ms) h.until_ms - now_ms else 0;
             try b.print(alloc, "<tr><td>{d}</td><td>{d} s</td></tr>", .{ h.slot, (left + 999) / 1000 });
         }
         try b.appendSlice(alloc, "</table>\n");
     }
+}
+
+/// `GET /admin/game`: the accounts, the turns, and every game started.
+pub fn game(req: *Request, io: Io, alloc: Alloc, v: View) !void {
+    var b: std.ArrayList(u8) = .empty;
+    try begin(&b, alloc, "🐕 The game", true);
+    try turnsSection(&b, alloc, v.claimed, v.turn, v.now_ms);
     try b.appendSlice(alloc,
         \\<h2>The games</h2>
         \\<table><tr><th>account</th><th>level</th><th>last request</th><th>leash</th><th>kept tick</th><th>epoch</th><th>herd</th><th>poops</th><th>logs</th><th>findings</th></tr>
@@ -380,6 +385,24 @@ test "a win is every present cow in one herd: Level One's two, touching, round t
     var two = physics.Board.laidOut();
     try std.testing.expectEqual(@as(usize, physics.countOf(.cow)), presentCows(&two));
     try std.testing.expect(!won(&two));
+}
+
+test "the turns' section counts and lists only the turns held: one whose time ran out is neither, though the turn still lists it" {
+    const a = std.testing.allocator;
+    var t: players.Turn = .{};
+    _ = t.ask(1, 1000);
+    _ = t.ask(2, 1000 + players.turn_ms / 2);
+    var b: std.ArrayList(u8) = .empty;
+    defer b.deinit(a);
+    try turnsSection(&b, a, 2, &t, 1000 + players.turn_ms);
+    const one_held = std.fmt.comptimePrint("1 of {d} turns held", .{players.most_playing});
+    try std.testing.expect(std.mem.indexOf(u8, b.items, one_held) != null);
+    try std.testing.expect(std.mem.indexOf(u8, b.items, "<td>2</td>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, b.items, "<td>1</td>") == null);
+
+    b.clearRetainingCapacity();
+    try turnsSection(&b, a, 2, &t, 1000 + 2 * players.turn_ms);
+    try std.testing.expect(std.mem.indexOf(u8, b.items, "Nobody is playing.") != null);
 }
 
 test "a form's field; the key compared whole" {
