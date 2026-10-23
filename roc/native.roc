@@ -403,20 +403,17 @@ herded = |crits| {
 render! : Model, Draw.Frame => Try({}, [Exit(I64)])
 render! = |model, frame| {
 	frame.clear!(Color.from_hex_rgb(0x2b3a24))
-	first = Layout.park_first(level)
 	scale = scale_of(model.view)
 	tile_on = World.tile_px.to_f32() * scale
 	var $row = 0
 	while $row < level.world_tiles {
 		var $col = 0
 		while $col < level.world_tiles {
-			in_park = $col >= first and $col < first + level.park_tiles and $row >= first and $row < first + level.park_tiles
-			colour = if !in_park {
-				Color.from_hex_rgb(0x9cc58a)
-			} else if ($col + $row) % 2 == 0 {
-				Color.from_hex_rgb(0xf4f1e8)
+			## The page's checkerboard (solo/scene.js), every tile of the world.
+			colour = if ($col + $row) % 2 == 0 {
+				Color.from_hex_rgb(0xffffff)
 			} else {
-				Color.from_hex_rgb(0xcfe3f3)
+				Color.from_hex_rgb(0xeaf3fc)
 			}
 			frame.rectangle!({ x: $col.to_f32() * tile_on, y: $row.to_f32() * tile_on, width: tile_on, height: tile_on, style: Draw.filled(colour) })
 			$col = $col + 1
@@ -425,14 +422,14 @@ render! = |model, frame| {
 	}
 	poop_r = World.poop_px.to_f32() / 2 * scale
 	for p in model.poops {
-		frame.circle!({ center: on_screen(model.view, { x: p.x, y: p.y }), radius: poop_r, style: Draw.filled(Color.from_hex_rgb(0x6b4a2b)) })
+		frame.circle!({ center: on_screen(model.view, { x: p.x, y: p.y }), radius: poop_r, style: Draw.filled(Color.from_hex_rgb(0x7a4a1a)) })
 	}
 	var $i = 0.I64
 	for c in model.crits {
 		at = on_screen(model.view, Walk.pt(c))
 		h = c.half.to_f32() / 256 * scale
 		if $i == model.leashed {
-			frame.rectangle!({ x: at.x - h - 3, y: at.y - h - 3, width: 2 * h + 6, height: 2 * h + 6, style: Draw.filled(Color.from_hex_rgb(0x111111)) })
+			frame.rectangle!({ x: at.x - h - 3, y: at.y - h - 3, width: 2 * h + 6, height: 2 * h + 6, style: Draw.filled(Color.from_hex_rgb(0xdd3333)) })
 		} else {
 			{}
 		}
