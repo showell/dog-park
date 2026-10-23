@@ -121,18 +121,44 @@ program = { init!, update!, render! }
 init! : App.Init(Model, [])
 init! = App.init(
 	App.default.with_title("Dog Park").with_size({ width: 840, height: 910 }),
-	|_io| Ok({
-		crits: start_crits(level),
-		leashed: -1,
-		dragging: Bool.False,
-		pointer: { x: 0, y: 0 },
-		carry: { x: 0, y: 0 },
-		walked: 0,
-		laid: 0,
-		poops: [],
-		note: "",
-	}),
+	|io| {
+		crits = start_crits(level)
+		_ = io.stdout().line!(diagnose(crits))
+		Ok({
+			crits,
+			leashed: -1,
+			dragging: Bool.False,
+			pointer: { x: 0, y: 0 },
+			carry: { x: 0, y: 0 },
+			walked: 0,
+			laid: 0,
+			poops: [],
+			note: "",
+		})
+	},
 )
+
+## **WHAT THIS BUILD COMPUTES**, printed once at the start: the numbers and
+## the loops the drawing and the clicks stand on (the scale, the tiles the
+## drawing's loops visit, where dog 0 is drawn, and whom a click there
+## finds), so a build that draws nothing says why without a window.
+diagnose : List(Walk.Crit) -> Str
+diagnose = |crits| {
+	var $tiles = 0
+	var $row = 0
+	while $row < level.world_tiles {
+		var $col = 0
+		while $col < level.world_tiles {
+			$tiles = $tiles + 1
+			$col = $col + 1
+		}
+		$row = $row + 1
+	}
+	first = get_crit(crits, 0)
+	s = on_screen(Walk.pt(first))
+	back = dog_at(crits, to_world(s))
+	"native: scale ${scale.to_str()}, ${crits.len().to_str()} critters, ${$tiles.to_str()} tiles by the loops, dog 0 at (${first.x.to_str()}, ${first.y.to_str()}) drawn at (${s.x.to_str()}, ${s.y.to_str()}), a click there finds dog ${back.to_str()}"
+}
 
 Msg : []
 
