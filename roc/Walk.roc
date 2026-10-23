@@ -9,7 +9,7 @@
 ## found, who poops.
 ##
 ## The physics' Zig hands it the tick's critters and poops as lists it
-## lends (src/play/physics.zig's `walk`, through roc/physics.roc): the
+## lends (src/play/physics.zig's `dragAll`, through roc/physics.roc): the
 ## poops by tile (`Lent`), which the walk only reads; and the critters,
 ## what each is and where it stands, by seen index and by cell (`Park`),
 ## with the walk's own working lists (`Work`), which it changes in place and
@@ -174,7 +174,11 @@ Walk := [].{
 		{ depth: depth0, moving: moving0, park: park0 } = work0
 		{ cells: cells0, crits: crits0 } = park0
 		var $depth = put(depth0, 0, 0)
-		var $moving = moving0.append(0)
+
+		## Emptied here, its room kept: the drag's pixel-ticks hand it from
+		## one walk to the next, so the last walk's visit order is what is
+		## left in it.
+		var $moving = moving0.clear().append(0)
 		herd = (get_c(crits0, 0)).kin
 		{ cells: cells1, crits: crits1 } = line_up(s, { cells: cells0, crits: crits0 }, 0)
 		var $cells = cells1
@@ -278,6 +282,214 @@ Walk := [].{
 				walked,
 			}
 		}
+	}
+
+	## **THE TICK'S DRAG** (decision 30): each of the tick's displacements,
+	## x then y, cut into pixel-ticks of at most `pixel_step`, the `i`th of `n`
+	## to `part * i / n` toward zero, each a `pixel_tick`, until one bumps;
+	## each poop laid filed on the lists at once (`refile`), in the order the
+	## physics' Zig lends them; then, once, the chickens' turn
+	## (`forage_turn`), if the leashed dog's net move over the drag is more
+	## than nothing. Before each pixel-tick the critters are marked as the
+	## walk starts from them (`rekey`). `before` is how far the leashed dog
+	## had walked, `laid` the poops laid; with `forage` false the forage turn
+	## is left to a call of its own (the walk judge's builds judge the drag
+	## alone). The physics' Zig replays what this hands back, in order: the poops laid (`placed`, lent empty), the
+	## poops eaten, the last walk's visit order (`work.moving`).
+	Disp : { dx : I32, dy : I32 }
+
+	Dragged : {
+		bump : Bump,
+		eaten : List(U16),
+		lent : Lent,
+		placed : List(Poop),
+		walked : U32,
+		work : Work,
+	}
+
+	## A pixel, in 256ths: the most of one pixel-tick's step.
+	pixel_step : I64
+	pixel_step = 256
+
+	drag_tick : Lent, Work, List(Disp), List(Pt), List(U16), List(Poop), U32, U32, Bool -> Dragged
+	drag_tick = |lent0, work0, disps, homes, eaten0, placed0, before0, laid0, forage| {
+		{ from: from0, poops: poops0, side } = lent0
+		{ depth: depth0, moving: moving0, park: park0 } = work0
+		{ cells: cells0, crits: crits0 } = park0
+		start = pt(get_c(crits0, 0))
+		var $from = from0
+		var $poops = poops0
+		var $depth = depth0
+		var $moving = moving0
+		var $cells = cells0
+		var $crits = crits0
+		var $placed = placed0
+		var $before = before0
+		var $laid = laid0
+		var $bump = no_bump
+		var $d = 0
+		while $d < disps.len() and $bump.kind == bump_none {
+			disp = match disps.get($d) {
+				Ok(v) => v
+				Err(_) => crash "Walk: no displacement there"
+			}
+			var $axis = 0
+			while $axis < 2 and $bump.kind == bump_none {
+				part = (if ($axis == 0) disp.dx else disp.dy).to_i64()
+				n = ((if (part < 0) 0 - part else part) + pixel_step - 1) // pixel_step
+				var $done = 0
+				var $i = 1
+				while $i <= n and $bump.kind == bump_none {
+					now = part * $i // n
+					inc = (now - $done).to_i32_wrap()
+					$done = now
+					if inc != 0 {
+						r = pixel_tick(
+							{ from: $from, poops: $poops, side },
+							{ depth: $depth, moving: $moving, park: { cells: $cells, crits: rekey($crits) } },
+							$axis,
+							inc,
+							$before,
+							$laid,
+						)
+						{ bump, poop, step: _, walk: { anchor: _, pooper: _, work: w }, walked } = r
+						{ depth: d1, moving: m1, park: { cells: c1, crits: k1 } } = w
+						$depth = d1
+						$moving = m1
+						$cells = c1
+						$crits = k1
+						sum = $before.to_u64() + walked.to_u64_wrap()
+						$before = if (sum > 4294967295) 4294967295 else sum.to_u32_wrap()
+						if poop.slot >= 0 {
+							entry = { slot: poop.slot.to_u16_wrap(), x: poop.x, y: poop.y }
+							{ from: f2, poops: p2 } = refile(geo_of(side), $from, $poops, entry)
+							$from = f2
+							$poops = p2
+							$placed = $placed.append(entry)
+							$laid = $laid + 1
+						} else {
+							{}
+						}
+						$bump = bump
+					} else {
+						{}
+					}
+					$i = $i + 1
+				}
+				$axis = $axis + 1
+			}
+			$d = $d + 1
+		}
+		net = if (forage) measure(delta(geo_of(side), start, pt(get_c($crits, 0)))) else 0
+		{ eaten, park: { cells: c3, crits: k3 } } = forage_turn(
+			{ from: $from, poops: $poops, side },
+			{ cells: $cells, crits: rekey($crits) },
+			homes,
+			eaten0,
+			net,
+			$laid,
+		)
+		{
+			bump: $bump,
+			eaten,
+			lent: { from: $from, poops: $poops, side },
+			placed: $placed,
+			walked: $before,
+			work: { depth: $depth, moving: $moving, park: { cells: c3, crits: k3 } },
+		}
+	}
+
+	## The critters as the walk starts from them: the leashed dog (seen
+	## index 0) visited, every other not lined up (Zig's `lendCrits` lent
+	## them so for each pixel-tick).
+	rekey : List(Crit) -> List(Crit)
+	rekey = |crits| {
+		var $out = crits
+		var $j = 0
+		n = crits.len()
+		while $j < n {
+			c = get_c($out, $j)
+			key = if ($j == 0) visited else not_lined_up
+			if c.key != key {
+				$out = put($out, $j, { ..c, key })
+			} else {
+				{}
+			}
+			$j = $j + 1
+		}
+		$out
+	}
+
+	## **A POOP FILED** on the lists the walk reads (`Lent`): off its old
+	## place, if its slot was on them, and onto the list of the tile its
+	## point stands in, in slot order there, as the physics' Zig lends them
+	## (`lendPoops`). The list keeps its room: an old slot moves to the end
+	## and then to its place; a new one is appended into room lent for it.
+	refile : Geo, List(U16), List(Poop), Poop -> { from : List(U16), poops : List(Poop) }
+	refile = |g, from0, poops0, entry| {
+		tiles_n = (g.tiles * g.tiles).to_u64_wrap()
+		if from0.len() != tiles_n + 1 {
+			crash "Walk: the poops' tiles are not the level's"
+		} else {
+			{}
+		}
+		var $from = from0
+		var $poops = poops0
+		var $k = 0
+		var $found = Bool.False
+		while !$found and $k < $poops.len() {
+			if (get_poop_l($poops, $k)).slot == entry.slot {
+				$found = Bool.True
+			} else {
+				$k = $k + 1
+			}
+		}
+		if $found {
+			old = get_poop_l($poops, $k)
+			end_k = $poops.len() - 1
+			while $k < end_k {
+				$poops = put($poops, $k, get_poop_l($poops, $k + 1))
+				$k = $k + 1
+			}
+			$poops = put($poops, end_k, entry)
+			var $t = tile_index(g, old) + 1
+			while $t <= tiles_n {
+				$from = put($from, $t, get_u16($from, $t) - 1)
+				$t = $t + 1
+			}
+		} else {
+			$poops = $poops.append(entry)
+		}
+		t_new = tile_index(g, entry)
+		last = $poops.len() - 1
+		var $at = (get_u16($from, t_new)).to_u64()
+		tile_end = (get_u16($from, t_new + 1)).to_u64()
+		while $at < tile_end and (get_poop_l($poops, $at)).slot < entry.slot {
+			$at = $at + 1
+		}
+		var $m = last
+		while $m > $at {
+			$poops = put($poops, $m, get_poop_l($poops, $m - 1))
+			$m = $m - 1
+		}
+		$poops = put($poops, $at, entry)
+		var $u = t_new + 1
+		while $u <= tiles_n {
+			$from = put($from, $u, get_u16($from, $u) + 1)
+			$u = $u + 1
+		}
+		{ from: $from, poops: $poops }
+	}
+
+	## The tile a poop stands in, `row * tiles + col` from the world's
+	## (0, 0) (Zig's `poopTile`); its point is in the world.
+	tile_index : Geo, Poop -> U64
+	tile_index = |g, p| ((p.y // tile) * g.tiles + p.x // tile).to_u64_wrap()
+
+	get_poop_l : List(Poop), U64 -> Poop
+	get_poop_l = |l, k| match l.get(k) {
+		Ok(p) => p
+		Err(_) => crash "Walk: no poop there"
 	}
 
 	## **THE HERD POOPS** (decision 29), each `poop_every` the leashed dog

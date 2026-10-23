@@ -16,8 +16,9 @@
 //! order (a distance, then an index or a slot), so a scan in any order
 //! picks the same.
 //!
-//! `Judge` runs it beside the Roc (physics.zig's `walk`, with
-//! `-Dwalk-judge`) and panics at the first output that differs.
+//! `DragJudge` runs a tick's whole drag of it beside the Roc's (physics.zig's
+//! `dragAll`, with `-Dwalk-judge`), in a loop of its own, and panics at the
+//! first output that differs.
 
 const std = @import("std");
 const roc = @import("roc_physics.zig");
@@ -602,37 +603,88 @@ fn abs(v: i32) i32 {
 
 // ── the judge ──────────────────────────────────────────────────────────
 
+/// **THE TICK'S WHOLE DRAG**, as the Roc's `drag_tick` runs it: each
+/// displacement x then y, cut into pixel-ticks of at most a pixel (the
+/// `i`th of `n` to `part * i / n`, toward zero), each from critters keyed as
+/// the walk starts (the leashed dog visited, the rest not lined up), until
+/// one bumps; a poop laid replaces its slot's in `poops`, or joins them.
+/// The forage turn is not in it: the judged build calls it apart.
+pub const DragOut = struct { before: u32, bump_kind: i32, bump_at: i32, moving_len: usize, placed_len: usize };
+
+pub fn dragTicks(geo: Geo, crits: []Crit, poops: []Poop, poops_len: *usize, moving: []u16, depth: []u16, disps: []const roc.Disp, before0: u32, laid0: u32, placed: []Poop) DragOut {
+    var out: DragOut = .{ .before = before0, .bump_kind = roc.bump_none, .bump_at = 0, .moving_len = 0, .placed_len = 0 };
+    var laid = laid0;
+    for (disps) |d| {
+        for ([_]i32{ 0, 1 }) |axis| {
+            if (out.bump_kind != roc.bump_none) return out;
+            const part: i64 = if (axis == 0) d.dx else d.dy;
+            const n: i64 = @divTrunc(@as(i64, @intCast(@abs(part))) + 255, 256);
+            var done: i64 = 0;
+            var i: i64 = 1;
+            while (i <= n and out.bump_kind == roc.bump_none) : (i += 1) {
+                const now = @divTrunc(part * i, n);
+                const inc: i32 = @intCast(now - done);
+                done = now;
+                if (inc == 0) continue;
+                for (crits, 0..) |*c, j| c.key = if (j == 0) roc.visited else roc.not_lined_up;
+                const r = pixelTick(geo, crits, poops[0..poops_len.*], moving, depth, axis, inc, out.before, laid);
+                if (r.step_x != 0 or r.step_y != 0) out.moving_len = r.moving_len;
+                out.before = @intCast(@min(@as(u64, out.before) + @as(u64, @intCast(r.walked)), std.math.maxInt(u32)));
+                if (r.poop_slot >= 0) {
+                    const p: Poop = .{ .slot = @intCast(r.poop_slot), .x = r.poop_x, .y = r.poop_y };
+                    for (poops[0..poops_len.*]) |*q| {
+                        if (q.slot == p.slot) {
+                            q.* = p;
+                            break;
+                        }
+                    } else {
+                        poops[poops_len.*] = p;
+                        poops_len.* += 1;
+                    }
+                    placed[out.placed_len] = p;
+                    out.placed_len += 1;
+                    laid +%= 1;
+                }
+                out.bump_kind = r.bump_kind;
+                out.bump_at = r.bump_at;
+            }
+        }
+    }
+    return out;
+}
+
 /// **THE JUDGE**: `before` copies what the Roc is lent and runs the
-/// reference on the copy; `after`, given what the Roc handed back, panics
-/// at the first difference.
-pub fn Judge(comptime seen_most: usize, comptime moving_most: usize) type {
+/// reference's drag on the copy; `after`, given what the Roc handed back,
+/// panics at the first difference.
+pub fn DragJudge(comptime seen_most: usize, comptime moving_most: usize, comptime poops_most: usize) type {
     return struct {
         crits: [seen_most]Crit = undefined,
         n: usize = 0,
         moving: [moving_most]u16 = undefined,
         depth: [seen_most]u16 = undefined,
-        res: Result = undefined,
-        axis: i32 = 0,
-        inc: i32 = 0,
+        poops: [poops_most]Poop = undefined,
+        poops_len: usize = 0,
+        placed: [poops_most]Poop = undefined,
+        res: DragOut = undefined,
         geo: Geo = undefined,
 
         const Self = @This();
 
-        pub fn before(self: *Self, crits: []const Crit, from: []const u16, poops: []const Poop, side: usize, axis: i32, inc: i32, walked: u32, laid: u32) void {
+        pub fn before(self: *Self, crits: []const Crit, from: []const u16, poops: []const Poop, side: usize, disps: []const roc.Disp, walked: u32, laid: u32) void {
             self.geo = geoOf(side);
             if (from.len == 0 or from[from.len - 1] != poops.len) std.debug.panic("walk judge: the poops' tile offsets end at {d}, {d} poops lent", .{ if (from.len == 0) 0 else from[from.len - 1], poops.len });
             self.n = crits.len;
-            self.axis = axis;
-            self.inc = inc;
             @memcpy(self.crits[0..self.n], crits);
-            self.res = pixelTick(self.geo, self.crits[0..self.n], poops, &self.moving, &self.depth, axis, inc, walked, laid);
+            self.poops_len = poops.len;
+            @memcpy(self.poops[0..poops.len], poops);
+            self.res = dragTicks(self.geo, self.crits[0..self.n], &self.poops, &self.poops_len, &self.moving, &self.depth, disps, walked, laid, &self.placed);
         }
 
-        fn differ(self: *const Self, what: []const u8, index: usize, ref: i64, got: i64) noreturn {
-            std.debug.panic("walk judge: {s}[{d}] differs: reference {d}, Roc {d} (axis {d}, inc {d})", .{ what, index, ref, got, self.axis, self.inc });
+        fn differ(_: *const Self, what: []const u8, index: usize, ref: i64, got: i64) noreturn {
+            std.debug.panic("walk judge: {s}[{d}] differs over the drag: reference {d}, Roc {d}", .{ what, index, ref, got });
         }
 
-        pub fn after(self: *const Self, crits: []const Crit, cells: []const u64, words: usize, moving: []const u16, ran: anytype) void {
+        pub fn after(self: *const Self, crits: []const Crit, cells: []const u64, words: usize, moving: []const u16, placed: []const Poop, ran: anytype) void {
             const r = self.res;
             if (crits.len != self.n) self.differ("critter count", 0, @intCast(self.n), @intCast(crits.len));
             // Places first, every critter's, then the rest: a place is
@@ -642,8 +694,14 @@ pub fn Judge(comptime seen_most: usize, comptime moving_most: usize) type {
                     if (@field(a, f) != @field(b, f)) self.differ("crit." ++ f, j, @intCast(@field(a, f)), @intCast(@field(b, f)));
                 }
             }
-            inline for (.{ "step_x", "step_y", "walked", "bump_kind", "bump_at", "poop_slot", "poop_x", "poop_y" }) |f| {
+            inline for (.{ "before", "bump_kind", "bump_at" }) |f| {
                 if (@field(r, f) != @field(ran, f)) self.differ(f, 0, @field(r, f), @field(ran, f));
+            }
+            if (r.placed_len != placed.len) self.differ("placed.len", 0, @intCast(r.placed_len), @intCast(placed.len));
+            for (self.placed[0..r.placed_len], placed, 0..) |a, b, k| {
+                inline for (.{ "slot", "x", "y" }) |f| {
+                    if (@field(a, f) != @field(b, f)) self.differ("placed." ++ f, k, @field(a, f), @field(b, f));
+                }
             }
             if (r.moving_len != moving.len) self.differ("moving.len", 0, @intCast(r.moving_len), @intCast(moving.len));
             for (self.moving[0..r.moving_len], moving, 0..) |a, b, k| {

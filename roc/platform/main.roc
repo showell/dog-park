@@ -1,7 +1,8 @@
 ## THE PHYSICS' PLATFORM: Dog Park's Zig is the host. The app
-## (roc/physics.roc) provides one pixel-tick (Walk.roc's `pixel_tick`: the
-## leashed dog's step, then the walk, the critters' wish Wish.roc in it),
-## or the forage turn, by its first argument, as the C function `roc_walk`;
+## (roc/physics.roc) provides the tick's whole drag (Walk.roc's
+## `drag_tick`: its pixel-ticks, each the leashed dog's step and then the
+## walk, the critters' wish Wish.roc in it), or the forage turn alone, by
+## its first argument, as the C function `roc_walk`;
 ## every build of the physics builds it into an archive for its target
 ## (build.zig's `rocArchives`), which the Zig links. It allocates nothing, nor calls
 ## anything of the host's but `roc_crashed`. The walk's arguments are flat,
@@ -9,7 +10,7 @@
 ## (src/play/roc_physics.zig).
 platform ""
 	requires {
-		walk : I32, I32, I32, I32, U32, U32, List(U16), List(Poop), List(Home), List(U64), List(Crit), List(U16), List(U16), List(U16) -> Walked
+		walk : I32, I32, I32, U32, U32, List(U16), List(Poop), List(Home), List(U64), List(Crit), List(U16), List(U16), List(U16), List(Disp), List(Poop) -> Walked
 	}
 	exposes []
 	packages {}
@@ -30,31 +31,29 @@ platform ""
 	}
 
 ## The types that cross to the host, each as src/play/roc_physics.zig lays
-## it out: a listed poop, a chicken's home, a seen critter, and what a call
-## hands back.
+## it out: a listed poop, a chicken's home, a seen critter, a displacement
+## of the drag, and what a call hands back.
 Poop : { slot : U16, x : I32, y : I32 }
+
+Disp : { dx : I32, dy : I32 }
 
 Home : { x : I32, y : I32 }
 
 Crit : { half : I32, key : I64, kin : U8, kind : U8, x : I32, y : I32 }
 
 Walked : {
-	anchor : I32,
+	before : U32,
 	bump_at : I32,
 	bump_kind : I32,
 	cells : List(U64),
 	crits : List(Crit),
 	depth : List(U16),
 	eaten : List(U16),
+	from : List(U16),
 	moving : List(U16),
-	poop_slot : I32,
-	poop_x : I32,
-	poop_y : I32,
-	pooper : I32,
-	step_x : I32,
-	step_y : I32,
-	walked : I32,
+	placed : List(Poop),
+	poops : List(Poop),
 }
 
-walk_for_host : I32, I32, I32, I32, U32, U32, List(U16), List(Poop), List(Home), List(U64), List(Crit), List(U16), List(U16), List(U16) -> Walked
+walk_for_host : I32, I32, I32, U32, U32, List(U16), List(Poop), List(Home), List(U64), List(Crit), List(U16), List(U16), List(U16), List(Disp), List(Poop) -> Walked
 walk_for_host = walk

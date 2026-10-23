@@ -1,6 +1,7 @@
-//! **THE PHYSICS' ROC**: one pixel-tick, the leashed dog's step and then
-//! the walk (roc/Walk.roc's `pixel_tick`, with the critters' wish in it,
-//! roc/Wish.roc), compiled from roc/ by every build of the physics into an
+//! **THE PHYSICS' ROC**: the tick's whole drag, its pixel-ticks each the
+//! leashed dog's step and then the walk (roc/Walk.roc's `drag_tick` and
+//! `pixel_tick`, with the critters' wish in it, roc/Wish.roc), and the
+//! chickens' turn, compiled from roc/ by every build of the physics into an
 //! archive for its target, which it links (build.zig's `rocArchives`).
 //! This file is the seam: the C function Roc provides, their arguments
 //! laid out as Roc lays records out (fields by alignment, largest first,
@@ -90,14 +91,18 @@ pub const visited: i64 = -2;
 /// A poop the physics sees, and its slot (`Poop`).
 pub const Poop = extern struct { x: i32, y: i32, slot: u16 };
 
-const Walked = extern struct { cells: RocList, crits: RocList, depth: RocList, eaten: RocList, moving: RocList, anchor: i32, bump_at: i32, bump_kind: i32, poop_slot: i32, poop_x: i32, poop_y: i32, pooper: i32, step_x: i32, step_y: i32, walked: i32 };
+const Walked = extern struct { cells: RocList, crits: RocList, depth: RocList, eaten: RocList, from: RocList, moving: RocList, placed: RocList, poops: RocList, before: u32, bump_at: i32, bump_kind: i32 };
+
+/// One displacement of the tick's drag (roc/Walk.roc's `Disp`), in 256ths.
+pub const Disp = extern struct { dx: i32, dy: i32 };
 
 /// A point (roc/Walk.roc's `Pt`): a forager's home, by seen index.
 pub const Pt = extern struct { x: i32, y: i32 };
-/// `mode` (roc/physics.roc's `walk`): a pixel-tick, or the forage turn.
-const mode_pixel_tick: i32 = 0;
+/// `mode` (roc/physics.roc's `walk`): the forage turn, or the tick's whole
+/// drag.
 const mode_forage: i32 = 1;
-extern fn roc_walk(mode: i32, axis: i32, inc: i32, side: i32, before: u32, laid: u32, from: RocList, poops: RocList, homes: RocList, cells: RocList, crits: RocList, depth: RocList, eaten: RocList, moving: RocList) callconv(.c) Walked;
+const mode_drag: i32 = 2;
+extern fn roc_walk(mode: i32, inc: i32, side: i32, before: u32, laid: u32, from: RocList, poops: RocList, homes: RocList, cells: RocList, crits: RocList, depth: RocList, eaten: RocList, moving: RocList, disps: RocList, placed: RocList) callconv(.c) Walked;
 
 /// **THE WALK'S LISTS** (roc/Walk.roc's `Lent` and `Work`), for at most
 /// `seen_most` critters, `moving_most` of them in motion, `poops_most`
@@ -107,7 +112,7 @@ extern fn roc_walk(mode: i32, axis: i32, inc: i32, side: i32, before: u32, laid:
 /// and lends its own `cells` (`Cells`); the walk changes those two and
 /// fills `moving` (the leashed dog, then each visited); `depth` is its
 /// working room.
-pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poops_most: usize, comptime tiles: usize, comptime side: usize) type {
+pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poops_most: usize, comptime tiles: usize, comptime side: usize, comptime disps_most: usize) type {
     return struct {
         from: Lent(u16, tiles + 1) = .{},
         poops: Lent(Poop, poops_most) = .{},
@@ -118,6 +123,11 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
         /// physics fills it with the crits); and the poops eaten, lent empty.
         homes: Lent(Pt, seen_most) = .{},
         eaten: Lent(u16, poops_most) = .{},
+        /// The drag's (`drag`): the tick's displacements, and the poops it
+        /// laid, in order, lent empty (at most one a pixel-tick, so no more
+        /// than there are slots).
+        disps: Lent(Disp, disps_most) = .{},
+        placed: Lent(Poop, poops_most) = .{},
 
         pub const words = std.math.divCeil(usize, seen_most, 64) catch unreachable;
 
@@ -125,23 +135,28 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
         /// the physics keeps (grid.zig) and lends in place.
         pub const Cells = Lent(u64, side * side * words);
 
-        /// One pixel-tick: the leashed dog's step `inc` along `axis` (0 x,
-        /// 1 y), then, if it moved, the walk and the poop due, the dog having
-        /// walked `before` and `laid` poops laid. The lists as it left them;
-        /// the dog's net step, how far it walked (each move by its larger
-        /// axis) and what it bumped; and the poop laid: its slot (-1, none)
-        /// and where.
-        pub fn run(self: *@This(), cells: *Cells, cells_side: usize, axis: i32, inc: i32, before: u32, laid: u32) Ran {
+        /// **THE TICK'S WHOLE DRAG** (roc/Walk.roc's `drag_tick`): the
+        /// displacements in `disps`, each cut into pixel-ticks, until one
+        /// bumps, then the forage turn (unless `forage` is false: the walk
+        /// judge's builds call it apart), the dog having walked `before` and
+        /// `laid` poops laid. Roc files each poop it lays on `from` and
+        /// `poops` as it goes, so they stay what the physics would lend. The
+        /// lists as it left them (`placed`, the poops laid in order; `eaten`;
+        /// `moving`, the last walk's); how far the dog has walked now, and
+        /// what it bumped.
+        pub fn drag(self: *@This(), cells: *Cells, cells_side: usize, before: u32, laid: u32, forage_too: bool) Dragged {
             const n = self.crits.len;
             self.depth.len = n;
             self.moving.len = 0;
             self.eaten.len = 0;
-            const r = self.call(cells, cells_side, mode_pixel_tick, axis, inc, before, laid);
-            std.debug.assert(self.crits.len == n and self.from.refcount == 0 and self.poops.refcount == 0);
-            return .{ .step_x = r.step_x, .step_y = r.step_y, .walked = r.walked, .bump_kind = r.bump_kind, .bump_at = r.bump_at, .poop_slot = r.poop_slot, .poop_x = r.poop_x, .poop_y = r.poop_y };
+            self.placed.len = 0;
+            if (forage_too) std.debug.assert(self.homes.len == n);
+            const r = self.call(cells, cells_side, mode_drag, @intFromBool(forage_too), before, laid);
+            std.debug.assert(self.crits.len == n);
+            return .{ .before = r.before, .bump_kind = r.bump_kind, .bump_at = r.bump_at };
         }
 
-        pub const Ran = struct { step_x: i32, step_y: i32, walked: i32, bump_kind: i32, bump_at: i32, poop_slot: i32, poop_x: i32, poop_y: i32 };
+        pub const Dragged = struct { before: u32, bump_kind: i32, bump_at: i32 };
         /// The forage turn (roc/Walk.roc's `forage_turn`), the leashed dog's
         /// net move over the tick `net` and `laid` poops laid: the crits and
         /// cells as it left them, and the slots the foragers ate.
@@ -151,15 +166,15 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
             self.moving.len = 0;
             self.eaten.len = 0;
             std.debug.assert(self.homes.len == n);
-            _ = self.call(cells, cells_side, mode_forage, 0, net, 0, laid);
+            _ = self.call(cells, cells_side, mode_forage, net, 0, laid);
             std.debug.assert(self.crits.len == n);
             return self.eaten.slice();
         }
-        fn call(self: *@This(), cells: *Cells, cells_side: usize, mode: i32, axis: i32, inc: i32, before: u32, laid: u32) Walked {
+        fn call(self: *@This(), cells: *Cells, cells_side: usize, mode: i32, inc: i32, before: u32, laid: u32) Walked {
             std.debug.assert(cells_side <= side);
             const freed = deallocs.load(.monotonic);
             const asked = allocs.load(.monotonic);
-            const r = roc_walk(mode, axis, inc, @intCast(cells_side), before, laid, self.from.toRead(), self.poops.toRead(), self.homes.toRead(), cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.eaten.toChange(), self.moving.toChange());
+            const r = roc_walk(mode, inc, @intCast(cells_side), before, laid, self.from.toChange(), self.poops.toChange(), self.homes.toRead(), cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.eaten.toChange(), self.moving.toChange(), self.disps.toRead(), self.placed.toChange());
             if (allocs.load(.monotonic) != asked) std.debug.panic("roc_alloc: Roc asked for memory in a call that returned, last from 0x{x}: a list grown past its room, or a lent list copied (docs/ROC-SPEED.md); `nm` on the archive names the function", .{alloc_from.load(.monotonic)});
             if (deallocs.load(.monotonic) != freed) @panic("roc_dealloc: Roc freed a list the physics lent it (a list kept, or a refcount word moved)");
             cells.back(r.cells);
@@ -167,7 +182,10 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
             self.depth.back(r.depth);
             self.eaten.back(r.eaten);
             self.moving.back(r.moving);
-            std.debug.assert(self.from.refcount == 0 and self.poops.refcount == 0 and self.homes.refcount == 0);
+            self.from.back(r.from);
+            self.poops.back(r.poops);
+            self.placed.back(r.placed);
+            std.debug.assert(self.homes.refcount == 0 and self.disps.refcount == 0);
             return r;
         }
     };

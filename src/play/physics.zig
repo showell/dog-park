@@ -810,7 +810,7 @@ pub const Scene = struct {
     /// **THE LISTS THE WALK LENDS ROC** (roc/Walk.roc, `walk`): the listed
     /// poops by tile, again whenever they change (`poops_changed`); and the
     /// seen critters, for each walk.
-    roc_walk: roc.Walk(critter_count, walk_most + 1, poop_count, span_tiles * span_tiles, span_cells) = .{},
+    roc_walk: roc.Walk(critter_count, walk_most + 1, poop_count, span_tiles * span_tiles, span_cells, most_displacements) = .{},
     poops_changed: bool = true,
     /// **THE SEEN CRITTERS BY CELL** (metal-vmm QUEUE 210; grid.zig): seen
     /// index `j` is in the cell of the world its point stands in (`cell` a
@@ -1039,10 +1039,7 @@ pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) vo
             @setRuntimeSafety(std.debug.runtime_safety);
             if (scene.init(b)) {
                 const sc = &scene;
-                if (b.hold.leashed.drag == .on) {
-                    bumped = playDrag(sc, drag);
-                    chickensTurn(sc);
-                }
+                if (b.hold.leashed.drag == .on) bumped = dragAll(sc, drag);
                 if (bumped != null or begun.letting_go == .after_drag) b.hold.leashed.drag = .{ .ended = t };
                 out.walk = sc.walk;
                 out.walk_len = sc.walk_len;
@@ -1099,98 +1096,53 @@ pub fn tick(b: *Board, t: Tick, humans: []const Human, drag: []const Disp, out: 
     return null;
 }
 
-/// The drag's displacements, x then y, each cut into pixel-ticks; the
-/// critter or poop the leashed dog bumped, if it did (the rest of the
-/// drag is then dropped).
-fn playDrag(sc: *Scene, drag: []const Disp) ?Bumped {
-    for (drag) |d| {
-        for ([_]Axis{ .x, .y }) |axis| {
-            const part: i64 = if (axis == .x) d.dx else d.dy;
-            if (part == 0) continue;
-            const n: i64 = std.math.divCeil(i64, @intCast(@abs(part)), step_most) catch unreachable;
-            var done: i64 = 0;
-            var i: i64 = 1;
-            while (i <= n) : (i += 1) {
-                const now = @divTrunc(part * i, n);
-                const inc: i32 = @intCast(now - done);
-                done = now;
-                if (dragStep(sc, axis, inc)) |c| return c;
-            }
-        }
-    }
-    return null;
-}
-
-/// **ONE PIXEL-TICK** (decision 30), in Roc (roc/Walk.roc's `pixel_tick`,
-/// through `walk`): the leashed dog takes the step, stopping just short of
-/// pressing into anyone; stopped by a chicken it shoves it, by a poop or a
-/// chicken it can't shove it slides sideways, and it bumps when that fails
-/// too, or a dog or a cow at once. Then, if it moved, the walk, and where
-/// the poop that came due lands (`lay`), which is placed here.
-fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
-    if (inc == 0) return null;
-    const r = walk(sc, axis, inc);
-    const due = sc.walkOn(r.walked);
-    // A pixel-tick's walk is under 2 px against a poop each 700 px; and a
-    // walk that came to no step is no move (the poop due waits for none).
-    std.debug.assert(due <= 1);
-    std.debug.assert(due == 0 or r.step.x != 0 or r.step.y != 0);
-    if (r.poop) |p| {
-        std.debug.assert(due == 1);
-        placePoop(sc, p.slot, p.at);
-    }
-    if (builtin.is_test) std.debug.assert(sc.bucketsHold());
-    return r.bumped;
-}
-
-/// **THE WALK** (decisions 20-22, 31): out from the leashed dog (seen
-/// index 0), shortest link first, the kinds that walk only (roc/Rules.roc's
-/// `walks`: dogs, cows and goats; a chicken takes its
-/// turn after the drag, `chickensTurn`). The leashed dog lines up its
-/// 3 nearest (roc/Walk.roc's `walk_fan`), each waiting keyed by its distance from the critter
-/// that lined it up; the walk visits the least key (ties to the lower
-/// rank), which steps (a dog at most `most` and a cow half, by its wish
-/// from the critters in motion, going around a poop or a chicken in its
-/// way), and lines up its own 3 nearest not yet
-/// visited (a critter already waiting takes the nearer key). At most
-/// `walk_most` critters; one the walk doesn't reach stays put. On the way
-/// it finds the herd's deepest dog, who poops.
+/// **THE TICK'S DRAG, IN ROC** (roc/Walk.roc's `drag_tick`; decisions 20-31):
+/// the displacements, x then y, each cut into pixel-ticks (the leashed dog's
+/// step, stopping just short of pressing into anyone, then the walk out from
+/// it, shortest link first, and where the poop that came due lands), until
+/// one bumps; then the chickens' turn. This lends Roc the seen critters, the
+/// cells, the poops by tile and each forager's home once, and replays what
+/// it hands back, in order: each critter where it left it, how far the
+/// leashed dog has walked, each poop laid (`placePoop`), the last walk's
+/// visit order, each poop eaten; and answers what the dog bumped, if it did
+/// (the rest of the drag was dropped).
 ///
-/// **WALKED IN ROC** (roc/Walk.roc, through roc_physics.zig), with the
-/// leashed dog's step before it: this lends it the seen critters (where
-/// each stands, what it is) and the cells' sets of them, the
-/// poops by tile, and room for its working lists; Roc moves the critters
-/// in place and hands the lists back, and this puts each critter it moved
-/// where it left it, and, if the leashed dog moved, takes the walk's visit
-/// order and the poop it laid, if one came due. Neither side allocates.
-fn walk(sc: *Scene, axis: Axis, inc: i32) Stepped {
+/// **THE WALK'S JUDGE** (-Dwalk-judge, walk_reference.zig): the same drag in
+/// plain Zig, its own loop over its own pixel-tick, compared field by
+/// field; the chickens' turn is then a call of its own (`chickensTurn`),
+/// as the reference has none.
+fn dragAll(sc: *Scene, drag: []const Disp) ?Bumped {
+    if (drag.len == 0) return null;
     const w = &sc.roc_walk;
-    const before = sc.board.walked[sc.seen[0].who.n];
     lendCrits(sc);
-    const axis_n: i32 = switch (axis) {
-        .x => 0,
-        .y => 1,
+    w.disps.len = 0;
+    for (drag) |d| w.disps.push(.{ .dx = d.dx, .dy = d.dy });
+    w.homes.len = 0;
+    if (!walk_judge) for (sc.list()) |o| {
+        const h = layout.home(sc.board.level, o.who);
+        w.homes.push(.{ .x = h.x, .y = h.y });
     };
-    // **THE WALK'S JUDGE** (-Dwalk-judge, walk_reference.zig): the same
-    // pixel-tick in plain Zig, compared field by field.
-    var judge: if (walk_judge) walk_reference.Judge(critter_count, walk_most + 1) else void = undefined;
-    if (walk_judge) judge.before(w.crits.slice(), w.from.slice(), w.poops.slice(), sc.geo.span_cells, axis_n, inc, before, sc.board.laid);
-    const r = w.run(&sc.cells.cells, sc.geo.span_cells, axis_n, inc, before, sc.board.laid);
-    if (walk_judge) judge.after(w.crits.slice(), sc.cells.cells.slice(), Grid.words, w.moving.slice(), r);
+    const n = sc.seen[0].who.n;
+    var judge: if (walk_judge) walk_reference.DragJudge(critter_count, walk_most + 1, poop_count) else void = undefined;
+    if (walk_judge) judge.before(w.crits.slice(), w.from.slice(), w.poops.slice(), sc.geo.span_cells, w.disps.slice(), sc.board.walked[n], sc.board.laid);
+    const r = w.drag(&sc.cells.cells, sc.geo.span_cells, sc.board.walked[n], sc.board.laid, !walk_judge);
+    if (walk_judge) judge.after(w.crits.slice(), sc.cells.cells.slice(), Grid.words, w.moving.slice(), w.placed.slice(), r);
     takeCrits(sc);
-    const step: Point = .{ .x = r.step_x, .y = r.step_y };
-    if (step.x != 0 or step.y != 0) {
-        const moving = w.moving.slice();
+    sc.board.walked[n] = r.before;
+    for (w.placed.slice()) |p| placePoop(sc, p.slot, .{ .x = p.x, .y = p.y });
+    const moving = w.moving.slice();
+    if (moving.len > 0) {
         sc.walk_len = moving.len - 1;
         for (moving[1..], 0..) |j, k| sc.walk[k] = @intCast(critterIndex(sc.seen[j].who));
     }
-    const poop: ?Laid = if (r.poop_slot < 0) null else .{ .slot = @intCast(r.poop_slot), .at = .{ .x = r.poop_x, .y = r.poop_y } };
-    return .{ .step = step, .walked = @intCast(r.walked), .poop = poop, .bumped = switch (r.bump_kind) {
+    if (walk_judge) chickensTurn(sc) else for (w.eaten.slice()) |e| sc.eat(e);
+    if (builtin.is_test) std.debug.assert(sc.bucketsHold());
+    return switch (r.bump_kind) {
         roc.bump_none => null,
         roc.bump_critter => .{ .critter = sc.seen[@intCast(r.bump_at)].who },
         roc.bump_poop => .{ .poop = @intCast(r.bump_at) },
         else => @panic("roc: a bump of no kind"),
-    } };
+    };
 }
 
 /// The seen critters and the poops for Roc (roc_physics.zig's `Walk`):
@@ -1219,13 +1171,6 @@ fn takeCrits(sc: *Scene) void {
         if (c.x != sc.at[j].x or c.y != sc.at[j].y) sc.put(j, .{ .x = c.x, .y = c.y });
     }
 }
-
-/// What a pixel-tick did to the leashed dog: its net step, how far it
-/// walked (each of its moves by its larger axis), the poop it laid if one
-/// came due, and what it bumped.
-const Stepped = struct { step: Point, walked: u32, poop: ?Laid, bumped: ?Bumped };
-/// A poop the walk laid: its slot, and where (roc/Walk.roc's `Laid`).
-const Laid = struct { slot: u16, at: Point };
 
 /// **RIPE** (decision 31): every poop but the park's newest, the one in
 /// slot `laid` − 1 (mod `poop_count`; with no poop yet, an empty slot).
@@ -1277,7 +1222,8 @@ fn placePoop(sc: *Scene, slot: u16, q: Point) void {
     if (listed) sc.link(slot) else sc.listPoop(slot);
 }
 
-/// **THE CHICKENS' TURN** (decision 31): once a tick, after the drag, and
+/// **THE CHICKENS' TURN**, a call of its own (the walk judge's builds; the
+/// drag's otherwise, `dragAll`) (decision 31): once a tick, after the drag, and
 /// only if the leashed dog's net move over it is more than nothing, in Roc
 /// (roc/Walk.roc's `forage_turn`): each critter whose kind forages (today
 /// the chickens, roc/Wish.roc's `forage_of`), by seen index, steps toward
