@@ -9,8 +9,10 @@
 app [Model, program] { rr: platform "../../roc-ray/platform/main.roc" }
 
 import rr.App
+import rr.Capture
 import rr.Color
 import rr.Draw
+import rr.Task
 import Layout
 import Walk
 import World
@@ -120,7 +122,7 @@ program = { init!, update!, render! }
 
 init! : App.Init(Model, [])
 init! = App.init(
-	App.default.with_title("Dog Park").with_size({ width: 840, height: 910 }),
+	App.default.with_title("Dog Park").with_size({ width: 840, height: 910 }).with_output_dir("shots"),
 	|io| {
 		crits = start_crits(level)
 		_ = io.stdout().line!(diagnose(crits))
@@ -160,10 +162,15 @@ diagnose = |crits| {
 	"native: scale ${scale.to_str()}, ${crits.len().to_str()} critters, ${$tiles.to_str()} tiles by the loops, dog 0 at (${first.x.to_str()}, ${first.y.to_str()}) drawn at (${s.x.to_str()}, ${s.y.to_str()}), a click there finds dog ${back.to_str()}"
 }
 
-Msg : []
+## A screenshot finished (S saves one, shots/shot.png: how the build's
+## windowed run on the runner shows what it draws).
+Msg : [Shot(Try({}, Capture.ScreenshotError))]
 
 update! : Model, App.Input(Msg), App.Io => Try(Model, [Exit(I64)])
-update! = |model, input, _io| {
+update! = |model, input, io| {
+	if input.devices.key_pressed(KeyS) {
+		Task.spawn!(input, || Shot(io.capture().screenshot!("shot.png")))
+	}
 	mouse = input.devices.mouse
 	p = mouse.position()
 	if mouse.button_pressed(Left) {

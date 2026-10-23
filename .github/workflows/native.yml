@@ -78,6 +78,36 @@ jobs:
         working-directory: dog-park
         run: out/dog-park.exe --host-headless --host-headless-frames=3
 
+      # **A WINDOW, AND A PICTURE OF IT**: the runner's GPU offers OpenGL 1.1
+      # only, so Mesa's software renderer (llvmpipe) goes beside the exe, as
+      # roc-ray's own CI does (a DLL in the exe's directory shadows the
+      # system's opengl32.dll). The run presses S at frame 30, which saves
+      # shots/shot.png (roc/native.roc), and stops at frame 60.
+      - name: Install Mesa software OpenGL
+        working-directory: dog-park
+        env:
+          MESA_VERSION: 24.3.4
+        run: |
+          curl -fsSL -o mesa.7z \
+            "https://github.com/pal1000/mesa-dist-win/releases/download/${MESA_VERSION}/mesa3d-${MESA_VERSION}-release-msvc.7z"
+          7z e -y mesa.7z -o"out" x64/opengl32.dll x64/libgallium_wgl.dll x64/libglapi.dll
+          test -f out/opengl32.dll
+
+      - name: Run it in a window, and save a picture
+        working-directory: dog-park/out
+        env:
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          ./dog-park.exe --host-frames=60 --host-keys=30:S
+          find . -name '*.png'
+
+      - name: Upload the picture
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dog-park-shot-${{ inputs.opt }}
+          path: dog-park/out/**/*.png
+          if-no-files-found: error
+
       - name: Upload the executable
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
