@@ -292,7 +292,7 @@ test("the near scene: tiles, then cows, then dogs, the leashed dog ringed", () =
   // A cow has no label; a dog's is its number.
   assert.equal(byId.get("cow:23:label"), undefined);
   // The leashed dog: a ring under its dog_px glyph, which is a target.
-  assert.deepEqual(byId.get("dog:7:ring"), { id: "dog:7:ring", shape: "ring", x: 200, y: 100, w: 2 * (scene.dog_px * 0.7), h: 2 * (scene.dog_px * 0.7), stroke: "#d33", lineWidth: 3, role: "scenery" });
+  assert.deepEqual(byId.get("dog:7:ring"), { id: "dog:7:ring", shape: "ring", x: 200, y: 100, w: 2 * (scene.dog_px * 0.7), h: 2 * (scene.dog_px * 0.7), stroke: "#dd3333", lineWidth: 3, role: "scenery" });
   assert.deepEqual(byId.get("dog:7"), { id: "dog:7", shape: "glyph", x: 200, y: 100, w: scene.dog_px, h: scene.dog_px, text: "🐕", fill: "#000", role: "target" });
   // A far dog is still drawn (off the screen), unringed.
   assert.deepEqual(byId.get("dog:3"), { id: "dog:3", shape: "glyph", x: 1200.4, y: 1000, w: scene.dog_px, h: scene.dog_px, text: "🐩", fill: "#000", role: "target" });
@@ -337,7 +337,7 @@ test("the overview scene: the world's tiles shaded by subscription, its dots by 
   assert.equal(byId.get("dog:3").fill, "#a88");
   assert.equal(byId.get("dog:3").w, 5);
   assert.equal(byId.get("dog:3").role, "scenery");
-  assert.deepEqual(byId.get("dog:3:ring"), { id: "dog:3:ring", shape: "ring", x: byId.get("dog:3").x, y: byId.get("dog:3").y, w: 22, h: 22, stroke: "#d33", lineWidth: 3, role: "scenery" });
+  assert.deepEqual(byId.get("dog:3:ring"), { id: "dog:3:ring", shape: "ring", x: byId.get("dog:3").x, y: byId.get("dog:3").y, w: 22, h: 22, stroke: "#dd3333", lineWidth: 3, role: "scenery" });
   // Over the dots, the margins; then the view; then the scrollbars, each thumb over its track.
   assert.deepEqual(ids(over).slice(-12), ["dog:7", "dog:3", "dog:3:ring", "margin:top", "margin:bottom", "margin:left", "margin:right",
     "view", "scroll:x", "scroll:x:thumb", "scroll:y", "scroll:y:thumb"]);

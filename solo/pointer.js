@@ -16,10 +16,10 @@ import { hit } from "./blit.js";
 // viewport: from the dog's farthest place on screen (half its size from the
 // edge) `band_px` inward. Deeper in the band, faster. The speeds are a
 // tick's: 28 and 224 px a second, the 7/15 and 56/15 px a frame they were
-// at 60 Hz, now the same at any frame rate.
-export const band_px = 80;
-export const slowest_px_per_tick = 1.75;
-export const fastest_px_per_tick = 14;
+// at 60 Hz, now the same at any frame rate. The numbers are roc/Look.roc's
+// (look.js), which the game on roc-ray reads too.
+import { band_px, slowest_px_per_tick, fastest_px_per_tick } from "./look.js";
+export { band_px, slowest_px_per_tick, fastest_px_per_tick };
 
 export function bandSpeed(depthPx) {
   const depth = depthPx / band_px; // 0 at the band's inner edge, 1 at the screen's edge

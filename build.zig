@@ -318,16 +318,20 @@ pub fn build(b: *std.Build) void {
         .{ "roc/print_world.roc", "zon", "src/play/world.zon" },
         .{ "roc/print_world.roc", "js", "solo/world.js" },
         .{ "roc/print_rules.roc", "zon", "src/play/rules.zon" },
+        .{ "roc/print_page.roc", "words", "solo/words.js" },
+        .{ "roc/print_page.roc", "look", "solo/look.js" },
     }) |out| {
         const roc_run = b.addSystemCommand(&.{ roc, out[0], "--", out[1] });
         roc_run.setCwd(b.path("."));
         roc_run.addFileInput(b.path(out[0]));
-        roc_run.addFileInput(b.path(if (std.mem.eql(u8, out[0], "roc/print_world.roc")) "roc/World.roc" else "roc/Rules.roc"));
+        // Every module a printer may import: a printer's own list drifted
+        // (print_world.roc reads Layout.roc and Wish.roc too).
+        for (printed_from) |m| roc_run.addFileInput(b.path(m));
         const made = roc_run.captureStdOut(.{});
         roc_write.addCopyFileToSource(made, out[2]);
         roc_fresh.dependOn(fresh(b, made, out[2]));
     }
-    b.step("roc", "Print the world and its rules again from roc/*.roc into src/play/world.zon, src/play/rules.zon and solo/world.js").dependOn(&roc_write.step);
+    b.step("roc", "Print the world, its rules and the page's words and look again from roc/*.roc into src/play/world.zon, src/play/rules.zon, solo/world.js, solo/words.js and solo/look.js").dependOn(&roc_write.step);
     // **A NEW KIND, IN ROC ALONE** (metal-vmm QUEUE 240): a copy of this
     // repository with test/new_kind/sheep.patch (roc/*.roc only) applied,
     // its world and rules printed there by `zig build roc` (its physics'
@@ -488,6 +492,10 @@ fn commitOf(b: *std.Build, dir: []const u8) []const u8 {
     const status = b.runAllowFail(&.{ "git", "-C", dir, "status", "--porcelain", "--untracked-files=no" }, &code, .ignore) catch return short;
     return if (std.mem.trim(u8, status, " \n").len == 0) short else b.fmt("{s}+dirty", .{short});
 }
+
+/// The modules roc/'s printers import, every one an input of each print:
+/// a change to any prints again.
+const printed_from = [_][]const u8{ "roc/World.roc", "roc/Rules.roc", "roc/Layout.roc", "roc/Wish.roc", "roc/Words.roc", "roc/Look.roc" };
 
 /// The physics' build options, `physics_options`: its hash.
 fn physicsOptions(b: *std.Build, walk_judge: bool) *std.Build.Module {

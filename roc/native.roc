@@ -19,7 +19,9 @@ import rr.Draw
 import rr.Math
 import rr.Task
 import Game
+import Look
 import Walk
+import Words
 import World
 import "art/1f415.png" as dog_0_png : List(U8)
 import "art/1f429.png" as dog_1_png : List(U8)
@@ -138,11 +140,9 @@ level_of = |n| match World.levels.get(n) {
 	Err(_) => World.level_one
 }
 
+## A level's name by its index here (Words.roc's, which count from one).
 level_name : U64 -> Str
-level_name = |n| match ["Level One", "Level Two", "Level Three"].get(n) {
-	Ok(s) => s
-	Err(_) => "Level ${(n + 1).to_str()}"
-}
+level_name = |n| Words.level_name(n + 1)
 
 world_px : Model -> F32
 world_px = |m| (level_of(m.level).world_tiles * World.tile_px).to_f32()
@@ -269,7 +269,7 @@ pressed_kind : Game.Board, Walk.Pt -> Str
 pressed_kind = |b, at| {
 	if critter_at(b, at, 1, 0) >= 0 {
 		"cow"
-	} else if critter_at(b, at, 2, 4) >= 0 {
+	} else if critter_at(b, at, 2, Look.chicken_slop_px.to_i32_wrap()) >= 0 {
 		"chicken"
 	} else if critter_at(b, at, 3, 0) >= 0 {
 		"goat"
@@ -310,10 +310,10 @@ one_tick = |m0| {
 	m = pan_band(m0)
 	carried = dog_band(m)
 	r = Game.tick(m.board, m.humans, m.disps.concat(carried.disps))
-	note = match r.bumped {
-		NoBump => m.note
-		Critter(k) => bump_line(k)
-		PoopBump => "Even your dog won't walk through that."
+	said = match r.bumped {
+		NoBump => { line: m.note, quips: m.quips }
+		Critter(k) => say_bump(m.quips, kind_name(k))
+		PoopBump => say_bump(m.quips, "poop")
 	}
 	view = match carried.dog {
 		Ok(d) => {
@@ -324,7 +324,7 @@ one_tick = |m0| {
 		}
 		Err(_) => m.view
 	}
-	{ ..m, board: r.board, was: m.board.crits, humans: [], disps: [], note, view }
+	{ ..m, board: r.board, was: m.board.crits, humans: [], disps: [], note: said.line, quips: said.quips, view }
 }
 
 ## A number to the nearest whole, a half up, as JavaScript's Math.round.
@@ -344,19 +344,16 @@ follow = |band, moved| {
 	}
 }
 
-## **THE EDGE BANDS** (pointer.js): within `band_px` of the window's edge,
-## faster the deeper, 28 to 224 px a second.
-band_px : F32
-band_px = 80
-
+## **THE EDGE BANDS** (pointer.js; their sizes and speeds roc/Look.roc's):
+## within `band_px` of the window's edge, faster the deeper.
 band_speed : F32 -> F32
 band_speed = |depth_px| {
-	depth = depth_px / band_px
-	if depth <= 0 0 else 1.75 + (if (depth > 1) 1 else depth) * (14 - 1.75)
+	depth = depth_px / Look.band_px
+	if depth <= 0 0 else Look.slowest_px_per_tick + (if (depth > 1) 1 else depth) * (Look.fastest_px_per_tick - Look.slowest_px_per_tick)
 }
 
 axis_scroll : F32, F32, F32 -> F32
-axis_scroll = |at, length, reach| band_speed(at - (length - reach - band_px)) - band_speed(reach + band_px - at)
+axis_scroll = |at, length, reach| band_speed(at - (length - reach - Look.band_px)) - band_speed(reach + Look.band_px - at)
 
 ## A pan held near an edge: the ground keeps moving, the view away from it.
 pan_band : Model -> Model
@@ -425,7 +422,7 @@ between = |m, i, now| match m.was.get(i) {
 
 render! : Model, Draw.Frame => Try({}, [Exit(I64)])
 render! = |m, frame| {
-	frame.clear!(Color.from_hex_rgb(0xffffff))
+	frame.clear!(Color.from_hex_rgb(Look.tile_even))
 	tile = World.tile_px.to_f32()
 	tiles = level_of(m.level).world_tiles
 	col0 = m.view.x.div_floor_by(tile).to_i64_wrap()
@@ -436,7 +433,7 @@ render! = |m, frame| {
 		while $col.to_f32() * tile < m.view.x + m.screen.x {
 			light = ($col.mod_by(tiles) + $row.mod_by(tiles)) % 2 != 0
 			if light {
-				frame.rectangle!({ x: $col.to_f32() * tile - m.view.x, y: $row.to_f32() * tile - m.view.y, width: tile, height: tile, style: Draw.filled(Color.from_hex_rgb(0xeaf3fc)) })
+				frame.rectangle!({ x: $col.to_f32() * tile - m.view.x, y: $row.to_f32() * tile - m.view.y, width: tile, height: tile, style: Draw.filled(Color.from_hex_rgb(Look.tile_odd)) })
 			} else {
 				{}
 			}
@@ -446,7 +443,7 @@ render! = |m, frame| {
 	}
 	poop_r = World.poop_px.to_f32() / 2
 	for p in m.board.poops {
-		frame.circle!({ center: on_screen(m, { x: p.x, y: p.y }), radius: poop_r, style: Draw.filled(Color.from_hex_rgb(0x7a4a1a)) })
+		frame.circle!({ center: on_screen(m, { x: p.x, y: p.y }), radius: poop_r, style: Draw.filled(Color.from_hex_rgb(Look.poop_fill)) })
 	}
 
 	## The dogs last, over the rest, as the page draws them.
@@ -481,7 +478,7 @@ draw_ring! : Draw.Frame, Model, U64, Vec, F32 => {}
 draw_ring! = |frame, m, i, at, h| match Game.leashed(m.board) {
 	Dog(d, in_hand) => {
 		if d == i {
-			colour = if in_hand Color.from_hex_rgb(0x22aa22) else Color.from_hex_rgb(0xdd3333)
+			colour = Color.from_hex_rgb(if (in_hand) Look.ring_in_hand else Look.ring_kept)
 			r = h + 4
 			frame.rectangle!({ x: at.x - r, y: at.y - r, width: 2 * r, height: 3, style: Draw.filled(colour) })
 			frame.rectangle!({ x: at.x - r, y: at.y + r - 3, width: 2 * r, height: 3, style: Draw.filled(colour) })
@@ -500,11 +497,7 @@ draw_words! : Draw.Frame, Model => {}
 draw_words! = |frame, m| {
 	cows = Game.cows(m.board)
 	won = Game.won(m.board)
-	score = if won {
-		if cows == 2 "You have herded both cows!" else "All ${cows.to_str()} cows herded together!"
-	} else {
-		"Herd: ${Game.largest_herd(m.board).to_str()} of ${cows.to_str()} cows"
-	}
+	score = Words.plain(if (won) Words.won_text(cows) else Words.score_text(Game.largest_herd(m.board), cows))
 	ink = Color.from_hex_rgb(0xffffff)
 	shade = Color.with_alpha(Color.from_hex_rgb(0x223344), 200)
 	frame.rectangle!({ x: 0, y: 0, width: m.screen.x, height: if (m.note == "") 40 else 70, style: Draw.filled(shade) })
@@ -555,14 +548,23 @@ get_crit = |l, j| match l.get(j) {
 	Err(_) => crash "native: no critter there"
 }
 
-## ── the quips (solo/quips.js), their emoji left out: raylib's font has none ──
+## ── what the park says (roc/Words.roc, solo/quips.js's turns) ──
 
-## Each kind's lines in turn, and how many presses in a row on critters
-## that only dogs move (past four, the park's remarks).
-Quips : { cow : U64, chicken : U64, goat : U64, tries : U64, remark : U64 }
+## A kind's name, by its number (World.kinds).
+kind_name : U8 -> Str
+kind_name = |k| match World.kinds.get(k.to_u64()) {
+	Ok(look) => look.name
+	Err(_) => "critter"
+}
+
+## Where each kind's lines are in their turn, for a press and for a bump,
+## and how many presses in a row on critters that only dogs move (past
+## `Words.persistent`, the park's remarks). Each kind starts at its first
+## line; the page starts each at a random one.
+Quips : { press : List({ kind : Str, next : U64 }), bump : List({ kind : Str, next : U64 }), tries : U64, remark : U64 }
 
 quips_start : Quips
-quips_start = { cow: 0, chicken: 0, goat: 0, tries: 0, remark: 0 }
+quips_start = { press: [], bump: [], tries: 0, remark: 0 }
 
 forgive : Quips -> Quips
 forgive = |q| { ..q, tries: 0 }
@@ -573,65 +575,40 @@ line_of = |ls, n| match ls.get(n % ls.len()) {
 	Err(_) => ""
 }
 
-say_press : Quips, Str -> { line : Str, quips : Quips }
-say_press = |q0, kind| {
-	q = { ..q0, tries: q0.tries + 1 }
-	if q.tries > 4 {
-		{ line: line_of(persistence, q.remark), quips: { ..q, remark: q.remark + 1 } }
-	} else if kind == "cow" {
-		{ line: line_of(cow_lines, q.cow), quips: { ..q, cow: q.cow + 1 } }
-	} else if kind == "chicken" {
-		{ line: line_of(chicken_lines, q.chicken), quips: { ..q, chicken: q.chicken + 1 } }
+## The next of `kind`'s lines in `table` and the turns after it; a kind
+## with none, `fallback` filled in.
+next_line : List({ kind : Str, lines : List(Str) }), List({ kind : Str, next : U64 }), Str, Str -> { line : Str, turns : List({ kind : Str, next : U64 }) }
+next_line = |table, turns, kind, fallback| {
+	ls = Words.lines_of(table, kind)
+	if ls.len() == 0 {
+		{ line: Words.fill(fallback, [{ name: "kind", value: kind }]), turns }
 	} else {
-		{ line: line_of(goat_lines, q.goat), quips: { ..q, goat: q.goat + 1 } }
+		n = match turns.keep_if(|t| t.kind == kind).first() {
+			Ok(t) => t.next
+			Err(_) => 0
+		}
+		{ line: line_of(ls, n), turns: turns.keep_if(|t| t.kind != kind).append({ kind, next: n + 1 }) }
 	}
 }
 
-cow_lines = [
-	"Moo means no. Cows only move for dogs.",
-	"That cow weighs 1,400 pounds and does not do lifts. Send a dog.",
-	"The cow has filed a formal complaint with the Dog Park Authority.",
-	"You can't drag a cow. Nobody can. That's why dogs were invented.",
-	"The cow regards your cursor with profound bovine indifference.",
-	"Hands off the merchandise. Herd her with a dog.",
-]
-
-chicken_lines = [
-	"BAWK. The chicken has escaped your grasp, and also your respect.",
-	"Chickens are free-range, not free-drag.",
-	"That chicken is on the clock. It has poop to eat.",
-	"The chickens have unionized. Grabbing is a grievance.",
-	"The chicken looks at you with 66 million years of dinosaur contempt.",
-	"You can't herd chickens. Ask anyone. Ask the chickens.",
-]
-
-goat_lines = [
-	"You can't drag a goat. You can barely suggest things to a goat.",
-	"The goat chewed on your cursor a bit. Send a dog.",
-	"Goats only move for dogs, and then only toward them.",
-	"That goat has opinions. None of them involve being dragged.",
-	"Bleat. (Translation: no.)",
-]
-
-persistence = [
-	"Okay, now you're just doing it on purpose.",
-	"The critters have started a group chat about you.",
-	"Still no. Have you met the dogs? They're right there.",
-]
-
-## A bump's line, by the kind it hit (quips.js's `bumpLines`): the first of
-## each, as a bump comes and goes too fast to cycle.
-bump_line : U8 -> Str
-bump_line = |kind| {
-	if kind == 0 {
-		"Bonk. Dogs don't stack. We checked."
-	} else if kind == 1 {
-		"You walked your dog into a cow. The cow won."
-	} else if kind == 2 {
-		"The chicken held its ground. Respect the chicken."
+## A press on a critter only a dog moves: its kind's next line, or past
+## `Words.persistent` tries in a row, the park's next remark.
+say_press : Quips, Str -> { line : Str, quips : Quips }
+say_press = |q0, kind| {
+	q = { ..q0, tries: q0.tries + 1 }
+	if q.tries > Words.persistent {
+		{ line: Words.plain(line_of(Words.persistence, q.remark)), quips: { ..q, remark: q.remark + 1 } }
 	} else {
-		"The goat headbutted back. The goat always headbutts back."
+		said = next_line(Words.press_lines, q.press, kind, Words.any_line)
+		{ line: Words.plain(said.line), quips: { ..q, press: said.turns } }
 	}
+}
+
+## A bump: the next line for what the dog walked into (a kind, or poop).
+say_bump : Quips, Str -> { line : Str, quips : Quips }
+say_bump = |q, kind| {
+	said = next_line(Words.bump_lines, q.bump, kind, Words.any_bump)
+	{ line: Words.plain(said.line), quips: { ..q, bump: said.turns } }
 }
 
 expect say_press(quips_start, "cow").line == "Moo means no. Cows only move for dogs."

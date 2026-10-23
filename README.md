@@ -53,11 +53,17 @@ The Roc is in `roc/`, roughly in the order to read it:
   its emoji, the colour the page draws it in when it has no emoji), the
   breeds.
   Change a size here and the whole game follows.
-- **`print_world.roc`**: the park laid out, by a rule per tile (`tile_spots`:
+- **`Layout.roc`**: the park laid out, by a rule per tile (`tile_spots`:
   a dog of each breed in the corners, then a cow or two chickens by the
-  tile's colour, and a goat above the chickens on four blue tiles), with `expect`s that hold any layout to the physics'
-  needs (nobody starts overlapping, everyone inside the park). It prints
-  the layout for the Zig and the page.
+  tile's colour, and a goat above the chickens on four blue tiles).
+  **`print_world.roc`** holds any layout to the physics' needs with
+  `expect`s (nobody starts overlapping, everyone inside the park) and
+  prints the world and the layout for the Zig and the page.
+- **`Words.roc`** and **`Look.roc`**: what the game says (the quips when a
+  cow is pressed, the bump lines, the score and the win) and how it looks
+  and feels (each breed's emoji, the park's colours, the edge bands, the
+  herd's reach). **`print_page.roc`** prints them for the page
+  (`solo/words.js`, `solo/look.js`); the native game reads them directly.
 - **`Rules.roc`**: what a critter does about each critter it sees moving.
   A rule is `Ignore`, `Keep(distance)`, `Herd({ inner, outer })` or
   `Close(distance)`; `rule` says one for every pair of kinds, a `match`
@@ -72,6 +78,12 @@ The Roc is in `roc/`, roughly in the order to read it:
   sidestep). This is the hot path, written for speed: numbers in its
   loops rather than tags, and each list owned by one variable
   (`docs/ROC-SPEED.md` says why). Read it last.
+- **`Game.roc`** and **`native.roc`**: the game on its own, as a native
+  program on [roc-ray](https://github.com/lukewilliamboswell/roc-ray) (a
+  sibling checkout): `Game.roc` is a board and one tick of it in Roc, as the
+  Zig has them, and `native.roc` plays it as the page does, with no server.
+  `.github/workflows/native.yml` builds it for Windows and photographs a
+  frame of it; nothing yet judges `Game.roc` against the Zig.
 
 **To change something and see it:**
 
@@ -85,9 +97,9 @@ its cache, and stops, saying so, if there is no Roc or another one.
 `/version` says the Roc that built the physics, and the physics hash covers
 the pin, so moving it is a new version of the physics.
 `zig build roc` rewrites the checked-in `src/play/world.zon`,
-`src/play/rules.zon` and `solo/world.js` from `roc/print_world.roc` and
-`roc/print_rules.roc`: commit them with your change (`zig build check` fails on
-one left stale).
+`src/play/rules.zon`, `solo/world.js`, `solo/words.js` and `solo/look.js`
+from `roc/print_world.roc`, `roc/print_rules.roc` and `roc/print_page.roc`:
+commit them with your change (`zig build check` fails on one left stale).
 
 **The Roc is as `roc fmt` lays it out.** `roc fmt` doesn't wrap lines.
 To break a long record, list, call or lambda's arguments, put a comma

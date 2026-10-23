@@ -19,10 +19,14 @@ export const cow_emoji = emojiOf("cow");
 // drawn by `kinds` alone: its emoji, or its square (`critterShape`).
 export const drawn_kinds = ["dog", "cow", "chicken"];
 export const chicken_emoji = emojiOf("chicken");
-// A dog's poop: a little brown circle, under every critter.
-export const poop_fill = "#7a4a1a";
-// The breeds: dog n has look n mod `breeds`, one look each.
-export const dog_looks = ["🐕", "🐩", "🦮", "🐕‍🦺"];
+// How the page looks (each breed's emoji, the park's colours, the herd's
+// reach) and what it says: roc/Look.roc's and roc/Words.roc's, printed into
+// look.js and words.js (`zig build roc`); the game on roc-ray reads the
+// same Roc. A dog's poop is a little brown circle, under every critter;
+// dog n has look n mod `breeds`, one look each.
+import { dog_looks, poop_fill, tile_even, tile_odd, ring_in_hand, ring_kept, herd_link_px } from "./look.js";
+import { number_words, won_two, won_all } from "./words.js";
+export { dog_looks, poop_fill, herd_link_px };
 if (dog_looks.length !== breeds) throw new Error("a look for each breed: as many dog_looks as world.js's breeds");
 
 // ── frames ──────────────────────────────────────────────────────────────────
@@ -70,15 +74,14 @@ export function setLevel(n) {
 setLevel(1);
 
 // A level's name: "Level One", "Level Two", ...
-const numberWords = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
 export function levelName(n) {
-  return `Level ${numberWords[n - 1] ?? n}`;
+  return `Level ${number_words[n - 1] ?? n}`;
 }
 
 // The goal met: both cows, or all of them (Steve, 2026-10-20: "You have
 // herded both cows!").
 export function wonText(cows) {
-  return cows === 2 ? "You have herded both cows! 🎉" : `All ${cows} cows herded together! 🎉`;
+  return cows === 2 ? won_two : won_all.replace("{cows}", cows);
 }
 
 // **EVERY PARK POINT HAS ONE NAME IN [0, world_px)**, and many copies a
@@ -340,7 +343,7 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
     const at = viewportFromPark(viewport, copy.col * tile_px, copy.row * tile_px);
     const id = `tile:${tileKey(t)}`;
     out.push({ id, shape: "rect", x: at.viewportX, y: at.viewportY, w: tile_px, h: tile_px,
-      fill: (t.col + t.row) % 2 === 0 ? "#ffffff" : "#eaf3fc", role: "scenery" });
+      fill: (t.col + t.row) % 2 === 0 ? tile_even : tile_odd, role: "scenery" });
     out.push({ id: `${id}:label`, shape: "text", x: at.viewportX + tile_px / 2, y: at.viewportY + tile_px / 2, w: 0, h: 0,
       text: `(${t.col}, ${t.row})`, font: "20px monospace", fill: "#9ab", role: "scenery" });
   }
@@ -378,7 +381,7 @@ export function nearScene(viewportNow, dogs, cows, leashed, motion = still, visi
     if (leashed.kind !== "none" && leashed.dogId === d.id) {
       const at = onScreen(drawn);
       out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: at.viewportX, y: at.viewportY, w: 2 * (dog_px * 0.7), h: 2 * (dog_px * 0.7),
-        stroke: leashed.kind === "in_hand" ? "#2a2" : "#d33", lineWidth: 3, role: "scenery" });
+        stroke: leashed.kind === "in_hand" ? ring_in_hand : ring_kept, lineWidth: 3, role: "scenery" });
     }
     const visit = visits.get(`dog:${d.id}`);
     sprite(dogTarget(d.id), d, drawn, d.emoji, dog_px, "target", !shown ? "none" : visit === undefined ? `${d.id}` : `${d.id} #${visit}`);
@@ -402,7 +405,7 @@ export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at,
     const { col, row } = wrapTile(copy);
     const odd = (col + row) % 2 === 1;
     const fill = subscribed.has(tileKey({ col, row }))
-      ? (odd ? "#eaf3fc" : "#ffffff")
+      ? (odd ? tile_odd : tile_even)
       : (odd ? "#f2c4c4" : "#f8d8d8");
     const corner = { viewportX: o.originX + copy.col * tile_px * o.scale, viewportY: o.originY + copy.row * tile_px * o.scale };
     out.push({ id: `tile:${col},${row}`, shape: "rect", x: corner.viewportX, y: corner.viewportY,
@@ -440,7 +443,7 @@ export function overviewScene(viewport, dogs, cows, subscribed, lastLeashed, at,
       fill: live(d) ? "#333" : "#a88", role: "scenery" });
     if (lastLeashed.kind === "dog" && lastLeashed.dogId === d.id) {
       out.push({ id: `${dogTarget(d.id)}:ring`, shape: "ring", x: p.viewportX, y: p.viewportY, w: 22, h: 22,
-        stroke: "#d33", lineWidth: 3, role: "scenery" });
+        stroke: ring_kept, lineWidth: 3, role: "scenery" });
     }
   }
   // The margins, over the tiles and dots that spill past the window.
@@ -479,7 +482,7 @@ export function messageScene(viewport, text) {
 // centres are at most `herd_link_px` apart on the larger axis, round the
 // torus (two cow-widths: a cow's gap between them); a herd is every cow
 // linked to it, through others. The largest herd's size is the score.
-export const herd_link_px = 2 * cow_px;
+// (`herd_link_px` is look.js's, imported above.)
 
 export function largestHerd(cows) {
   const n = cows.length;

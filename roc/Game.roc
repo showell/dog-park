@@ -7,6 +7,7 @@
 ## kind-number order, keyed as the walk starts; the poops by tile, each in
 ## slot order. roc/native.roc plays it; nothing judges it against the Zig yet.
 import Layout
+import Look
 import Walk
 import World
 
@@ -435,7 +436,7 @@ Game := [].{
 	largest_herd : Board -> U64
 	largest_herd = |b| {
 		cows = b.crits.keep_if(|c| c.kind == 1)
-		link = (2 * World.cow_px * 256).to_i32_wrap()
+		link = (Look.herd_link_px * 256).to_i32_wrap()
 		n = cows.len()
 		var $group = List.repeat(0, n).map_with_index(|_, i| i)
 		var $changed = Bool.True

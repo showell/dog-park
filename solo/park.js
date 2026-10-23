@@ -39,6 +39,7 @@ import { meaning, panPointer, pressedOn, resting } from "./pointer.js";
 import { draw } from "./blit.js";
 import { createEngine } from "./engine.js";
 import { pressedCritter, quipper, bumper } from "./quips.js";
+import { score as score_template } from "./words.js";
 import { instantiatePhysics } from "./physics.js";
 
 // ── the wire ────────────────────────────────────────────────────────────────
@@ -215,7 +216,7 @@ async function start() {
     if (v.cows.length > 0) {
       const herd = largestHerd(v.cows);
       const won = herd === cow_count;
-      const text = won ? wonText(cow_count) : `Herd: ${herd} of ${cow_count} cows`;
+      const text = won ? wonText(cow_count) : score_template.replace("{herd}", herd).replace("{cows}", cow_count);
       if (score && score.textContent !== text) {
         score.textContent = text;
         score.classList.toggle("won", won);
