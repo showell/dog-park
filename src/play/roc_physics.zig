@@ -188,9 +188,30 @@ export fn roc_crashed(bytes: [*]const u8, len: usize) callconv(.c) void {
 var deallocs: std.atomic.Value(usize) = .init(0);
 
 export fn roc_dealloc(ptr: *anyopaque, alignment: usize) callconv(.c) void {
-    _ = ptr;
-    _ = alignment;
     _ = deallocs.fetchAdd(1, .monotonic);
+    if (roc_allocator) |a| {
+        const base: [*]u8 = @as([*]u8, @ptrCast(ptr)) - header;
+        const len = @as(*const usize, @ptrCast(@alignCast(base))).*;
+        a.rawFree(base[0 .. header + len], blockAlignment(alignment), @returnAddress());
+    }
+}
+
+/// **AN ALLOCATOR THAT ALLOCATES, FOR A ROC THAT DOES** (roc/game.roc, the
+/// game judge's): set, Roc's requests go through it, each block after a
+/// `header` that holds its size (Roc's free names no size); unset, Roc
+/// asks only at a broken seam, as below. The walk's `call` counts requests
+/// either way, so a walk that allocates panics whether or not it is set.
+pub var roc_allocator: ?std.mem.Allocator = null;
+const header = 16;
+
+fn blockAlignment(alignment: usize) std.mem.Alignment {
+    return .fromByteUnits(@max(alignment, header));
+}
+
+fn allocated(a: std.mem.Allocator, len: usize, alignment: usize) *anyopaque {
+    const base = a.rawAlloc(header + len, blockAlignment(alignment), @returnAddress()) orelse @panic("roc_alloc: the allocator is out of memory");
+    @as(*usize, @ptrCast(@alignCast(base))).* = len;
+    return base + header;
 }
 
 /// Every list is lent with room for all a call puts in it, so Roc asks for
@@ -205,19 +226,24 @@ var alloc_from: std.atomic.Value(usize) = .init(0);
 var spare: [4096]u8 align(16) = undefined;
 var spare_used: std.atomic.Value(usize) = .init(0);
 
-export fn roc_alloc(len: usize, alignment: usize) callconv(.c) *anyopaque {
+pub export fn roc_alloc(len: usize, alignment: usize) callconv(.c) *anyopaque {
     _ = allocs.fetchAdd(1, .monotonic);
     alloc_from.store(@returnAddress(), .monotonic);
+    if (roc_allocator) |a| return allocated(a, len, alignment);
     const at = spare_used.fetchAdd(len + alignment, .monotonic);
     if (at + len + alignment > spare.len) std.debug.panic("roc_alloc: Roc asked for {d} bytes from 0x{x}, past the spare the physics keeps for a crash's message: a list grown past its room, or a lent list copied", .{ len, @returnAddress() });
     return @ptrFromInt(std.mem.alignForward(usize, @intFromPtr(&spare) + at, @max(alignment, 1)));
 }
 
 export fn roc_realloc(ptr: *anyopaque, len: usize, alignment: usize) callconv(.c) *anyopaque {
-    _ = ptr;
-    _ = len;
-    _ = alignment;
-    @panic("roc_realloc: Roc grew a list past the room the physics lent it");
+    const a = roc_allocator orelse @panic("roc_realloc: Roc grew a list past the room the physics lent it");
+    _ = allocs.fetchAdd(1, .monotonic);
+    const old: [*]u8 = @ptrCast(ptr);
+    const old_len = @as(*const usize, @ptrCast(@alignCast(old - header))).*;
+    const new: [*]u8 = @ptrCast(allocated(a, len, alignment));
+    @memcpy(new[0..@min(len, old_len)], old[0..@min(len, old_len)]);
+    a.rawFree((old - header)[0 .. header + old_len], blockAlignment(alignment), @returnAddress());
+    return new;
 }
 
 comptime {

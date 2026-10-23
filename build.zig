@@ -39,7 +39,7 @@ pub fn build(b: *std.Build) void {
     // **-Dwalk-judge**: every walk run beside src/play/walk_reference.zig and
     // compared (`zig build walk-judge`); off by default.
     const walk_judge = b.option(bool, "walk-judge", "judge every Roc walk against the plain Zig reference (walk_reference.zig), panicking at a difference") orelse false;
-    const physics_mod = physicsOptions(b, walk_judge);
+    const physics_mod = physicsOptions(b, walk_judge, false);
     // **WHICH COMMIT THIS IS** (`dogpark_build`), for /version: the
     // checkout's, `+dirty` when it has uncommitted changes.
     const build_mod = buildOptions(b, stamp);
@@ -273,7 +273,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/play/physics_bench.zig"),
         .target = target,
         .optimize = .safe,
-        .imports = &.{.{ .name = "physics_options", .module = physicsOptions(b, true) }},
+        .imports = &.{.{ .name = "physics_options", .module = physicsOptions(b, true, false) }},
     }) });
     linkRoc(roc_lib, judged_bench.root_module, null);
     const judged_run = b.addRunArtifact(judged_bench);
@@ -281,6 +281,33 @@ pub fn build(b: *std.Build) void {
     _ = judged_run.captureStdOut(.{});
     judged_run.expectExitCode(0);
     b.step("walk-judge", "Run the bench's `-- lines` with every Roc walk judged against the plain Zig reference (src/play/walk_reference.zig)").dependOn(&judged_run.step);
+
+    // **THE GAME JUDGE**: the same workload with every tick also played by
+    // roc/Game.roc's tick, the one the game on roc-ray plays (roc/native.roc),
+    // and the boards compared after it (src/play/roc_game.zig); it passes
+    // only if nothing differed (a difference panics).
+    const game_bench = b.addExecutable(.{ .name = "physics_bench_game", .root_module = b.createModule(.{
+        .root_source_file = b.path("src/play/physics_bench.zig"),
+        .target = target,
+        .optimize = .safe,
+        .imports = &.{.{ .name = "physics_options", .module = physicsOptions(b, false, true) }},
+    }) });
+    linkRoc(roc_lib, game_bench.root_module, null);
+    const game_lib = gameArchive(b, roc);
+    game_bench.root_module.addObjectFile(game_lib);
+    const game_run = b.addRunArtifact(game_bench);
+    game_run.addArg("judge");
+    _ = game_run.captureStdOut(.{});
+    game_run.expectExitCode(0);
+    const game_judge_step = b.step("game-judge", "The bench's `-- lines` and the physics' own tests, every tick also played by roc/Game.roc and the boards compared (src/play/roc_game.zig)");
+    game_judge_step.dependOn(&game_run.step);
+    // And the physics' own tests, which leash, grab, let go and wait out the
+    // timer, as the bench never does: each `tick` they make judged too.
+    var judged_units = units;
+    judged_units.physics_mod = physicsOptions(b, false, true);
+    const judged_tests = judged_units.module("src/play/physics_all_tests.zig", target, optimize, fuzz);
+    judged_tests.addObjectFile(game_lib);
+    game_judge_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = judged_tests })).step);
 
     // A 16-tick report's round trip through POST /report, in process
     // (ReleaseSafe): the route, the judge's re-run, the log's append.
@@ -498,12 +525,25 @@ fn commitOf(b: *std.Build, dir: []const u8) []const u8 {
 const printed_from = [_][]const u8{ "roc/World.roc", "roc/Rules.roc", "roc/Layout.roc", "roc/Wish.roc", "roc/Words.roc", "roc/Look.roc" };
 
 /// The physics' build options, `physics_options`: its hash.
-fn physicsOptions(b: *std.Build, walk_judge: bool) *std.Build.Module {
+fn physicsOptions(b: *std.Build, walk_judge: bool, game_judge: bool) *std.Build.Module {
     const options = b.addOptions();
     options.addOption(u32, "physics_hash", physicsHash(b, pathFromRoot(b, "src/play")));
     options.addOption(bool, "walk_judge", walk_judge);
+    options.addOption(bool, "game_judge", game_judge);
     return options.createModule();
 }
+
+/// **GAME.ROC'S TICK, AS AN ARCHIVE** (roc/game.roc on
+/// roc/game_platform/main.roc), for the game judge's bench: x86-64 only.
+fn gameArchive(b: *std.Build, roc: []const u8) std.Build.LazyPath {
+    const build_roc = b.addSystemCommand(&.{ roc, "build", "roc/game.roc", "--target=x64musl" });
+    build_roc.setCwd(b.path("."));
+    build_roc.addFileInput(.{ .cwd_relative = roc });
+    for (game_inputs) |f| build_roc.addFileInput(b.path(f));
+    return build_roc.addPrefixedOutputFileArg("--output=", "game-x64musl.a");
+}
+
+const game_inputs = [_][]const u8{ "roc/game.roc", "roc/game_platform/main.roc", "roc/Game.roc", "roc/Layout.roc", "roc/Look.roc", "roc/Walk.roc", "roc/Wish.roc", "roc/World.roc", "roc/Rules.roc" };
 
 /// The physics hash: a CRC-32 over the files `dir`/physics_sources.zon
 /// lists, in its order: a page and a server built from different physics
