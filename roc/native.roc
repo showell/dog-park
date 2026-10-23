@@ -1,8 +1,11 @@
-## DOG PARK ON ROC-RAY: the game as a native program, on its own. Level
-## One laid out by Layout.roc and walked by the physics' own Roc
-## (Walk.roc's `pixel_tick`, the walk and the wish in it); no server judges
-## it. Press a dog to leash it and drag: each pixel the pointer moves is a
-## pixel-tick, until the dog bumps; let go and the leash goes too.
+## DOG PARK ON ROC-RAY: the game as a native program, on its own, played as
+## the page plays it (solo/park.js, engine.js, pointer.js, scene.js). The
+## physics is Game.roc's tick over the physics' own walk, 16 ticks a second;
+## no server judges it. Press a dog to leash it and drag: the pointer's
+## moves are the tick's drag, capped at 100 px an axis; let go and the dog
+## stays leashed till its timer runs out or another is pressed. Drag the
+## ground to look round the park; a held dog near the window's edge scrolls
+## it. Herd every cow into one group to win, and go on to the next level.
 ##
 ## roc-ray is a sibling checkout of dog-park (`../../roc-ray`), as roc-apps'
 ## canvas apps name it. Built for Windows by .github/workflows/native.yml.
@@ -15,6 +18,9 @@ import rr.Color
 import rr.Draw
 import rr.Math
 import rr.Task
+import Game
+import Walk
+import World
 import "art/1f415.png" as dog_0_png : List(U8)
 import "art/1f429.png" as dog_1_png : List(U8)
 import "art/1f9ae.png" as dog_2_png : List(U8)
@@ -22,99 +28,6 @@ import "art/1f415-200d-1f9ba.png" as dog_3_png : List(U8)
 import "art/1f404.png" as cow_png : List(U8)
 import "art/1f413.png" as chicken_png : List(U8)
 import "art/1f410.png" as goat_png : List(U8)
-import Layout
-import Walk
-import World
-
-level : World.Level
-level = World.level_one
-
-## The world, in whole pixels and in the walk's 256ths, and the cells it is
-## kept by.
-world_px : I64
-world_px = level.world_tiles * World.tile_px
-
-world : I32
-world = (world_px * 256).to_i32_wrap()
-
-side : I32
-side = (level.world_tiles * World.cell_per_tile).to_i32_wrap()
-
-geo : Walk.Geo
-geo = Walk.geo_of(side)
-
-## The window: the whole world as a square `view` across, as big as the
-## window allows (`view_of`), and a band under it for words. It opens at
-## `view_start`; whatever size the screen or its scaling makes it, the
-## drawing and the clicks follow (a fixed 840 by 910 ran off a laptop's
-## screen, and the park with it).
-band_px : F32
-band_px = 50
-
-view_start : F32
-view_start = 640
-
-view_of : I32, I32 -> F32
-view_of = |width, height| {
-	w = width.to_f32()
-	h = height.to_f32() - band_px
-	if (w < h) w else h
-}
-
-scale_of : F32 -> F32
-scale_of = |view| view / world_px.to_f32()
-
-## A kind's number, as World.kinds and the walk number it.
-kind_of : Layout.Kind -> U8
-kind_of = |k| match k {
-	Dog => 0
-	Cow => 1
-	Chicken => 2
-	Goat => 3
-}
-
-px_of : Layout.Kind -> I64
-px_of = |k| match k {
-	Dog => World.dog_px
-	Cow => World.cow_px
-	Chicken => World.chicken_px
-	Goat => World.goat_px
-}
-
-## Who nudges whom: a dog its breed (dog n is breed n mod the breeds), each
-## herd kind its own number after the breeds, a chicken nobody.
-no_kin : U8
-no_kin = 255
-
-## A level's park as it starts: every critter in Layout's order, which is
-## the order this game keeps them in (`crits`).
-start_crits : World.Level -> List(Walk.Crit)
-start_crits = |lv| {
-	var $out = []
-	var $dogs = 0
-	for s in Layout.park(lv) {
-		kin = match s.kind {
-			Dog => ($dogs % World.breeds).to_u8_wrap()
-			Cow => World.breeds.to_u8_wrap()
-			Goat => (World.breeds + 1).to_u8_wrap()
-			Chicken => no_kin
-		}
-		$out = $out.append({
-			half: (px_of(s.kind) // 2 * 256).to_i32_wrap(),
-			key: Walk.not_lined_up,
-			kin,
-			kind: kind_of(s.kind),
-			x: (s.x * 256).to_i32_wrap(),
-			y: (s.y * 256).to_i32_wrap(),
-		})
-		if s.kind == Dog {
-			$dogs = $dogs + 1
-		} else {
-			{}
-		}
-	}
-	$out
-}
 
 Vec : { x : F32, y : F32 }
 
@@ -133,76 +46,106 @@ load_art! = |{}| {
 	})
 }
 
+## **THE HAND** (pointer.js): resting, panning the view, or holding the
+## leashed dog, each from the pointer's last point on the window.
+Hand : [Resting, Panning(Vec), Dragging(Vec)]
+
 Model : {
 	art : Art,
-	crits : List(Walk.Crit),
 
-	## The world's square on the screen, its side (`view_of` the window).
-	view : F32,
+	## The level being played (its index in World.levels), its board, and
+	## the critters as the tick before left them (a frame slides from them).
+	level : U64,
+	board : Game.Board,
+	was : List(Walk.Crit),
 
-	## The leashed dog, by its index in `crits`; -1, none.
-	leashed : I64,
-	dragging : Bool,
+	## The window's top-left, a park point in pixels, and its size.
+	view : Vec,
+	screen : Vec,
+	hand : Hand,
 
-	## The pointer where the drag last took it, and the part of a 256th the
-	## drag has not yet moved.
-	pointer : Vec,
-	carry : Vec,
+	## What the next tick plays: the human's inputs, and the pointer's moves
+	## in whole 256ths (the fraction kept for the next move).
+	humans : List(Game.Human),
+	disps : List(Game.Disp),
+	fraction : Vec,
 
-	## How far the leashed dog has walked (the poop comes due by it), and
-	## the poops laid.
-	walked : U32,
-	laid : U32,
-	poops : List(Walk.Poop),
+	## Seconds since the last tick.
+	clock : F32,
+
+	## The line under the score: a quip or a bump's, or none.
 	note : Str,
+	quips : Quips,
 }
 
 program = { init!, update!, render! }
 
+screen_start : Vec
+screen_start = { x: 960, y: 640 }
+
 init! : App.Init(Model, _)
 init! = App.init(
-	App.default.with_title("Dog Park").with_size({ width: view_start.to_i32_wrap(), height: (view_start + band_px).to_i32_wrap() }).with_output_dir("shots"),
+	App.default.with_title("Dog Park").with_size({ width: screen_start.x.to_i32_wrap(), height: screen_start.y.to_i32_wrap() }).with_output_dir("shots"),
 	|io| {
-		crits = start_crits(level)
-		_ = io.stdout().line!(diagnose(crits))
 		art = load_art!({})?
-		Ok({
-			art,
-			crits,
-			view: view_start,
-			leashed: -1,
-			dragging: Bool.False,
-			pointer: { x: 0, y: 0 },
-			carry: { x: 0, y: 0 },
-			walked: 0,
-			laid: 0,
-			poops: [],
-			note: "",
-		})
+		m = play_level(
+			{
+				art,
+				level: 0,
+				board: Game.start(World.level_one),
+				was: [],
+				view: { x: 0, y: 0 },
+				screen: screen_start,
+				hand: Resting,
+				humans: [],
+				disps: [],
+				fraction: { x: 0, y: 0 },
+				clock: 0,
+				note: "",
+				quips: quips_start,
+			},
+			0,
+		)
+		_ = io.stdout().line!("native: ${level_name(0)}, ${m.board.crits.len().to_str()} critters, herd ${Game.largest_herd(m.board).to_str()} of ${Game.cows(m.board).to_str()}")
+		Ok(m)
 	},
 )
 
-## **WHAT THIS BUILD COMPUTES**, printed once at the start: the numbers and
-## the loops the drawing and the clicks stand on (the scale, the tiles the
-## drawing's loops visit, where dog 0 is drawn, and whom a click there
-## finds), so a build that draws nothing says why without a window.
-diagnose : List(Walk.Crit) -> Str
-diagnose = |crits| {
-	var $tiles = 0
-	var $row = 0
-	while $row < level.world_tiles {
-		var $col = 0
-		while $col < level.world_tiles {
-			$tiles = $tiles + 1
-			$col = $col + 1
-		}
-		$row = $row + 1
+## A level begun afresh, the window on its park's middle (park.js).
+play_level : Model, U64 -> Model
+play_level = |m, n| {
+	lv = level_of(n)
+	board = Game.start(lv)
+	middle = ((lv.world_tiles * World.tile_px) // 2).to_f32()
+	{
+		..m,
+		level: n,
+		board,
+		was: board.crits,
+		view: { x: middle - m.screen.x / 2, y: middle - m.screen.y / 2 },
+		hand: Resting,
+		humans: [],
+		disps: [],
+		fraction: { x: 0, y: 0 },
+		clock: 0,
+		note: "",
 	}
-	first = get_crit(crits, 0)
-	s = on_screen(view_start, Walk.pt(first))
-	back = dog_at(crits, to_world(view_start, s))
-	"native: scale ${scale_of(view_start).to_str()}, ${crits.len().to_str()} critters, ${$tiles.to_str()} tiles by the loops, dog 0 at (${first.x.to_str()}, ${first.y.to_str()}) drawn at (${s.x.to_str()}, ${s.y.to_str()}), a click there finds dog ${back.to_str()}"
 }
+
+level_of : U64 -> World.Level
+level_of = |n| match World.levels.get(n) {
+	Ok(lv) => lv
+	Err(_) => World.level_one
+}
+
+level_name : U64 -> Str
+level_name = |n| match ["Level One", "Level Two", "Level Three"].get(n) {
+	Ok(s) => s
+	Err(_) => "Level ${(n + 1).to_str()}"
+}
+
+world_px : Model -> F32
+world_px = |m| (level_of(m.level).world_tiles * World.tile_px).to_f32()
 
 ## A screenshot finished (S saves one, shots/shot.png: how the build's
 ## windowed run on the runner shows what it draws).
@@ -210,48 +153,107 @@ Msg : [Shot(Try({}, Capture.ScreenshotError))]
 
 update! : Model, App.Input(Msg), App.Io => Try(Model, [Exit(I64)])
 update! = |model0, input, io| {
-	model = { ..model0, view: view_of(input.window.size.width, input.window.size.height) }
 	if input.devices.key_pressed(KeyS) {
 		Task.spawn!(input, || Shot(io.capture().screenshot!("shot.png")))
 	}
+	m0 = { ..model0, screen: { x: input.window.size.width.to_f32(), y: input.window.size.height.to_f32() } }
 	mouse = input.devices.mouse
 	p = mouse.position()
-	if mouse.button_pressed(Left) {
-		hit = dog_at(model.crits, to_world(model.view, p))
-		Ok({ ..model, leashed: hit, dragging: hit >= 0, pointer: p, carry: { x: 0, y: 0 }, note: "" })
+	m1 = if mouse.button_pressed(Left) {
+		press(m0, p)
 	} else if mouse.button_released(Left) {
-		Ok({ ..model, leashed: -1, dragging: Bool.False })
-	} else if model.dragging and mouse.button_down(Left) {
-		fx = (p.x - model.pointer.x) / scale_of(model.view) * 256 + model.carry.x
-		fy = (p.y - model.pointer.y) / scale_of(model.view) * 256 + model.carry.y
-		dx = capped(fx.to_i32_wrap())
-		dy = capped(fy.to_i32_wrap())
-		moved = drag({ ..model, pointer: p, carry: { x: fx - dx.to_f32(), y: fy - dy.to_f32() } }, dx, dy)
-		Ok(moved)
+		lift(m0)
+	} else if mouse.button_down(Left) {
+		move(m0, p)
 	} else {
-		Ok(model)
+		m0
+	}
+	Ok(run_clock(m1, input.time.elapsed_seconds))
+}
+
+## ── the pointer (pointer.js, engine.js's intents) ──
+
+## A press: the next level's button, once the level is won; a dog, which
+## is grabbed (the leashed one) or leashed (another, the leashed one let
+## go first); else the ground, which pans, with a quip if a critter that
+## only a dog moves was under it.
+press : Model, Vec -> Model
+press = |m, p| {
+	if Game.won(m.board) and has_next(m) and in_rect(p, next_button(m)) {
+		play_level(m, m.level + 1)
+	} else {
+		at = park_point(m, p)
+		dog = critter_at(m.board, at, 0, 0)
+		if dog >= 0 {
+			d = dog.to_u64_wrap()
+			humans = match Game.leashed(m.board) {
+				Dog(l, _) => if l == d m.humans.append(Grab) else m.humans.append(Release(l)).append(Leash(d))
+				Nobody => m.humans.append(Leash(d))
+			}
+			{ ..m, hand: Dragging(p), humans, disps: [], fraction: { x: 0, y: 0 }, quips: forgive(m.quips) }
+		} else {
+			kind = pressed_kind(m.board, at)
+			if kind == "" {
+				{ ..m, hand: Panning(p) }
+			} else {
+				said = say_press(m.quips, kind)
+				{ ..m, hand: Panning(p), note: said.line, quips: said.quips }
+			}
+		}
 	}
 }
 
-## At most 100 pixels a host cycle on each axis, as the physics caps a
-## tick's drag.
-capped : I32 -> I32
-capped = |v| if v > 25600 25600 else if v < -25600 -25600 else v
-
-to_world : F32, Vec -> Walk.Pt
-to_world = |view, p| {
-	s = scale_of(view)
-	{ x: (p.x / s * 256).to_i32_wrap(), y: (p.y / s * 256).to_i32_wrap() }
+## A move: the held dog's drag, in whole 256ths (a window pixel is a park
+## pixel), or the view panned against the pointer.
+move : Model, Vec -> Model
+move = |m, p| match m.hand {
+	Dragging(last) => {
+		x = m.fraction.x + (p.x - last.x) * 256
+		y = m.fraction.y + (p.y - last.y) * 256
+		dx = x.to_i32_wrap()
+		dy = y.to_i32_wrap()
+		disps = if dx != 0 or dy != 0 m.disps.append({ dx, dy }) else m.disps
+		{ ..m, hand: Dragging(p), disps, fraction: { x: x - dx.to_f32(), y: y - dy.to_f32() } }
+	}
+	Panning(last) => {
+		{ ..m, hand: Panning(p), view: wrapped_view(m, { x: m.view.x - (p.x - last.x), y: m.view.y - (p.y - last.y) }) }
+	}
+	Resting => m
 }
 
-## The dog whose square holds point `w` (its index in `crits`), or -1.
-dog_at : List(Walk.Crit), Walk.Pt -> I64
-dog_at = |crits, w| {
+## The pointer up: the dog in hand let go, kept on the leash.
+lift : Model -> Model
+lift = |m| match m.hand {
+	Dragging(_) => { ..m, hand: Resting, humans: m.humans.append(LetGo) }
+	_ => { ..m, hand: Resting }
+}
+
+## The window's top-left back in the world.
+wrapped_view : Model, Vec -> Vec
+wrapped_view = |m, v| {
+	w = world_px(m)
+	{ x: v.x - v.x.div_floor_by(w) * w, y: v.y - v.y.div_floor_by(w) * w }
+}
+
+## The park point under a window point, in 256ths.
+park_point : Model, Vec -> Walk.Pt
+park_point = |m, p| {
+	w = world_px(m)
+	x = m.view.x + p.x
+	y = m.view.y + p.y
+	{ x: ((x - x.div_floor_by(w) * w) * 256).to_i32_wrap(), y: ((y - y.div_floor_by(w) * w) * 256).to_i32_wrap() }
+}
+
+## The critter of `kind` whose square, `slop` pixels larger, holds `at`
+## (its index in `crits`), or -1.
+critter_at : Game.Board, Walk.Pt, U8, I32 -> I64
+critter_at = |b, at, kind, slop| {
 	var $hit = -1
 	var $i = 0
-	for c in crits {
-		d = Walk.delta(geo, Walk.pt(c), w)
-		if c.kind == 0 and d.x.abs() <= c.half and d.y.abs() <= c.half {
+	for c in b.crits {
+		d = Walk.delta(b.geo, Walk.pt(c), at)
+		reach = c.half + slop * 256
+		if $hit < 0 and c.kind == kind and d.x.abs() <= reach and d.y.abs() <= reach {
 			$hit = $i
 		} else {
 			{}
@@ -261,234 +263,227 @@ dog_at = |crits, w| {
 	$hit
 }
 
-## **THE DRAG**: `dx` then `dy`, in 256ths, cut into pixel-ticks of at most a
-## pixel (the `i`th of `n` to `part * i / n`, toward zero), each one
-## `pixel_tick`, until the leashed dog bumps.
-drag : Model, I32, I32 -> Model
-drag = |model0, dx, dy| {
-	var $m = model0
-	var $axis = 0
-	while $axis < 2 and $m.dragging {
-		part = (if ($axis == 0) dx else dy).to_i64()
-		n = ((if (part < 0) 0 - part else part) + 255) // 256
-		var $done = 0
-		var $i = 1
-		while $i <= n and $m.dragging {
-			now = part * $i // n
-			inc = (now - $done).to_i32_wrap()
-			$done = now
-			if inc != 0 {
-				$m = pixel_tick($m, $axis, inc)
-			} else {
-				{}
-			}
-			$i = $i + 1
-		}
-		$axis = $axis + 1
+## The kind under a press that is no dog (quips.js's `pressedCritter`):
+## a cow, a chicken (4 px of slop: it is small), a goat; "" for none.
+pressed_kind : Game.Board, Walk.Pt -> Str
+pressed_kind = |b, at| {
+	if critter_at(b, at, 1, 0) >= 0 {
+		"cow"
+	} else if critter_at(b, at, 2, 4) >= 0 {
+		"chicken"
+	} else if critter_at(b, at, 3, 0) >= 0 {
+		"goat"
+	} else {
+		""
 	}
-	$m
 }
 
-## The critters in the order the walk takes them: the leashed dog, then
-## every other kind by kind number's rank (cows, dogs, chickens, goats),
-## each in `crits` order.
-seen_order : List(Walk.Crit), I64 -> List(U64)
-seen_order = |crits, leashed| {
-	var $order = [leashed.to_u64_wrap()]
-	for k in [1, 0, 2, 3] {
-		var $i = 0
-		for c in crits {
-			if c.kind == k and $i.to_i64_wrap() != leashed {
-				$order = $order.append($i)
-			} else {
-				{}
-			}
-			$i = $i + 1
-		}
-	}
-	$order
-}
+## ── the clock (engine.js's `frame`) ──
 
-## One pixel-tick: the critters lent to the walk in its order, keyed as it
-## starts (the leashed dog visited), filed into fresh cells, the poops by
-## tile; what it moved put back, the poop it laid kept, a bump ending the
-## drag.
-pixel_tick : Model, I32, I32 -> Model
-pixel_tick = |m, axis, inc| {
-	order = seen_order(m.crits, m.leashed)
-	seen = order.map(
-		|j| {
-			c = get_crit(m.crits, j)
-			{ ..c, key: if (j.to_i64_wrap() == m.leashed) Walk.visited else Walk.not_lined_up }
-		},
-	)
-	n = seen.len()
-	words = (n + 63) // 64
-	cells = List.repeat(0, (side * side).to_u64_wrap() * words)
-	park = Walk.filed(geo, { cells, crits: seen })
-	r = Walk.pixel_tick(lend_poops(m.poops), { depth: List.repeat(0, n), moving: [], park }, axis, inc, m.walked, m.laid)
-	moved = r.walk.work.park.crits
-	var $crits = m.crits
+tick_s : F32
+tick_s = 1 / Game.ticks_per_second.to_f32()
+
+## The ticks due since the last: at most four a frame, the rest of a stall
+## dropped, as the page drops them.
+run_clock : Model, F32 -> Model
+run_clock = |m0, elapsed| {
+	var $m = { ..m0, clock: m0.clock + (if (elapsed > 0.25) 0.25 else elapsed) }
 	var $k = 0
-	for j in order {
-		$crits = put_crit($crits, j, get_crit(moved, $k))
+	while $m.clock >= tick_s and $k < 4 {
+		$m = one_tick({ ..$m, clock: $m.clock - tick_s })
 		$k = $k + 1
 	}
-	walked_sum = m.walked.to_u64() + r.walked.to_u64_wrap()
-	walked = if (walked_sum > 4294967295) 4294967295 else walked_sum.to_u32_wrap()
-	laid_one = r.poop.slot >= 0
-	poops = if laid_one {
-		slot = r.poop.slot.to_u16_wrap()
-		m.poops.keep_if(|q| q.slot != slot).append({ slot, x: r.poop.x, y: r.poop.y })
+	if $m.clock >= tick_s {
+		{ ..$m, clock: 0 }
 	} else {
-		m.poops
-	}
-	bumped = r.bump.kind != Walk.bump_none
-	{
-		..m,
-		crits: $crits,
-		walked,
-		laid: if (laid_one) m.laid + 1 else m.laid,
-		poops,
-		dragging: !bumped,
-		note: if (bumped) "Bump! Press a dog to go on." else m.note,
+		$m
 	}
 }
 
-## The poops by tile, as the walk reads them: tile `t`'s at
-## `poops[from[t] .. from[t + 1]]`, row by row from the world's (0, 0), and
-## in slot order on each.
-lend_poops : List(Walk.Poop) -> Walk.Lent
-lend_poops = |poops| {
-	tiles_n = level.world_tiles * level.world_tiles
-	var $from = []
-	var $out = []
-	var $t = 0
-	while $t < tiles_n {
-		$from = $from.append($out.len().to_u16_wrap())
-		var $here = []
-		for p in poops {
-			if tile_of(p) == $t {
-				$here = $here.append(p)
+## One tick: the edge bands scroll the view under a held dog, then the
+## board plays the inputs and the drag; a bump says what it hit.
+one_tick : Model -> Model
+one_tick = |m0| {
+	m = band_scroll(m0)
+	r = Game.tick(m.board, m.humans, m.disps)
+	note = match r.bumped {
+		NoBump => m.note
+		Critter(k) => bump_line(k)
+		PoopBump => "Even your dog won't walk through that."
+	}
+	{ ..m, board: r.board, was: m.board.crits, humans: [], disps: [], note }
+}
+
+## **THE EDGE BANDS** (pointer.js): a held dog within `band_px` of the
+## window's edge scrolls the view, faster the deeper it is.
+band_px : F32
+band_px = 80
+
+band_speed : F32 -> F32
+band_speed = |depth_px| {
+	depth = depth_px / band_px
+	if depth <= 0 0 else 1.75 + (if (depth > 1) 1 else depth) * (14 - 1.75)
+}
+
+axis_scroll : F32, F32, F32 -> F32
+axis_scroll = |at, length, reach| band_speed(at - (length - reach - band_px)) - band_speed(reach + band_px - at)
+
+band_scroll : Model -> Model
+band_scroll = |m| match m.hand {
+	Dragging(_) => match Game.leashed(m.board) {
+		Dog(d, on) => {
+			if on {
+				c = get_crit(m.board.crits, d)
+				s = on_screen(m, Walk.pt(c))
+				reach = c.half.to_f32() / 256
+				{ ..m, view: wrapped_view(m, { x: m.view.x + axis_scroll(s.x, m.screen.x, reach), y: m.view.y + axis_scroll(s.y, m.screen.y, reach) }) }
+			} else {
+				m
+			}
+		}
+		Nobody => m
+	}
+	_ => m
+}
+
+## Where a park point is on the window: the short way round from the
+## window's middle, so a critter near the seam is drawn on the near side.
+on_screen : Model, Walk.Pt -> Vec
+on_screen = |m, p| {
+	w = world_px(m)
+	half = w / 2
+	cx = m.view.x + m.screen.x / 2
+	cy = m.view.y + m.screen.y / 2
+	dx = p.x.to_f32() / 256 - cx
+	dy = p.y.to_f32() / 256 - cy
+	sx = dx - (dx + half).div_floor_by(w) * w
+	sy = dy - (dy + half).div_floor_by(w) * w
+	{ x: sx + m.screen.x / 2, y: sy + m.screen.y / 2 }
+}
+
+## A critter as a frame draws it: between where the last tick left it and
+## where this one did, `alpha` of the way, the short way round.
+between : Model, U64, Walk.Crit -> Walk.Pt
+between = |m, i, now| match m.was.get(i) {
+	Ok(was) => {
+		alpha = m.clock / tick_s
+		a = if alpha > 1 1 else alpha
+		d = Walk.delta(m.board.geo, Walk.pt(was), Walk.pt(now))
+		{ x: was.x + (d.x.to_f32() * a).to_i32_wrap(), y: was.y + (d.y.to_f32() * a).to_i32_wrap() }
+	}
+	Err(_) => Walk.pt(now)
+}
+
+## ── what a frame draws (scene.js) ──
+
+render! : Model, Draw.Frame => Try({}, [Exit(I64)])
+render! = |m, frame| {
+	frame.clear!(Color.from_hex_rgb(0xffffff))
+	tile = World.tile_px.to_f32()
+	tiles = level_of(m.level).world_tiles
+	col0 = m.view.x.div_floor_by(tile).to_i64_wrap()
+	row0 = m.view.y.div_floor_by(tile).to_i64_wrap()
+	var $row = row0
+	while $row.to_f32() * tile < m.view.y + m.screen.y {
+		var $col = col0
+		while $col.to_f32() * tile < m.view.x + m.screen.x {
+			light = ($col.mod_by(tiles) + $row.mod_by(tiles)) % 2 != 0
+			if light {
+				frame.rectangle!({ x: $col.to_f32() * tile - m.view.x, y: $row.to_f32() * tile - m.view.y, width: tile, height: tile, style: Draw.filled(Color.from_hex_rgb(0xeaf3fc)) })
 			} else {
 				{}
 			}
-		}
-		$out = $out.concat(by_slot($here))
-		$t = $t + 1
-	}
-	{ from: $from.append($out.len().to_u16_wrap()), poops: $out, side }
-}
-
-tile_of : Walk.Poop -> I64
-tile_of = |p| (p.y // Walk.tile).to_i64() * level.world_tiles + (p.x // Walk.tile).to_i64()
-
-## A few poops in slot order (an insertion sort: a tile holds a handful).
-by_slot : List(Walk.Poop) -> List(Walk.Poop)
-by_slot = |ps| {
-	var $out = []
-	for p in ps {
-		var $before = []
-		var $after = []
-		for q in $out {
-			if q.slot < p.slot {
-				$before = $before.append(q)
-			} else {
-				$after = $after.append(q)
-			}
-		}
-		$out = $before.append(p).concat($after)
-	}
-	$out
-}
-
-get_crit : List(Walk.Crit), U64 -> Walk.Crit
-get_crit = |l, j| match l.get(j) {
-	Ok(c) => c
-	Err(_) => crash "native: no critter there"
-}
-
-put_crit : List(Walk.Crit), U64, Walk.Crit -> List(Walk.Crit)
-put_crit = |l, j, c| match l.set(j, c) {
-	Ok(m) => m
-	Err(_) => crash "native: no critter there"
-}
-
-## **THE HERD**: the two cows within two cow-widths of each other, round
-## the torus, Level One's win.
-herded : List(Walk.Crit) -> Bool
-herded = |crits| {
-	cows = crits.keep_if(|c| c.kind == 1)
-	match (cows.get(0), cows.get(1)) {
-		(Ok(a), Ok(b)) => Walk.measure(Walk.delta(geo, Walk.pt(a), Walk.pt(b))) <= (2 * World.cow_px * 256).to_i32_wrap()
-		_ => Bool.False
-	}
-}
-
-## ── drawing ──
-
-render! : Model, Draw.Frame => Try({}, [Exit(I64)])
-render! = |model, frame| {
-	frame.clear!(Color.from_hex_rgb(0x2b3a24))
-	scale = scale_of(model.view)
-	tile_on = World.tile_px.to_f32() * scale
-	var $row = 0
-	while $row < level.world_tiles {
-		var $col = 0
-		while $col < level.world_tiles {
-			## The page's checkerboard (solo/scene.js), every tile of the world.
-			colour = if ($col + $row) % 2 == 0 {
-				Color.from_hex_rgb(0xffffff)
-			} else {
-				Color.from_hex_rgb(0xeaf3fc)
-			}
-			frame.rectangle!({ x: $col.to_f32() * tile_on, y: $row.to_f32() * tile_on, width: tile_on, height: tile_on, style: Draw.filled(colour) })
 			$col = $col + 1
 		}
 		$row = $row + 1
 	}
-	poop_r = World.poop_px.to_f32() / 2 * scale
-	for p in model.poops {
-		frame.circle!({ center: on_screen(model.view, { x: p.x, y: p.y }), radius: poop_r, style: Draw.filled(Color.from_hex_rgb(0x7a4a1a)) })
+	poop_r = World.poop_px.to_f32() / 2
+	for p in m.board.poops {
+		frame.circle!({ center: on_screen(m, { x: p.x, y: p.y }), radius: poop_r, style: Draw.filled(Color.from_hex_rgb(0x7a4a1a)) })
 	}
-	var $i = 0.I64
-	for c in model.crits {
-		at = on_screen(model.view, Walk.pt(c))
-		h = c.half.to_f32() / 256 * scale
-		if $i == model.leashed {
-			frame.rectangle!({ x: at.x - h - 3, y: at.y - h - 3, width: 2 * h + 6, height: 2 * h + 6, style: Draw.filled(Color.from_hex_rgb(0xdd3333)) })
-		} else {
-			{}
+
+	## The dogs last, over the rest, as the page draws them.
+	for kind in [2, 1, 3, 0] {
+		var $i = 0
+		for c in m.board.crits {
+			if c.kind == kind {
+				at = on_screen(m, between(m, $i, c))
+				h = c.half.to_f32() / 256
+				draw_ring!(frame, m, $i, at, h)
+				t = art_of(m.art, c)
+				frame.texture!({
+					texture: t,
+					source: { x: 0, y: 0, width: t.width, height: t.height },
+					dest: { x: at.x - h, y: at.y - h, width: 2 * h, height: 2 * h },
+					origin: Math.zero,
+					rotation: 0,
+					tint: Color.white,
+				})
+			} else {
+				{}
+			}
+			$i = $i + 1
 		}
-		t = art_of(model.art, c)
-		frame.texture!({
-			texture: t,
-			source: { x: 0, y: 0, width: t.width, height: t.height },
-			dest: { x: at.x - h, y: at.y - h, width: 2 * h, height: 2 * h },
-			origin: Math.zero,
-			rotation: 0,
-			tint: Color.white,
-		})
-		$i = $i + 1
 	}
-	words = if herded(model.crits) {
-		"You have herded both cows!"
-	} else if model.note != "" {
-		model.note
-	} else {
-		"Press a dog and drag it. Herd the two cows together."
-	}
-	frame.text_at!({ pos: { x: 14, y: model.view + 14 }, text: words, size: 20, color: Color.from_hex_rgb(0xf4f1e8) })
+	draw_words!(frame, m)
 	Ok({})
 }
 
-on_screen : F32, Walk.Pt -> Vec
-on_screen = |view, p| {
-	s = scale_of(view)
-	x = Walk.around(p.x, world)
-	y = Walk.around(p.y, world)
-	{ x: x.to_f32() / 256 * s, y: y.to_f32() / 256 * s }
+## The leashed dog's ring (scene.js): green while in hand, red while kept.
+draw_ring! : Draw.Frame, Model, U64, Vec, F32 => {}
+draw_ring! = |frame, m, i, at, h| match Game.leashed(m.board) {
+	Dog(d, in_hand) => {
+		if d == i {
+			colour = if in_hand Color.from_hex_rgb(0x22aa22) else Color.from_hex_rgb(0xdd3333)
+			r = h + 4
+			frame.rectangle!({ x: at.x - r, y: at.y - r, width: 2 * r, height: 3, style: Draw.filled(colour) })
+			frame.rectangle!({ x: at.x - r, y: at.y + r - 3, width: 2 * r, height: 3, style: Draw.filled(colour) })
+			frame.rectangle!({ x: at.x - r, y: at.y - r, width: 3, height: 2 * r, style: Draw.filled(colour) })
+			frame.rectangle!({ x: at.x + r - 3, y: at.y - r, width: 3, height: 2 * r, style: Draw.filled(colour) })
+		} else {
+			{}
+		}
+	}
+	Nobody => {}
 }
+
+## The score (park.js): the level and the herd, or the win and the next
+## level's button; the note under it; how to play along the bottom.
+draw_words! : Draw.Frame, Model => {}
+draw_words! = |frame, m| {
+	cows = Game.cows(m.board)
+	won = Game.won(m.board)
+	score = if won {
+		if cows == 2 "You have herded both cows!" else "All ${cows.to_str()} cows herded together!"
+	} else {
+		"Herd: ${Game.largest_herd(m.board).to_str()} of ${cows.to_str()} cows"
+	}
+	ink = Color.from_hex_rgb(0xffffff)
+	shade = Color.with_alpha(Color.from_hex_rgb(0x223344), 200)
+	frame.rectangle!({ x: 0, y: 0, width: m.screen.x, height: if (m.note == "") 40 else 70, style: Draw.filled(shade) })
+	frame.text_at!({ pos: { x: 14, y: 10 }, text: "${level_name(m.level)}    ${score}", size: 22, color: ink })
+	if m.note != "" {
+		frame.text_at!({ pos: { x: 14, y: 42 }, text: m.note, size: 18, color: Color.from_hex_rgb(0xf8d8a8) })
+	}
+	if won and has_next(m) {
+		b = next_button(m)
+		frame.rectangle!({ x: b.x, y: b.y, width: b.width, height: b.height, style: Draw.filled(Color.from_hex_rgb(0x2a9a3a)) })
+		frame.text_at!({ pos: { x: b.x + 14, y: b.y + 14 }, text: "Go to ${level_name(m.level + 1)}", size: 22, color: ink })
+	}
+	frame.rectangle!({ x: 0, y: m.screen.y - 30, width: m.screen.x, height: 30, style: Draw.filled(shade) })
+	frame.text_at!({ pos: { x: 14, y: m.screen.y - 24 }, text: "Press a dog and drag it. Drag the ground to look around. Esc quits.", size: 16, color: ink })
+}
+
+has_next : Model -> Bool
+has_next = |m| m.level + 1 < World.levels.len()
+
+Rect : { x : F32, y : F32, width : F32, height : F32 }
+
+next_button : Model -> Rect
+next_button = |m| { x: m.screen.x / 2 - 120, y: m.screen.y / 2 - 26, width: 240, height: 52 }
+
+in_rect : Vec, Rect -> Bool
+in_rect = |p, r| p.x >= r.x and p.x <= r.x + r.width and p.y >= r.y and p.y <= r.y + r.height
 
 ## A critter's emoji: a dog's by its breed (its kin), the rest by kind.
 art_of : Art, Walk.Crit -> Draw.Texture
@@ -507,8 +502,104 @@ art_of = |art, c| {
 	}
 }
 
-expect start_crits(World.level_one).len() == 18
-expect start_crits(World.level_one).keep_if(|c| c.kind == 1).len() == 2
-expect !herded(start_crits(World.level_one))
-expect seen_order(start_crits(World.level_one), 0).len() == 18
-expect start_crits(World.level_two).len() == 64 + 8 + 16 + 4
+get_crit : List(Walk.Crit), U64 -> Walk.Crit
+get_crit = |l, j| match l.get(j) {
+	Ok(c) => c
+	Err(_) => crash "native: no critter there"
+}
+
+## ── the quips (solo/quips.js), their emoji left out: raylib's font has none ──
+
+## Each kind's lines in turn, and how many presses in a row on critters
+## that only dogs move (past four, the park's remarks).
+Quips : { cow : U64, chicken : U64, goat : U64, tries : U64, remark : U64 }
+
+quips_start : Quips
+quips_start = { cow: 0, chicken: 0, goat: 0, tries: 0, remark: 0 }
+
+forgive : Quips -> Quips
+forgive = |q| { ..q, tries: 0 }
+
+line_of : List(Str), U64 -> Str
+line_of = |ls, n| match ls.get(n % ls.len()) {
+	Ok(s) => s
+	Err(_) => ""
+}
+
+say_press : Quips, Str -> { line : Str, quips : Quips }
+say_press = |q0, kind| {
+	q = { ..q0, tries: q0.tries + 1 }
+	if q.tries > 4 {
+		{ line: line_of(persistence, q.remark), quips: { ..q, remark: q.remark + 1 } }
+	} else if kind == "cow" {
+		{ line: line_of(cow_lines, q.cow), quips: { ..q, cow: q.cow + 1 } }
+	} else if kind == "chicken" {
+		{ line: line_of(chicken_lines, q.chicken), quips: { ..q, chicken: q.chicken + 1 } }
+	} else {
+		{ line: line_of(goat_lines, q.goat), quips: { ..q, goat: q.goat + 1 } }
+	}
+}
+
+cow_lines = [
+	"Moo means no. Cows only move for dogs.",
+	"That cow weighs 1,400 pounds and does not do lifts. Send a dog.",
+	"The cow has filed a formal complaint with the Dog Park Authority.",
+	"You can't drag a cow. Nobody can. That's why dogs were invented.",
+	"The cow regards your cursor with profound bovine indifference.",
+	"Hands off the merchandise. Herd her with a dog.",
+]
+
+chicken_lines = [
+	"BAWK. The chicken has escaped your grasp, and also your respect.",
+	"Chickens are free-range, not free-drag.",
+	"That chicken is on the clock. It has poop to eat.",
+	"The chickens have unionized. Grabbing is a grievance.",
+	"The chicken looks at you with 66 million years of dinosaur contempt.",
+	"You can't herd chickens. Ask anyone. Ask the chickens.",
+]
+
+goat_lines = [
+	"You can't drag a goat. You can barely suggest things to a goat.",
+	"The goat chewed on your cursor a bit. Send a dog.",
+	"Goats only move for dogs, and then only toward them.",
+	"That goat has opinions. None of them involve being dragged.",
+	"Bleat. (Translation: no.)",
+]
+
+persistence = [
+	"Okay, now you're just doing it on purpose.",
+	"The critters have started a group chat about you.",
+	"Still no. Have you met the dogs? They're right there.",
+]
+
+## A bump's line, by the kind it hit (quips.js's `bumpLines`): the first of
+## each, as a bump comes and goes too fast to cycle.
+bump_line : U8 -> Str
+bump_line = |kind| {
+	if kind == 0 {
+		"Bonk. Dogs don't stack. We checked."
+	} else if kind == 1 {
+		"You walked your dog into a cow. The cow won."
+	} else if kind == 2 {
+		"The chicken held its ground. Respect the chicken."
+	} else {
+		"The goat headbutted back. The goat always headbutts back."
+	}
+}
+
+expect say_press(quips_start, "cow").line == "Moo means no. Cows only move for dogs."
+expect {
+	var $q = quips_start
+	var $k = 0
+	var $line = ""
+	while $k < 5 {
+		said = say_press($q, "cow")
+		$q = said.quips
+		$line = said.line
+		$k = $k + 1
+	}
+	$line == "Okay, now you're just doing it on purpose."
+}
+expect axis_scroll(500, 960, 14) == 0
+expect axis_scroll(950, 960, 14) > 0
+expect axis_scroll(10, 960, 14) < 0
