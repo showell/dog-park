@@ -9,10 +9,19 @@
 app [Model, program] { rr: platform "../../roc-ray/platform/main.roc" }
 
 import rr.App
+import rr.Assets
 import rr.Capture
 import rr.Color
 import rr.Draw
+import rr.Math
 import rr.Task
+import "art/1f415.png" as dog_0_png : List(U8)
+import "art/1f429.png" as dog_1_png : List(U8)
+import "art/1f9ae.png" as dog_2_png : List(U8)
+import "art/1f415-200d-1f9ba.png" as dog_3_png : List(U8)
+import "art/1f404.png" as cow_png : List(U8)
+import "art/1f413.png" as chicken_png : List(U8)
+import "art/1f410.png" as goat_png : List(U8)
 import Layout
 import Walk
 import World
@@ -109,7 +118,23 @@ start_crits = |lv| {
 
 Vec : { x : F32, y : F32 }
 
+## **THE ART** (roc/art/README.md): the page's emoji, as images compiled in,
+## a dog's by its breed, every other kind's by its kind.
+Art : { dogs : List(Draw.Texture), cow : Draw.Texture, chicken : Draw.Texture, goat : Draw.Texture }
+
+load_art! : {} => Try(Art, [TextureLoadFailed, ResourceLimit])
+load_art! = |{}| {
+	png! = |bytes| Assets.texture_from_bytes!({ format: Png, bytes })
+	Ok({
+		dogs: [png!(dog_0_png)?, png!(dog_1_png)?, png!(dog_2_png)?, png!(dog_3_png)?],
+		cow: png!(cow_png)?,
+		chicken: png!(chicken_png)?,
+		goat: png!(goat_png)?,
+	})
+}
+
 Model : {
+	art : Art,
 	crits : List(Walk.Crit),
 
 	## The world's square on the screen, its side (`view_of` the window).
@@ -134,13 +159,15 @@ Model : {
 
 program = { init!, update!, render! }
 
-init! : App.Init(Model, [])
+init! : App.Init(Model, _)
 init! = App.init(
 	App.default.with_title("Dog Park").with_size({ width: view_start.to_i32_wrap(), height: (view_start + band_px).to_i32_wrap() }).with_output_dir("shots"),
 	|io| {
 		crits = start_crits(level)
 		_ = io.stdout().line!(diagnose(crits))
+		art = load_art!({})?
 		Ok({
+			art,
 			crits,
 			view: view_start,
 			leashed: -1,
@@ -433,7 +460,15 @@ render! = |model, frame| {
 		} else {
 			{}
 		}
-		frame.rectangle!({ x: at.x - h, y: at.y - h, width: 2 * h, height: 2 * h, style: Draw.filled(look(c)) })
+		t = art_of(model.art, c)
+		frame.texture!({
+			texture: t,
+			source: { x: 0, y: 0, width: t.width, height: t.height },
+			dest: { x: at.x - h, y: at.y - h, width: 2 * h, height: 2 * h },
+			origin: Math.zero,
+			rotation: 0,
+			tint: Color.white,
+		})
 		$i = $i + 1
 	}
 	words = if herded(model.crits) {
@@ -455,19 +490,20 @@ on_screen = |view, p| {
 	{ x: x.to_f32() / 256 * s, y: y.to_f32() / 256 * s }
 }
 
-## A dog's colour is its breed's; a cow is dark.
-look : Walk.Crit -> Color.Rgba
-look = |c| {
-	if c.kind == 1 {
-		Color.from_hex_rgb(0x4a4a4a)
-	} else if c.kin == 0 {
-		Color.from_hex_rgb(0xa0522d)
-	} else if c.kin == 1 {
-		Color.from_hex_rgb(0xd2a24c)
-	} else if c.kin == 2 {
-		Color.from_hex_rgb(0x2f2f2f)
+## A critter's emoji: a dog's by its breed (its kin), the rest by kind.
+art_of : Art, Walk.Crit -> Draw.Texture
+art_of = |art, c| {
+	if c.kind == 0 {
+		match art.dogs.get(c.kin.to_u64()) {
+			Ok(t) => t
+			Err(_) => crash "native: no art for a breed"
+		}
+	} else if c.kind == 1 {
+		art.cow
+	} else if c.kind == 2 {
+		art.chicken
 	} else {
-		Color.from_hex_rgb(0xe8e0d0)
+		art.goat
 	}
 }
 
