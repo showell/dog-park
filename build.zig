@@ -513,6 +513,11 @@ fn buildOptions(b: *std.Build, stamp: Stamp) *std.Build.Module {
 /// uncommitted changes; `unknown` when git cannot say (as
 /// zig-metal-unikernel's build.zig says its own).
 fn commitOf(b: *std.Build, dir: []const u8) []const u8 {
+    // Asked at configure time, which 0.17 caches: a commit, or a tree that
+    // turned clean, must configure the build again, or it bakes in the old
+    // answer. Whether a tree is dirty rests on every file in it, which no
+    // dependency names.
+    b.graph.poisonCache();
     var code: u8 = 0;
     const head = b.runAllowFail(&.{ "git", "-C", dir, "rev-parse", "--short", "HEAD" }, &code, .ignore) catch return "unknown";
     const short = std.mem.trim(u8, head, " \n");
