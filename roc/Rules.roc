@@ -1,7 +1,7 @@
 ## THE RULES, as a Roc module: what a critter in the walk does about each
 ## moving critter it sees (docs/PHYSICS.md, decisions 21-24), how fast it
 ## goes, the chickens' foraging and the herd's poop (decisions 29, 31).
-## Two read it: roc/rules.roc prints it for the physics' Zig
+## Two read it: roc/print_rules.roc prints it for the physics' Zig
 ## (src/play/rules.zon), and Wish.roc answers by it inside the physics.
 ## Distances are in whole pixels; "distance" is the larger axis.
 Rules := [].{

@@ -278,7 +278,7 @@ comptime {
 // critters are.
 
 /// The squares, in whole pixels, as the page draws them: the world's
-/// (world.zig, roc/world.roc). Each critter is its square, centred on its
+/// (world.zig, roc/print_world.roc). Each critter is its square, centred on its
 /// point. Dogs and cows at 70% of their first sizes, with the tiles and the
 /// spacings below (Steve, 2026-10-15: "on a small screen we need a little
 /// more density"); chickens and poop kept.

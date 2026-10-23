@@ -2,12 +2,12 @@
 
 **Status: played by Steve** (the small world). The board, the tick, the wire
 and the server's re-run are `src/play/physics*.zig`, with the world
-said in Roc: `roc/world.roc` says its size, the park in it and the first
+said in Roc: `roc/print_world.roc` says its size, the park in it and the first
 layout, and `zig build roc` prints them into `src/play/world.zon`
 (which `world.zig` imports, checked in) and `solo/world.js` (the page's
 numbers); and what critters do about each other said in Roc too:
 `roc/Rules.roc`, which the critters' wish (`roc/Wish.roc`, linked into the
-physics) applies, and which `roc/rules.roc` prints into `src/play/rules.zon`
+physics) applies, and which `roc/print_rules.roc` prints into `src/play/rules.zon`
 for the Zig's other uses; and the walk, each pixel-tick's moves after the
 leashed dog's, in Roc as well (`roc/Walk.roc`). The physics' routes are `/physics-<hash>.wasm`,
 `POST /load` and `POST /report` (the README has the rest), and each game
@@ -260,7 +260,7 @@ constants in `physics.zig`.
 | the leashed dog stopped by poop or a chicken | slides 1 px sideways; shoves a chicken first |
 | a shove | the step, plus as much again sideways |
 | a chicken | once a tick; sees ripe poop 500 px off; steps at most half the leashed dog's net move, and 8 px; goes home past 32 px off |
-| the first layout | `roc/world.roc`, through `world.zon` and `layout.zig`: 64 dogs, four to a tile, one breed per corner; 8 cows, one in each white tile; 16 chickens, two side by side in the middle of each blue tile; 4 goats, 45 px above the chickens on the blue tiles of the park's even rows and odd columns |
+| the first layout | `roc/print_world.roc`, through `world.zon` and `layout.zig`: 64 dogs, four to a tile, one breed per corner; 8 cows, one in each white tile; 16 chickens, two side by side in the middle of each blue tile; 4 goats, 45 px above the chickens on the blue tiles of the park's even rows and odd columns |
 | the goal | the 8 cows in one herd: linked when within two cow-widths (84 px), round the torus (`scene.js`'s `largestHerd`) |
 
 **Arithmetic.** Positions are integer 256ths; every product is `i64`, and

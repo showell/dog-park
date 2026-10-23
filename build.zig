@@ -301,7 +301,7 @@ pub fn build(b: *std.Build) void {
     linkRoc(roc_lib, server_bench_mod, null);
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
     // **THE WORLD AND ITS RULES, FROM ROC** (src/play/world.zig,
-    // src/play/rules.zig): roc/world.roc and roc/rules.roc run with `roc`
+    // src/play/rules.zig): roc/print_world.roc and roc/print_rules.roc run with `roc`
     // (on the PATH, or -Droc=<path>), what they print written to the files
     // the physics imports (world.zon, rules.zon) and the page reads
     // (solo/world.js). Not in any tier: only a change to a .roc file needs
@@ -315,14 +315,14 @@ pub fn build(b: *std.Build) void {
     const roc_write = b.addUpdateSourceFiles();
     const roc_fresh = b.step("roc-fresh", "Each file `zig build roc` writes, made again and compared with the checked-in one (needs roc; -Droc=<path>)");
     for ([_][3][]const u8{
-        .{ "roc/world.roc", "zon", "src/play/world.zon" },
-        .{ "roc/world.roc", "js", "solo/world.js" },
-        .{ "roc/rules.roc", "zon", "src/play/rules.zon" },
+        .{ "roc/print_world.roc", "zon", "src/play/world.zon" },
+        .{ "roc/print_world.roc", "js", "solo/world.js" },
+        .{ "roc/print_rules.roc", "zon", "src/play/rules.zon" },
     }) |out| {
         const roc_run = b.addSystemCommand(&.{ roc, out[0], "--", out[1] });
         roc_run.setCwd(b.path("."));
         roc_run.addFileInput(b.path(out[0]));
-        roc_run.addFileInput(b.path(if (std.mem.eql(u8, out[0], "roc/world.roc")) "roc/World.roc" else "roc/Rules.roc"));
+        roc_run.addFileInput(b.path(if (std.mem.eql(u8, out[0], "roc/print_world.roc")) "roc/World.roc" else "roc/Rules.roc"));
         const made = roc_run.captureStdOut(.{});
         roc_write.addCopyFileToSource(made, out[2]);
         roc_fresh.dependOn(fresh(b, made, out[2]));
@@ -342,8 +342,8 @@ pub fn build(b: *std.Build) void {
     b.step("new-kind", "A new kind made in Roc alone: sheep.patch on a copy, its world built, the same Zig judged with it (needs roc; -Droc=<path>)").dependOn(&fourth.step);
     // Roc's own tests of the world, the rules, the wish and the walk
     // (`expect`s).
-    const roc_test_step = b.step("roc-test", "Roc's own tests: roc/world.roc, roc/Rules.roc, roc/Wish.roc and roc/Walk.roc's expects (needs roc; -Droc=<path>)");
-    for ([_][]const u8{ "roc/world.roc", "roc/Rules.roc", "roc/Wish.roc", "roc/Walk.roc" }) |f| {
+    const roc_test_step = b.step("roc-test", "Roc's own tests: roc/print_world.roc, roc/Rules.roc, roc/Wish.roc and roc/Walk.roc's expects (needs roc; -Droc=<path>)");
+    for ([_][]const u8{ "roc/print_world.roc", "roc/Rules.roc", "roc/Wish.roc", "roc/Walk.roc" }) |f| {
         const run = b.addSystemCommand(&.{ roc, "test", f });
         run.setCwd(b.path("."));
         run.addFileInput(b.path(f));

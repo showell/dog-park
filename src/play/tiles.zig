@@ -5,7 +5,7 @@
 const std = @import("std");
 const world = @import("world.zig").world;
 
-/// The world's numbers are world.zig's (roc/world.roc says them).
+/// The world's numbers are world.zig's (roc/print_world.roc says them).
 pub const tile_px: comptime_int = world.tile_px;
 /// The most tiles a page holds at once: 8 x 8, the display's tiles on a
 /// large screen with the leash's region partly off it (docs/PHYSICS.md).

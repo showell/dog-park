@@ -53,7 +53,7 @@ The Roc is in `roc/`, roughly in the order to read it:
   its emoji, the colour the page draws it in when it has no emoji), the
   breeds.
   Change a size here and the whole game follows.
-- **`world.roc`**: the park laid out, by a rule per tile (`tile_spots`:
+- **`print_world.roc`**: the park laid out, by a rule per tile (`tile_spots`:
   a dog of each breed in the corners, then a cow or two chickens by the
   tile's colour, and a goat above the chickens on four blue tiles), with `expect`s that hold any layout to the physics'
   needs (nobody starts overlapping, everyone inside the park). It prints
@@ -85,8 +85,8 @@ its cache, and stops, saying so, if there is no Roc or another one.
 `/version` says the Roc that built the physics, and the physics hash covers
 the pin, so moving it is a new version of the physics.
 `zig build roc` rewrites the checked-in `src/play/world.zon`,
-`src/play/rules.zon` and `solo/world.js` from `roc/world.roc` and
-`roc/rules.roc`: commit them with your change (`zig build check` fails on
+`src/play/rules.zon` and `solo/world.js` from `roc/print_world.roc` and
+`roc/print_rules.roc`: commit them with your change (`zig build check` fails on
 one left stale).
 
 **The Roc is as `roc fmt` lays it out.** `roc fmt` doesn't wrap lines.
@@ -111,7 +111,7 @@ stopping at the first difference; about 11 s once compiled.
 their sizes, ranks, kin and who is leashed are `roc/World.roc`'s `kinds`,
 and their moves and answers to each other are `roc/Rules.roc`'s `mover` and
 `rule`, by pair of kinds. To add one, say it in World.roc (a name, a size, a
-colour, an emoji, a rank, its kin), lay it out in `roc/world.roc`, give it its tag,
+colour, an emoji, a rank, its kin), lay it out in `roc/print_world.roc`, give it its tag,
 its number (`roc/Wish.roc`'s `kind_of`) and its pairs (the compiler lists
 the ones missing), and run `zig build roc`. The page draws a kind by its
 `emoji`, or with none as a square of its colour. The goats came this way.

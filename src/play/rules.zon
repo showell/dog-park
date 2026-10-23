@@ -1,4 +1,4 @@
-// THE RULES, printed by roc/rules.roc (`zig build roc`): do not edit;
+// THE RULES, printed by roc/print_rules.roc (`zig build roc`): do not edit;
 // edit that and print it again. Read by src/play/rules.zig.
 .{
     .wary = 158,

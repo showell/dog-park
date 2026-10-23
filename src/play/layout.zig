@@ -3,14 +3,14 @@
 //! starting spot is its home (`home`), where a forager walks back to
 //! (docs/PHYSICS.md, "Poop and chickens"). Today's pattern (a dog of each
 //! breed in each corner of every park tile, a cow in each white tile, two
-//! chickens in each blue one) is roc/world.roc's.
+//! chickens in each blue one) is roc/print_world.roc's.
 //!
 //! **ROC PLACES THEM.** The places are the world's (world.zig, which
-//! roc/world.roc says), and so are the kinds and their counts: as many of
+//! roc/print_world.roc says), and so are the kinds and their counts: as many of
 //! each as its spots. Any layout will do that keeps to what the
 //! physics needs of it: every critter in the world (checked here at
 //! compile time) and no two overlapping (the test below). Its own pattern
-//! is roc/world.roc's to say and check.
+//! is roc/print_world.roc's to say and check.
 
 const std = @import("std");
 const physics = @import("physics.zig");

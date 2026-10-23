@@ -1,4 +1,4 @@
-// THE WORLD, printed by roc/world.roc (`zig build roc`): do not
+// THE WORLD, printed by roc/print_world.roc (`zig build roc`): do not
 // edit; edit that and print it again. Read by src/play/world.zig.
 .{
     .tile_px = 350,

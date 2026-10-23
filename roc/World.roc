@@ -1,5 +1,5 @@
 ## THE WORLD'S NUMBERS, as a Roc module: its size, the park in it, the
-## critters' squares and their breeds. Two read it: roc/world.roc, which
+## critters' squares and their breeds. Two read it: roc/print_world.roc, which
 ## lays the park out with them and prints them for the physics' Zig and
 ## the page, and Walk.roc, which walks the critters in it inside the
 ## physics. Lengths are in whole pixels.
@@ -20,7 +20,7 @@ World := [].{
 
 	## **THE LEVELS**, Level One first, each a world `world_tiles` tiles a
 	## side with its park `park_tiles` a side in the middle, laid out by
-	## roc/world.roc's rule, with the chickens and the goats or without. A
+	## roc/print_world.roc's rule, with the chickens and the goats or without. A
 	## level is its geometry and its first layout alone: the kinds, their
 	## sizes and their rules are every level's (Steve, 2026-10-20). The
 	## largest is `world_tiles` and `park_tiles` above, by which the physics

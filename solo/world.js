@@ -1,4 +1,4 @@
-// THE WORLD's numbers for the page, printed by roc/world.roc (`zig build
+// THE WORLD's numbers for the page, printed by roc/print_world.roc (`zig build
 // roc`): do not edit; edit that and print it again. The physics
 // reads the same world (src/play/world.zon); test_page_modules.mjs holds
 // these to the wasm's.

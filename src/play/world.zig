@@ -1,6 +1,6 @@
 //! **THE WORLD**, as the physics reads it: how big it is, where the
 //! populated park sits in it, and where every critter stands when the park
-//! starts afresh. roc/world.roc says it; `zig build roc` prints it into
+//! starts afresh. roc/print_world.roc says it; `zig build roc` prints it into
 //! world.zon, checked in, which this file imports at compile time.
 //! `World` is the seam: a world.zon that does not fit it does
 //! not compile. The critter counts are its kinds' spots' lengths.

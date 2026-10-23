@@ -101,7 +101,7 @@ test("the world is world_tiles square tiles a side, the page may hold all of it,
   assert.deepEqual(scene.tilesMeeting(W - 10, W - 10, 50, 50), [{ col: last, row: last }, { col: 0, row: last }, { col: last, row: 0 }, { col: 0, row: 0 }]);
 });
 
-test("the page's world is the physics': world.js and the wasm, both printed from roc/world.roc, say the same tiles, park, counts, sizes and breeds", async () => {
+test("the page's world is the physics': world.js and the wasm, both printed from roc/print_world.roc, say the same tiles, park, counts, sizes and breeds", async () => {
   const { readFileSync } = await import("node:fs");
   const file = process.env.DOGPARK_WASM ?? new URL("../zig-out/web/physics.wasm", import.meta.url);
   const { instance } = await WebAssembly.instantiate(readFileSync(file));

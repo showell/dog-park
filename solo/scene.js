@@ -8,7 +8,7 @@
 // top-left is a park point; north is smaller parkY.
 
 // The critters' squares and a poop's, in CSS pixels, the breeds, and the
-// kinds of critter: world.js's, which roc/world.roc prints, as it prints
+// kinds of critter: world.js's, which roc/print_world.roc prints, as it prints
 // the physics' world.
 import { dog_px, cow_px, chicken_px, poop_px, breeds, kinds } from "./world.js";
 export { dog_px, cow_px, chicken_px, poop_px, breeds, kinds };

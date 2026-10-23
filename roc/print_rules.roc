@@ -1,5 +1,5 @@
 ## THE RULES, printed for the physics' Zig: `zig build roc` runs this
-## (`roc roc/rules.roc -- zon`) and checks in what it prints,
+## (`roc roc/print_rules.roc -- zon`) and checks in what it prints,
 ## src/play/rules.zon, which src/play/rules.zig imports as `Rules`. The
 ## rules themselves are roc/Rules.roc's.
 
@@ -81,7 +81,7 @@ zon_limits = |l| ".{ .most = ${l.most.to_str()}, .nudge_most = ${l.nudge_most.to
 
 zon : Str
 zon =
-	\\// THE RULES, printed by roc/rules.roc (`zig build roc`): do not edit;
+	\\// THE RULES, printed by roc/print_rules.roc (`zig build roc`): do not edit;
 	\\// edit that and print it again. Read by src/play/rules.zig.
 	\\.{
 	\\    .wary = ${Rules.wary.to_str()},
@@ -98,7 +98,7 @@ zon =
 main! = |args| {
 	match args {
 		["zon"] => echo!(zon)
-		_ => crash "roc/rules.roc: say `zon`"
+		_ => crash "roc/print_rules.roc: say `zon`"
 	}
 	Ok({})
 }
