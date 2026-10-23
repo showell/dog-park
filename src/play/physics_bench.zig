@@ -155,7 +155,7 @@ fn busiestReport(spot: Busiest, w: *wire.Text) !judge.Kept {
     const busiest = spot.dog;
     var page = spot.board;
     var lines: physics.Lines = .{};
-    try wire.write(w, .{ .header = .{ .language = 1, .physics = 1, .epoch = .{ .ms = 1, .count = 1 }, .req = 1 } });
+    try wire.write(w, .{ .header = .{ .language = wire.language, .physics = 1, .epoch = .{ .ms = 1, .count = 1 }, .req = 1 } });
     try wire.write(w, .{ .from = .{ .tick = 0, .wall = 0 } });
     // The view: every tile the region meets at some tick's start.
     var view: wire.TileSet = .{};
