@@ -1,0 +1,86 @@
+# Dog Park as a native Windows program (roc/native.roc, on roc-ray), built
+# on a hosted Windows runner, because Roc's x64win link is MSVC-ABI and looks
+# for an installed Windows SDK, which a Linux box cannot provide. Built after
+# roc-apps' windows.yml. Run by hand:
+#
+#   gh workflow run native.yml
+#   gh run download <run-id> -n dog-park-windows -D ~/build/dog-park/windows
+#
+# roc/native.roc names roc-ray as `../../roc-ray`, a sibling checkout, so the
+# two are checked out side by side. The Roc is roc/roc-version's, which is
+# roc-ray's pin: Roc's nightly-2026-10-18 linked no Windows program.
+name: Native Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      roc_ray_ref:
+        description: "roc-ray's commit"
+        default: 3b9b7dc0d0b3a5fbb36d15966caab41341d02b88
+      opt:
+        description: "Roc's --opt: dev (what roc-ray's own CI builds Windows with) or speed"
+        default: dev
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout dog-park
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: dog-park
+
+      - name: Checkout roc-ray
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: lukewilliamboswell/roc-ray
+          ref: ${{ inputs.roc_ray_ref }}
+          path: roc-ray
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Read the Roc pin
+        id: pin
+        run: echo "nightly=$(tr -d '[:space:]' < dog-park/roc/roc-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Roc
+        uses: roc-lang/setup-roc@cbe782d6f165b89c87d99f50a59ac4f5f73b4427
+        with:
+          version: nightly-new-compiler
+          nightly-tag: ${{ steps.pin.outputs.nightly }}
+
+      - name: Build roc-ray's host libraries
+        working-directory: roc-ray
+        run: zig build -Doptimize=ReleaseFast
+
+      # Roc exits non-zero for a warning, so the verdict is an error mark in
+      # its report or a missing executable, not the exit code.
+      - name: Build Dog Park
+        working-directory: dog-park/roc
+        env:
+          OPT: ${{ inputs.opt }}
+        run: |
+          mkdir -p ../out
+          roc build native.roc --target=x64win --opt="$OPT" --output=../out/dog-park.exe > ../out/build.log 2>&1 || true
+          cat ../out/build.log
+          if grep -q "✗" ../out/build.log || [ ! -s ../out/dog-park.exe ]; then echo "build failed"; exit 1; fi
+
+      # No window: the headless host draws nothing, so this proves the
+      # executable links, loads and runs its cycles.
+      - name: Run it headless
+        working-directory: dog-park
+        run: out/dog-park.exe --host-headless --host-headless-frames=3
+
+      - name: Upload the executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dog-park-windows
+          path: dog-park/out/dog-park.exe
+          if-no-files-found: error
