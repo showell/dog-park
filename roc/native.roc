@@ -34,15 +34,26 @@ side = (level.world_tiles * World.cell_per_tile).to_i32_wrap()
 geo : Walk.Geo
 geo = Walk.geo_of(side)
 
-## The window: the whole world square, and a band under it for words.
-view_px : F32
-view_px = 840
-
+## The window: the whole world as a square `view` across, as big as the
+## window allows (`view_of`), and a band under it for words. It opens at
+## `view_start`; whatever size the screen or its scaling makes it, the
+## drawing and the clicks follow (a fixed 840 by 910 ran off a laptop's
+## screen, and the park with it).
 band_px : F32
-band_px = 70
+band_px = 50
 
-scale : F32
-scale = view_px / world_px.to_f32()
+view_start : F32
+view_start = 640
+
+view_of : I32, I32 -> F32
+view_of = |width, height| {
+	w = width.to_f32()
+	h = height.to_f32() - band_px
+	if (w < h) w else h
+}
+
+scale_of : F32 -> F32
+scale_of = |view| view / world_px.to_f32()
 
 ## A kind's number, as World.kinds and the walk number it.
 kind_of : Layout.Kind -> U8
@@ -101,6 +112,9 @@ Vec : { x : F32, y : F32 }
 Model : {
 	crits : List(Walk.Crit),
 
+	## The world's square on the screen, its side (`view_of` the window).
+	view : F32,
+
 	## The leashed dog, by its index in `crits`; -1, none.
 	leashed : I64,
 	dragging : Bool,
@@ -122,12 +136,13 @@ program = { init!, update!, render! }
 
 init! : App.Init(Model, [])
 init! = App.init(
-	App.default.with_title("Dog Park").with_size({ width: 840, height: 910 }).with_output_dir("shots"),
+	App.default.with_title("Dog Park").with_size({ width: view_start.to_i32_wrap(), height: (view_start + band_px).to_i32_wrap() }).with_output_dir("shots"),
 	|io| {
 		crits = start_crits(level)
 		_ = io.stdout().line!(diagnose(crits))
 		Ok({
 			crits,
+			view: view_start,
 			leashed: -1,
 			dragging: Bool.False,
 			pointer: { x: 0, y: 0 },
@@ -157,9 +172,9 @@ diagnose = |crits| {
 		$row = $row + 1
 	}
 	first = get_crit(crits, 0)
-	s = on_screen(Walk.pt(first))
-	back = dog_at(crits, to_world(s))
-	"native: scale ${scale.to_str()}, ${crits.len().to_str()} critters, ${$tiles.to_str()} tiles by the loops, dog 0 at (${first.x.to_str()}, ${first.y.to_str()}) drawn at (${s.x.to_str()}, ${s.y.to_str()}), a click there finds dog ${back.to_str()}"
+	s = on_screen(view_start, Walk.pt(first))
+	back = dog_at(crits, to_world(view_start, s))
+	"native: scale ${scale_of(view_start).to_str()}, ${crits.len().to_str()} critters, ${$tiles.to_str()} tiles by the loops, dog 0 at (${first.x.to_str()}, ${first.y.to_str()}) drawn at (${s.x.to_str()}, ${s.y.to_str()}), a click there finds dog ${back.to_str()}"
 }
 
 ## A screenshot finished (S saves one, shots/shot.png: how the build's
@@ -167,20 +182,21 @@ diagnose = |crits| {
 Msg : [Shot(Try({}, Capture.ScreenshotError))]
 
 update! : Model, App.Input(Msg), App.Io => Try(Model, [Exit(I64)])
-update! = |model, input, io| {
+update! = |model0, input, io| {
+	model = { ..model0, view: view_of(input.window.size.width, input.window.size.height) }
 	if input.devices.key_pressed(KeyS) {
 		Task.spawn!(input, || Shot(io.capture().screenshot!("shot.png")))
 	}
 	mouse = input.devices.mouse
 	p = mouse.position()
 	if mouse.button_pressed(Left) {
-		hit = dog_at(model.crits, to_world(p))
+		hit = dog_at(model.crits, to_world(model.view, p))
 		Ok({ ..model, leashed: hit, dragging: hit >= 0, pointer: p, carry: { x: 0, y: 0 }, note: "" })
 	} else if mouse.button_released(Left) {
 		Ok({ ..model, leashed: -1, dragging: Bool.False })
 	} else if model.dragging and mouse.button_down(Left) {
-		fx = (p.x - model.pointer.x) / scale * 256 + model.carry.x
-		fy = (p.y - model.pointer.y) / scale * 256 + model.carry.y
+		fx = (p.x - model.pointer.x) / scale_of(model.view) * 256 + model.carry.x
+		fy = (p.y - model.pointer.y) / scale_of(model.view) * 256 + model.carry.y
 		dx = capped(fx.to_i32_wrap())
 		dy = capped(fy.to_i32_wrap())
 		moved = drag({ ..model, pointer: p, carry: { x: fx - dx.to_f32(), y: fy - dy.to_f32() } }, dx, dy)
@@ -195,8 +211,11 @@ update! = |model, input, io| {
 capped : I32 -> I32
 capped = |v| if v > 25600 25600 else if v < -25600 -25600 else v
 
-to_world : Vec -> Walk.Pt
-to_world = |p| { x: (p.x / scale * 256).to_i32_wrap(), y: (p.y / scale * 256).to_i32_wrap() }
+to_world : F32, Vec -> Walk.Pt
+to_world = |view, p| {
+	s = scale_of(view)
+	{ x: (p.x / s * 256).to_i32_wrap(), y: (p.y / s * 256).to_i32_wrap() }
+}
 
 ## The dog whose square holds point `w` (its index in `crits`), or -1.
 dog_at : List(Walk.Crit), Walk.Pt -> I64
@@ -385,6 +404,7 @@ render! : Model, Draw.Frame => Try({}, [Exit(I64)])
 render! = |model, frame| {
 	frame.clear!(Color.from_hex_rgb(0x2b3a24))
 	first = Layout.park_first(level)
+	scale = scale_of(model.view)
 	tile_on = World.tile_px.to_f32() * scale
 	var $row = 0
 	while $row < level.world_tiles {
@@ -405,11 +425,11 @@ render! = |model, frame| {
 	}
 	poop_r = World.poop_px.to_f32() / 2 * scale
 	for p in model.poops {
-		frame.circle!({ center: on_screen({ x: p.x, y: p.y }), radius: poop_r, style: Draw.filled(Color.from_hex_rgb(0x6b4a2b)) })
+		frame.circle!({ center: on_screen(model.view, { x: p.x, y: p.y }), radius: poop_r, style: Draw.filled(Color.from_hex_rgb(0x6b4a2b)) })
 	}
 	var $i = 0.I64
 	for c in model.crits {
-		at = on_screen(Walk.pt(c))
+		at = on_screen(model.view, Walk.pt(c))
 		h = c.half.to_f32() / 256 * scale
 		if $i == model.leashed {
 			frame.rectangle!({ x: at.x - h - 3, y: at.y - h - 3, width: 2 * h + 6, height: 2 * h + 6, style: Draw.filled(Color.from_hex_rgb(0x111111)) })
@@ -426,15 +446,16 @@ render! = |model, frame| {
 	} else {
 		"Press a dog and drag it. Herd the two cows together."
 	}
-	frame.text_at!({ pos: { x: 20, y: view_px + 22 }, text: words, size: 24, color: Color.from_hex_rgb(0xf4f1e8) })
+	frame.text_at!({ pos: { x: 14, y: model.view + 14 }, text: words, size: 20, color: Color.from_hex_rgb(0xf4f1e8) })
 	Ok({})
 }
 
-on_screen : Walk.Pt -> Vec
-on_screen = |p| {
+on_screen : F32, Walk.Pt -> Vec
+on_screen = |view, p| {
+	s = scale_of(view)
 	x = Walk.around(p.x, world)
 	y = Walk.around(p.y, world)
-	{ x: x.to_f32() / 256 * scale, y: y.to_f32() / 256 * scale }
+	{ x: x.to_f32() / 256 * s, y: y.to_f32() / 256 * s }
 }
 
 ## A dog's colour is its breed's; a cow is dark.
