@@ -165,7 +165,9 @@ check.
    the kernel's are. `v1` is the first image (ab222a2, 2026-10-16), `v2`
    the one after (5f98101), `v3` the goats and the Roc on metal (9b4067c,
    2026-10-19), `v4` the levels and the landing's goal (bd07472, 2026-10-20), `v5` the admin
-   page's turns counted as `/version` counts them (816f19a, 2026-10-22).
+   page's turns counted as `/version` counts them (816f19a, 2026-10-22), `v6`
+   the words and look said once in Roc, and the game judge (5419352,
+   2026-10-23).
 
 The private address stays, so Caddy needs nothing. Accounts and games start
 over.
