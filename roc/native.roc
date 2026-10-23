@@ -300,22 +300,52 @@ run_clock = |m0, elapsed| {
 	}
 }
 
-## One tick: the edge bands scroll the view under a held dog, then the
+## **ONE TICK** (engine.js's `slot`): a pan held near an edge keeps the
+## ground moving; a held dog near one is carried on by the edge band, its
+## push one more displacement of the tick's drag, and the view follows it
+## as far as the tick took it that way (a bump takes it nowhere). Then the
 ## board plays the inputs and the drag; a bump says what it hit.
 one_tick : Model -> Model
 one_tick = |m0| {
-	m = band_scroll(m0)
-	r = Game.tick(m.board, m.humans, m.disps)
+	m = pan_band(m0)
+	carried = dog_band(m)
+	r = Game.tick(m.board, m.humans, m.disps.concat(carried.disps))
 	note = match r.bumped {
 		NoBump => m.note
 		Critter(k) => bump_line(k)
 		PoopBump => "Even your dog won't walk through that."
 	}
-	{ ..m, board: r.board, was: m.board.crits, humans: [], disps: [], note }
+	view = match carried.dog {
+		Ok(d) => {
+			before = Walk.pt(get_crit(m.board.crits, d))
+			after = Walk.pt(get_crit(r.board.crits, d))
+			moved = Walk.delta(m.board.geo, before, after)
+			wrapped_view(m, { x: m.view.x + follow(carried.band.x, moved.x.to_f32() / 256), y: m.view.y + follow(carried.band.y, moved.y.to_f32() / 256) })
+		}
+		Err(_) => m.view
+	}
+	{ ..m, board: r.board, was: m.board.crits, humans: [], disps: [], note, view }
 }
 
-## **THE EDGE BANDS** (pointer.js): a held dog within `band_px` of the
-## window's edge scrolls the view, faster the deeper it is.
+## A number to the nearest whole, a half up, as JavaScript's Math.round.
+rounded : F32 -> I32
+rounded = |f| (f + 0.5).div_floor_by(1).to_i32_wrap()
+
+## How far the view follows a band of `band` px the dog moved `moved` px:
+## as far as it went that way, no farther than the band.
+follow : F32, F32 -> F32
+follow = |band, moved| {
+	if band == 0 or (moved < 0) != (band < 0) or moved == 0 {
+		0
+	} else if moved.abs() < band.abs() {
+		moved
+	} else {
+		band
+	}
+}
+
+## **THE EDGE BANDS** (pointer.js): within `band_px` of the window's edge,
+## faster the deeper, 28 to 224 px a second.
 band_px : F32
 band_px = 80
 
@@ -328,22 +358,39 @@ band_speed = |depth_px| {
 axis_scroll : F32, F32, F32 -> F32
 axis_scroll = |at, length, reach| band_speed(at - (length - reach - band_px)) - band_speed(reach + band_px - at)
 
-band_scroll : Model -> Model
-band_scroll = |m| match m.hand {
-	Dragging(_) => match Game.leashed(m.board) {
-		Dog(d, on) => {
-			if on {
-				c = get_crit(m.board.crits, d)
-				s = on_screen(m, Walk.pt(c))
-				reach = c.half.to_f32() / 256
-				{ ..m, view: wrapped_view(m, { x: m.view.x + axis_scroll(s.x, m.screen.x, reach), y: m.view.y + axis_scroll(s.y, m.screen.y, reach) }) }
-			} else {
-				m
-			}
-		}
-		Nobody => m
-	}
+## A pan held near an edge: the ground keeps moving, the view away from it.
+pan_band : Model -> Model
+pan_band = |m| match m.hand {
+	Panning(p) => { ..m, view: wrapped_view(m, { x: m.view.x - axis_scroll(p.x, m.screen.x, 0), y: m.view.y - axis_scroll(p.y, m.screen.y, 0) }) }
 	_ => m
+}
+
+## The held dog's band, from where the board has it: its push in px, and
+## as a displacement of the tick's drag in 256ths; none unless a dog is in
+## hand with its drag on.
+dog_band : Model -> { dog : Try(U64, [None]), band : Vec, disps : List(Game.Disp) }
+dog_band = |m| {
+	none = { dog: Err(None), band: { x: 0, y: 0 }, disps: [] }
+	match m.hand {
+		Dragging(_) => match Game.leashed(m.board) {
+			Dog(d, on) => {
+				if on {
+					s = on_screen(m, Walk.pt(get_crit(m.board.crits, d)))
+					reach = World.dog_px.to_f32() / 2
+					band = { x: axis_scroll(s.x, m.screen.x, reach), y: axis_scroll(s.y, m.screen.y, reach) }
+					if band.x == 0 and band.y == 0 {
+						none
+					} else {
+						{ dog: Ok(d), band, disps: [{ dx: rounded(band.x * 256), dy: rounded(band.y * 256) }] }
+					}
+				} else {
+					none
+				}
+			}
+			Nobody => none
+		}
+		_ => none
+	}
 }
 
 ## Where a park point is on the window: the short way round from the
@@ -601,5 +648,7 @@ expect {
 	$line == "Okay, now you're just doing it on purpose."
 }
 expect axis_scroll(500, 960, 14) == 0
+expect follow(10, 4) == 4 and follow(10, 25) == 10 and follow(10, -3) == 0 and follow(-5, -9) == -5 and follow(0, 7) == 0
+expect rounded(2.5) == 3 and rounded(-2.5) == -2 and rounded(447.9) == 448
 expect axis_scroll(950, 960, 14) > 0
 expect axis_scroll(10, 960, 14) < 0
