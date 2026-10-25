@@ -526,14 +526,14 @@ const roc_pin = std.mem.trim(u8, @embedFile("roc/roc-version"), " \n");
 /// so.
 fn rocCompiler(b: *std.Build) []const u8 {
     const named = b.option([]const u8, "roc", "the Roc compiler (default: `roc` on the PATH); every build needs one, the version roc/roc-version pins") orelse "roc";
-    const none = "Dog Park's physics is built from Roc, and there is no Roc compiler at `{s}`: put Roc {s} (roc/roc-version) on the PATH, or name it with -Droc=<path>";
+    const none = "Dog Park's physics is built from Roc, and there is no Roc compiler at `{s}`: put Roc {s} (roc/roc-version) on the PATH (../roc-webbox/tools/get_roc.sh installs it), or name it with -Droc=<path>";
     const found = if (std.mem.indexOfScalar(u8, named, '/') == null)
         b.findProgram(.{ .names = &.{named} }) orelse std.process.fatal(none, .{ named, roc_pin })
     else
         b.root.root_dir.handle.realPathFileAlloc(b.graph.io, named, b.allocator) catch std.process.fatal(none, .{ named, roc_pin });
     const said = std.mem.trim(u8, b.run(&.{ found, "version" }), " \n");
     const version = if (std.mem.lastIndexOfScalar(u8, said, ' ')) |i| said[i + 1 ..] else said;
-    if (!std.mem.eql(u8, version, roc_pin)) std.process.fatal("Dog Park's physics is pinned to Roc {s} (roc/roc-version), and `{s}` is {s}: put the pinned one on the PATH or name it with -Droc=<path>, or move the pin on purpose (a new Roc is new archives: judge them)", .{ roc_pin, found, version });
+    if (!std.mem.eql(u8, version, roc_pin)) std.process.fatal("Dog Park's physics is pinned to Roc {s} (roc/roc-version), and `{s}` is {s}: put the pinned one on the PATH (../roc-webbox/tools/get_roc.sh) or name it with -Droc=<path>, or move the pin on purpose (a new Roc is new archives: judge them)", .{ roc_pin, found, version });
     return found;
 }
 

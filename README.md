@@ -96,7 +96,8 @@ The Roc is in `roc/`, roughly in the order to read it:
 **Every build needs `roc`**, the nightly `roc/roc-version` pins, on the
 PATH or named with `-Droc=<path>`: it builds the physics from `roc/` into
 its cache, and stops, saying so, if there is no Roc or another one.
-`roc version` must print exactly the pin. CI installs it with
+`roc version` must print exactly the pin. roc-webbox's `tools/get_roc.sh`
+installs it (the two pins are one, for the combination). CI installs it with
 `roc-lang/setup-roc` and the pin as its nightly
 (`.github/workflows/native.yml`).
 `/version` says the Roc that built the physics, and the physics hash covers
