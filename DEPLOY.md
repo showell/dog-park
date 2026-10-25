@@ -55,7 +55,7 @@ check.
 
    The URL is `http://<the dev box's public address>:9301/dogpark-<commit>.img.gz` (the
    name step 1 printed; the address is `curl -s https://ifconfig.me` on the box). Leave it running until step 3 says the import is
-   done, then stop it: `job_stop("scratch:dogpark-images-http.log")` in a
+   done, then stop it: `job_stop("scratch:dogpark-images-http.log.job")` in a
    `shale` heredoc.
 
 3. **Import it as a custom image.** DigitalOcean: Backups & Snapshots →
