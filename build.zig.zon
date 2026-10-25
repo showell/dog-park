@@ -17,5 +17,8 @@
         // A path dependency, so every configure runs the kernel's build (~0.1 s warm, its git and
         // python checks): this repo builds only beside ../zig-metal-unikernel, as beside ../zig-webbox.
         .zig_metal_unikernel = .{ .path = "../zig-metal-unikernel", .lazy = true },
+        // The TODO list, roc-webbox's (a sibling checkout), for the
+        // combination that mounts it beside the park (src/combos/).
+        .roc_webbox = .{ .path = "../roc-webbox", .lazy = true },
     },
 }

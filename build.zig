@@ -111,13 +111,7 @@ pub fn build(b: *std.Build) void {
     // the kernel never embeds a stale zig-out/web/physics.wasm. Its cookie
     // is Secure (app.cookie_mode's default: nothing on metal reads
     // DOGPARK_INSECURE_COOKIE). Installed to zig-out/bin/dogpark.elf.
-    const metal_app = b.createModule(.{
-        .root_source_file = b.path("src/play/hosted.zig"),
-        .imports = &.{ .{ .name = "physics_options", .module = physics_mod }, .{ .name = "dogpark_build", .module = build_mod } },
-    });
-    metal_app.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
-    // The kernel's: x86-64, freestanding (the module takes the kernel's target).
-    linkRoc(roc_lib, metal_app, .x64v1elf);
+    const metal_app = metalPark(b, physics_mod, build_mod, page_wasm, roc_lib);
     // **THE KERNEL, BESIDE THIS REPO**: ../zig-metal-unikernel, a path
     // dependency. Zig runs a path dependency's build at every configure,
     // lazy or not (measured: `zig build --help` runs its git and python
@@ -133,6 +127,64 @@ pub fn build(b: *std.Build) void {
                 .optimize = .safe,
             });
             metal_step.dependOn(&b.addInstallArtifact(dogpark_elf, .{}).step);
+        }
+    }
+
+    // **COMBINATIONS, DOG PARK THE PRIMARY** (webbox's combo): a combination
+    // is built in its primary's repo. Dog Park at `/`, the TODO list
+    // (../roc-webbox) at `/todo` (src/combos/dogpark_todo.zig). Both are Roc
+    // apps, so its root declares roc-webbox's roc_hooks; the list is built
+    // with this build's Roc, so its pin (roc-webbox's roc-version) must
+    // agree with roc/roc-version.
+    const combo_build = b.step("dogpark-todo", "Build Dog Park with the TODO list at /todo, zig-out/bin/dogpark-todo");
+    const combo_serve = b.step("serve-dogpark-todo", "Serve Dog Park at / and the TODO list (../roc-webbox) at /todo/ on port 9113 (COMBO_PORT)");
+    const combo_metal = b.step("metal-dogpark-todo", "Build Dog Park with the TODO list at /todo as a zig-metal-unikernel kernel, zig-out/bin/dogpark-todo.elf (ReleaseSafe)");
+    if (b.lazyDependency("roc_webbox", .{ .target = target, .optimize = optimize, .roc = roc })) |todo| {
+        const combo_exe = b.addExecutable(.{ .name = "dogpark-todo", .root_module = b.createModule(.{
+            .root_source_file = b.path("src/combos/dogpark_todo_main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "webbox", .module = webbox },
+                .{ .name = "webbox_linux", .module = webbox_linux },
+                .{ .name = "dog_park", .module = dog_park },
+                .{ .name = "roc_todo", .module = todo.module("roc_todo") },
+                .{ .name = "roc_hooks", .module = todo.module("roc_hooks") },
+            },
+        }) });
+        const combo_install = b.addInstallArtifact(combo_exe, .{});
+        combo_build.dependOn(&combo_install.step);
+        const combo_run = b.addRunArtifact(combo_exe);
+        combo_run.step.dependOn(&combo_install.step);
+        // The park's page files (solo/) are read from where it runs.
+        combo_run.setCwd(b.path("."));
+        combo_serve.dependOn(&combo_run.step);
+        if (b.lazyDependency("zig_metal_unikernel", .{ .stamp = stamp })) |kernel| {
+            if (b.lazyImport(@This(), "zig_metal_unikernel")) |kernel_build| {
+                // A park of its own: the kernel makes a module its machine's
+                // in place, and dogpark.elf's is already.
+                const park = metalPark(b, physics_mod, build_mod, page_wasm, roc_lib);
+                const list = todo.module("roc_todo_metal");
+                const combo = b.createModule(.{
+                    .root_source_file = b.path("src/combos/dogpark_todo.zig"),
+                    .imports = &.{
+                        .{ .name = "dog_park", .module = park },
+                        .{ .name = "roc_todo", .module = list },
+                        .{ .name = "roc_hooks", .module = todo.module("roc_hooks") },
+                    },
+                });
+                const elf = kernel_build.addAppKernel(b, kernel, .{
+                    .name = "dogpark-todo.elf",
+                    .module = combo,
+                    .assets = b.path("assets.zon"),
+                    .optimize = .safe,
+                    .parts = &.{
+                        .{ .module = park, .assets = b.path("assets.zon") },
+                        .{ .module = list, .assets = todo.path("assets.zon") },
+                    },
+                });
+                combo_metal.dependOn(&b.addInstallArtifact(elf, .{}).step);
+            }
         }
     }
 
@@ -510,6 +562,19 @@ fn linkRoc(lib: RocLib, m: *std.Build.Module, as: ?RocTarget) void {
         std.process.fatal("the physics' Roc: no archive for {t} (it is built for x86-64 and wasm32)", .{r.cpu.arch});
     };
     m.addObjectFile(lib.get(t));
+}
+
+/// hosted.zig as the kernel takes it (no target, mode, webbox, shale or
+/// host_io: the kernel's), with this build's physics hash, wasm and Roc.
+fn metalPark(b: *std.Build, physics_mod: *std.Build.Module, build_mod: *std.Build.Module, page_wasm: std.Build.LazyPath, roc_lib: RocLib) *std.Build.Module {
+    const m = b.createModule(.{
+        .root_source_file = b.path("src/play/hosted.zig"),
+        .imports = &.{ .{ .name = "physics_options", .module = physics_mod }, .{ .name = "dogpark_build", .module = build_mod } },
+    });
+    m.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
+    // The kernel's: x86-64, freestanding (the module takes the kernel's target).
+    linkRoc(roc_lib, m, .x64v1elf);
+    return m;
 }
 
 /// Whether a build bakes its commits in (`-Dstamp`), as the kernel's says.

@@ -180,7 +180,9 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
 /// list does): the root exports the four below and hands Roc's calls to the
 /// app inside its Roc call, so `call` brackets the walk. Alone, as every
 /// build here is, they are exported here.
-const shared = @hasDecl(@import("root"), "roc_hooks");
+/// A root may declare it empty (`struct {}`: a host that forwards whatever
+/// its application declares), which is none.
+const shared = @hasDecl(@import("root"), "roc_hooks") and @hasDecl(@import("root").roc_hooks, "enter");
 const roc_hooks = if (shared) @import("root").roc_hooks else struct {};
 const physics_roc = @This();
 
