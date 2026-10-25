@@ -180,7 +180,8 @@ check.
    2026-10-19), `v4` the levels and the landing's goal (bd07472, 2026-10-20), `v5` the admin
    page's turns counted as `/version` counts them (816f19a, 2026-10-22), `v6`
    the words and look said once in Roc, and the game judge (5419352,
-   2026-10-23).
+   2026-10-23), `v7` the combination, roc-webbox's TODO list at `/todo`, a
+   list per visitor (ebfc1d4, 2026-10-25).
 
 The private address stays, so Caddy needs nothing. Accounts, games and
 TODO lists start over.
