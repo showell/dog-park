@@ -13,6 +13,10 @@ games onto that same disk. There is no data volume and no recovery-console
 step. **A new image starts Dog Park empty**: every account, game and cookie
 goes with the old one (accepted for now, Steve 2026-10-15).
 
+**The park alone.** The image is `dogpark.elf` (`zig build metal`); no
+step here builds or ships a combination such as `dogpark-todo.elf`
+(README, "Dog Park beside other apps").
+
 Steps marked **(box-verified)** are checked on the box by the build; the
 rest are clicks or commands on DigitalOcean or prod, which the box cannot
 check.
@@ -32,7 +36,7 @@ check.
    and `.img.gz` beside it (1 GiB raw; under 2 MiB gzipped when last
    measured), prints both sha256s, and then boots the image on QEMU laid out
    as a droplet (`droplet/rehearse.mjs`): it must end `ready to deploy`.
-   - **It refuses** on uncommitted changes in any of the three trees
+   - **It refuses** on uncommitted changes in any of the four trees
      (`DOGPARK_IMAGE_DIRTY=1` builds anyway, and says so: an image no
      commit describes), and without `droplet/trusted-proxy` (prod's
      private address).

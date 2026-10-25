@@ -83,7 +83,9 @@ The Roc is in `roc/`, roughly in the order to read it:
   sibling checkout): `Game.roc` is a board and one tick of it in Roc, as the
   Zig has them, and `native.roc` plays it as the page does, with no server.
   `.github/workflows/native.yml` builds it for Windows and photographs a
-  frame of it; nothing yet judges `Game.roc` against the Zig.
+  frame of it. `zig build game-judge` plays every tick of the bench's
+  drags and the physics' tests by `Game.roc` beside the Zig and compares
+  the boards (`src/play/roc_game.zig`).
 
 **To change something and see it:**
 
@@ -94,6 +96,9 @@ The Roc is in `roc/`, roughly in the order to read it:
 **Every build needs `roc`**, the nightly `roc/roc-version` pins, on the
 PATH or named with `-Droc=<path>`: it builds the physics from `roc/` into
 its cache, and stops, saying so, if there is no Roc or another one.
+`roc version` must print exactly the pin. CI installs it with
+`roc-lang/setup-roc` and the pin as its nightly
+(`.github/workflows/native.yml`).
 `/version` says the Roc that built the physics, and the physics hash covers
 the pin, so moving it is a new version of the physics.
 `zig build roc` rewrites the checked-in `src/play/world.zon`,
@@ -200,10 +205,13 @@ Every build needs its sibling checkouts beside this one:
 - `../zig-metal-unikernel`;
 - `../zig-coverage-sdk`, holding the code the kernel pins (zig-metal-unikernel's
   `build.zig`, `pinnedSdk`, a hash of the SDK's code; the build fails, saying
-  so, on any other).
+  so, on any other);
+- `../roc-webbox`, the TODO list the combination mounts ("Dog Park beside
+  other apps", below).
 
-Zig runs a path dependency's build at every configure, so even a plain
-`zig build` needs all three.
+They are path dependencies (`build.zig.zon`), and Zig runs a path
+dependency's build at every configure, lazy or not, so even a plain
+`zig build` needs all of them.
 
 The tools: zig 0.17 (`build.zig.zon`), Roc (the nightly
 `roc/roc-version` pins, for every build: "Changing the game in Roc",
@@ -360,6 +368,60 @@ write, is refused: Dog Park runs background scripts only.
   `games.shale` in the background while a second client is answered.
   Parked (Steve): an output ring and a live stream, for a script that must
   report as it runs.
+
+## Dog Park beside other apps (combinations)
+
+A combination serves several webbox apps from one binary: zig-webbox's
+`webbox.combo.Mount(Primary, &.{ .{ .prefix = "/x", .root = mod } })`. The
+primary keeps `/` and everything not mounted; each other app is mounted
+under its prefix, with its files in `<data>/<name>` and `<auth>/<name>`.
+**A combination is built in its primary's repo**, so the ones with Dog
+Park at `/` live here, in `src/combos/`. `build.zig` exports the park as
+the module `dog_park` (`src/play/hosted.zig`) for them.
+
+**Dog Park + the TODO list** (roc-webbox's, at `/todo`):
+- `src/combos/dogpark_todo.zig`: the hosted root (`site`, `hosting`,
+  `roc_hooks`), which both the Linux main and the kernel host.
+- `src/combos/dogpark_todo_main.zig`: the Linux main.
+
+      zig build dogpark-todo         # zig-out/bin/dogpark-todo
+      DOGPARK_INSECURE_COOKIE=yes zig build serve-dogpark-todo   # http://localhost:9113, the list at /todo/
+      zig build metal-dogpark-todo   # zig-out/bin/dogpark-todo.elf, ReleaseSafe
+
+- **The environment:** `COMBO_PORT` (9113), `COMBO_BIND`, `COMBO_CONFIG`
+  (`data_dir`/`auth_dir`, as `DOGPARK_CONFIG`), `COMBO_TRUSTED_PROXY`,
+  `COMBO_KEEPALIVE_MS`; `DOGPARK_INSECURE_COOKIE=yes` for plain http, as
+  for `play`. `serve-dogpark-todo` runs from the checkout, because the park
+  reads `solo/` from its working directory.
+- **Its files:** with no `COMBO_CONFIG`, the park's are `./data` and
+  `./auth` in the checkout, the same as `zig build play`'s, and the list's
+  `data/todo/todos.json` (and `auth/todo/`). On metal, the same layout on
+  the kernel's `data/` and `auth/`.
+- **Two Roc apps in one binary.** One Roc runtime serves both:
+  roc-webbox's `roc_hooks` (its `src/roc_hooks.zig`) owns `roc_alloc`,
+  `roc_realloc`, `roc_dealloc` and `roc_crashed` when the root
+  declares `roc_hooks`. `src/play/roc_physics.zig` exports its own only
+  when the park is alone, and otherwise brackets its walk with the hooks'
+  enter and leave.
+- **One Roc.** The list is built with this build's Roc (`-Droc` is passed
+  down), so roc-webbox's `roc-version` must name the same nightly as
+  `roc/roc-version`; move both pins together.
+- **Testing it:** `zig build check` builds no combination. The QEMU gate
+  boots `zig-out/bin/dogpark.elf` only; to boot the combination's kernel
+  under it, build `metal-dogpark-todo`, copy `dogpark-todo.elf` over
+  `zig-out/bin/dogpark.elf`, and run `node tools/metal_gate.mjs` (not
+  `zig build metal-gate`, which rebuilds dogpark.elf first). The gate
+  exercises the park only; nothing here tests `/todo`.
+- **Not deployed.** `droplet/image.mjs` builds and images `dogpark.elf`
+  alone; dogpark.lynrummy.com serves the park by itself.
+
+**A new combination with Dog Park at `/`:** a root beside
+`dogpark_todo.zig` (its `Mount`, and `roc_hooks` when another app is Roc),
+a Linux main if it is to run on Linux, the other app as a path dependency
+in `build.zig.zon` (lazy), and its steps in `build.zig`, after the TODO
+list's. The kernel's `addAppKernel` takes each app's module and
+`assets.zon` as its `parts`. A combination whose primary is another app
+is built in that app's repo, with `dog_park` as an import.
 
 ## The tests
 
