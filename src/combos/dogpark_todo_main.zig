@@ -13,13 +13,15 @@ pub const roc_hooks = combo.roc_hooks;
 pub fn main(init: std.process.Init.Minimal) !void {
     var env = try std.process.Environ.createMap(init.environ, std.heap.page_allocator);
     defer env.deinit();
-    // As Dog Park's own main: plain-http development only.
+    // As Dog Park's own main: plain-http development only, for both apps'
+    // cookies (the park's player, the list's visitor).
     if (env.get("DOGPARK_INSECURE_COOKIE")) |v| {
         if (!std.mem.eql(u8, v, "yes")) {
             std.debug.print("dogpark-todo: DOGPARK_INSECURE_COOKIE is \"{s}\": unset it, or set it to yes for plain-http development\n", .{v});
             return error.BadInsecureCookieSetting;
         }
         @import("dog_park").insecureCookie();
+        @import("roc_todo").insecureCookie();
     }
     try @import("webbox_linux").linux_host.Server(site).run(init, .{
         .name = "dogpark-todo",

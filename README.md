@@ -396,8 +396,10 @@ the module `dog_park` (`src/play/hosted.zig`) for them.
   reads `solo/` from its working directory.
 - **Its files:** with no `COMBO_CONFIG`, the park's are `./data` and
   `./auth` in the checkout, the same as `zig build play`'s, and the list's
-  `data/todo/todos.json` (and `auth/todo/`). On metal, the same layout on
-  the kernel's `data/` and `auth/`.
+  one per visitor, `data/todo/lists/<id>.json`, its cookie's secret in
+  `auth/todo/`. On metal, the same layout on the kernel's `data/` and
+  `auth/`. `DOGPARK_INSECURE_COOKIE=yes` makes both apps' cookies plain
+  http's.
 - **Two Roc apps in one binary.** One Roc runtime serves both:
   roc-webbox's `roc_hooks` (its `src/roc_hooks.zig`) owns `roc_alloc`,
   `roc_realloc`, `roc_dealloc` and `roc_crashed` when the root
