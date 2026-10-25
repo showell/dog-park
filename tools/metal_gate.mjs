@@ -29,7 +29,14 @@ import { root } from "./lib/scratch_server.mjs";
 import { pageRig, letGoTicks } from "./lib/page_rig.mjs";
 import { bootGuest } from "./lib/metal_guest.mjs";
 
-const elf = join(root, "zig-out/bin/dogpark.elf");
+// The kernel to boot, as build.zig's metal-gate names it: dogpark.elf, the
+// park alone, and dogpark-todo.elf, the combination dogpark.lynrummy.com
+// serves (droplet/image.mjs).
+if (!process.argv[2]) {
+  console.error("usage: node tools/metal_gate.mjs <kernel.elf>  (zig build metal-gate runs it on each kernel)");
+  process.exit(2);
+}
+const elf = process.argv[2];
 // The commit the elf must name in /version: this checkout's, as build.zig's
 // commitOf says it (`+dirty` with uncommitted changes), so an elf left from
 // another build fails here by name.

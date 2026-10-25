@@ -13,9 +13,11 @@ games onto that same disk. There is no data volume and no recovery-console
 step. **A new image starts Dog Park empty**: every account, game and cookie
 goes with the old one (accepted for now, Steve 2026-10-15).
 
-**The park alone.** The image is `dogpark.elf` (`zig build metal`); no
-step here builds or ships a combination such as `dogpark-todo.elf`
-(README, "Dog Park beside other apps").
+**The park and the TODO list.** The image is `dogpark-todo.elf` (`zig build
+metal-dogpark-todo`): the park at `/` and roc-webbox's TODO list at `/todo`,
+a list per visitor (README, "Dog Park beside other apps"; Steve,
+2026-10-25). The list's files go on the same disk, and start over with a new
+image as the park's do.
 
 Steps marked **(box-verified)** are checked on the box by the build; the
 rest are clicks or commands on DigitalOcean or prod, which the box cannot
@@ -23,20 +25,20 @@ check.
 
 ## The first deploy
 
-1. **Build the image** (box-verified). With all four trees compiled into
-   it clean (this one, ../zig-metal-unikernel, ../zig-webbox and ../shale), and
-   pushed (nothing checks that):
+1. **Build the image** (box-verified). With all five trees compiled into
+   it clean (this one, ../zig-metal-unikernel, ../zig-webbox, ../shale and
+   ../roc-webbox), and pushed (nothing checks that):
 
        cd ~/showell_repos/dog-park
-       zig build metal-gate            # the QEMU gate (README); needs the pinned roc (roc/roc-version) on the PATH
+       zig build metal-gate            # the QEMU gate (README), on dogpark.elf and dogpark-todo.elf; needs the pinned roc (roc/roc-version) on the PATH
        node droplet/image.mjs
 
-   It builds `zig-out/bin/dogpark.elf`, writes
+   It builds `zig-out/bin/dogpark-todo.elf`, writes
    `~/dogpark-images/dogpark-<commit>.img` (`<commit>` is 12 characters)
    and `.img.gz` beside it (1 GiB raw; under 2 MiB gzipped when last
    measured), prints both sha256s, and then boots the image on QEMU laid out
    as a droplet (`droplet/rehearse.mjs`): it must end `ready to deploy`.
-   - **It refuses** on uncommitted changes in any of the four trees
+   - **It refuses** on uncommitted changes in any of the five trees
      (`DOGPARK_IMAGE_DIRTY=1` builds anyway, and says so: an image no
      commit describes), and without `droplet/trusted-proxy` (prod's
      private address).
@@ -44,13 +46,17 @@ check.
      never prints it), and builds shale's `shale-sign` to make Dog
      Park's Shale key pair, `~/.shale_signing_key.dogpark.lynrummy.com`.
 
-2. **Serve the .gz to DigitalOcean**, in a terminal on the box:
+2. **Serve the .gz to DigitalOcean**, from the box: busybox's file
+   server, as a Shale job that outlives the launch:
 
-       cd ~/dogpark-images && python3 -m http.server 9301
+       shale <<'SHALE'
+       job_start({"busybox", "httpd", "-f", "-p", "9301", "-h", "/home/steve/dogpark-images"}, {log = "scratch:dogpark-images-http.log"})
+       SHALE
 
    The URL is `http://<the dev box's public address>:9301/dogpark-<commit>.img.gz` (the
    name step 1 printed; the address is `curl -s https://ifconfig.me` on the box). Leave it running until step 3 says the import is
-   done, then Ctrl-C it.
+   done, then stop it: `job_stop("scratch:dogpark-images-http.log")` in a
+   `shale` heredoc.
 
 3. **Import it as a custom image.** DigitalOcean: Backups & Snapshots →
    Custom Images → Import via URL.
@@ -128,11 +134,14 @@ check.
 
 9. **Smoke test**, from the box:
 
-       curl -s https://dogpark.lynrummy.com/ | grep -c 'Begin Game'                    # 1
-       curl -s -o /dev/null -w '%{http_code}\n' \
-         -H "Authorization: Bearer $(cat ~/.dogpark_admin_key)" \
-         https://dogpark.lynrummy.com/admin/game                                       # 200
-       curl -s -o /dev/null -w '%{http_code}\n' https://dogpark.lynrummy.com/admin/game  # 403
+       shale <<'SHALE'
+       const site = "https://dogpark.lynrummy.com"
+       print(contains(http_get(site .. "/").body, "Begin Game"))                          -- true
+       print(http_get(site .. "/admin/game", {bearer = "keys:dogpark_admin_key"}).status)  -- 200
+       print(http_get(site .. "/admin/game").status)                                       -- 403
+       local added = http("POST", site .. "/todo/api/todos", {body = "smoke test"})
+       print(added.status, starts_with(added.headers["set-cookie"], "__Host-roc-todo="))  -- 200  true
+       SHALE
 
    Then in a browser: Begin Game, and play. `/admin` takes the same key
    (`cat ~/.dogpark_admin_key` on the box) for the admin pages.
@@ -158,7 +167,7 @@ check.
    attached", and the restore has already wiped Dog Park's disk.
 3. Step 9's smoke test again, and the commit:
 
-       curl -s https://dogpark.lynrummy.com/version
+       shale cookbook:http.shale url=https://dogpark.lynrummy.com/version
 
    Its `commit` (git's short form) must begin the 12-character commit in
    the image's name. An image built before `/version` existed answers 404;
@@ -173,8 +182,8 @@ check.
    the words and look said once in Roc, and the game judge (5419352,
    2026-10-23).
 
-The private address stays, so Caddy needs nothing. Accounts and games start
-over.
+The private address stays, so Caddy needs nothing. Accounts, games and
+TODO lists start over.
 
 ## The way back
 
@@ -188,7 +197,7 @@ over.
 
 ## What the image holds, and why
 
-- **Partition 1**: `dogpark.elf`, the kernel (zig-metal-unikernel's
+- **Partition 1**: `dogpark-todo.elf`, the kernel (zig-metal-unikernel's
   `droplet/app_image.py`, any application's image builder, lays the disk out).
 - **Partition 2**, FAT16, 1 GiB: `solo/`, `auth/_admin_key`, and
   `zig-metal-unikernel.conf`:

@@ -18,8 +18,10 @@
 // Checks: the boot says the data is on the boot disk, no volume attached,
 // the private card, both disk checks clean; `GET /` with Begin Game; `POST
 // /begin` sets a Secure, HttpOnly cookie; `/load` answers 200; `/admin/game`
-// answers with ~/.dogpark_admin_key and refuses without it; the public card
-// answers nothing; no error line in the guest's log.
+// answers with ~/.dogpark_admin_key and refuses without it; the TODO list at
+// /todo (its page, a list written and read back by its Secure cookie, a new
+// visitor's empty); the public card answers nothing; no error line in the
+// guest's log.
 
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -90,6 +92,22 @@ export async function rehearse(image) {
     const refused = await req("GET", "/admin/game");
     expect(refused.status === 403, `/admin/game without the key: ${refused.status}`);
 
+    // roc-webbox's TODO list, mounted at /todo (src/combos/dogpark_todo.zig):
+    // a list per visitor, by a Secure cookie.
+    step = "/todo";
+    const bare = await req("GET", "/todo");
+    expect(bare.status === 303 && bare.headers.location === "/todo/", `GET /todo: ${bare.status} to ${bare.headers.location}`);
+    const page = await req("GET", "/todo/");
+    expect(page.status === 200 && /api\/todos/.test(page.text), `GET /todo/: ${page.status}`);
+    const added = await req("POST", "/todo/api/todos", { body: "rehearse the droplet" });
+    const visitor = added.headers["set-cookie"]?.[0] ?? "";
+    expect(added.status === 200 && /rehearse the droplet/.test(added.text), `POST /todo/api/todos: ${added.status}: ${added.text.slice(0, 120)}`);
+    expect(visitor.startsWith("__Host-roc-todo=") && /; Secure(;|$)/.test(visitor) && /; HttpOnly(;|$)/.test(visitor), `the list's cookie is not a Secure, HttpOnly __Host-roc-todo: ${visitor.replace(/=[^;]*/, "=…")}`);
+    const mine = await req("GET", "/todo/api/todos", { cookie: visitor.split(";")[0] });
+    expect(mine.status === 200 && /rehearse the droplet/.test(mine.text), `the visitor's list read back: ${mine.status}: ${mine.text.slice(0, 120)}`);
+    const stranger = await req("GET", "/todo/api/todos");
+    expect(stranger.status === 200 && stranger.text === "[]", `a new visitor's list: ${stranger.status}: ${stranger.text.slice(0, 120)}`);
+
     step = "the guest's log";
     await guest.checkSerial();
 
@@ -102,7 +120,7 @@ export async function rehearse(image) {
     expect(!answered, "the public card answered");
 
     await guest.stop();
-    console.log(`rehearse PASS (${((performance.now() - t0) / 1000).toFixed(1)} s): ${image} booted on the droplet's machine; private card, data on the boot disk, no volume; landing, Begin Game's Secure cookie, /load, /admin/game with the key and 403 without; the public card silent`);
+    console.log(`rehearse PASS (${((performance.now() - t0) / 1000).toFixed(1)} s): ${image} booted on the droplet's machine; private card, data on the boot disk, no volume; landing, Begin Game's Secure cookie, /load, /admin/game with the key and 403 without; /todo's list written and read back by its cookie; the public card silent`);
     rmSync(scratch, { recursive: true, force: true });
     return true;
   } catch (e) {

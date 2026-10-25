@@ -1,6 +1,9 @@
-// **DOG PARK'S BOOT IMAGE, FOR A DROPLET** (DEPLOY.md, step 1). One disk,
-// laid out by zig-metal-unikernel's droplet/app_image.py, any application's
-// image builder: its boot loader, then dogpark.elf in partition 1, then
+// **DOG PARK'S BOOT IMAGE, FOR A DROPLET** (DEPLOY.md, step 1): the park with
+// roc-webbox's TODO list at /todo (README, "Dog Park beside other apps";
+// Steve, 2026-10-25: the combination is what dogpark.lynrummy.com serves).
+// One disk, laid out by zig-metal-unikernel's droplet/app_image.py, any
+// application's image builder: its boot loader, then dogpark-todo.elf in
+// partition 1, then
 // partition 2, a FAT16 filesystem holding solo/, auth/_admin_key and
 // zig-metal-unikernel.conf. **THERE IS NO DATA
 // VOLUME**: with no `volume` line in the conf and none attached, the kernel
@@ -15,7 +18,7 @@
 // fails the build.
 //
 // **REFUSES** on a dirty tree (this one, ../zig-metal-unikernel,
-// ../zig-webbox or ../shale: each is compiled into the image), unless
+// ../zig-webbox, ../shale or ../roc-webbox: each is compiled into the image), unless
 // DOGPARK_IMAGE_DIRTY=1, which builds it anyway and says so. **REFUSES**
 // without droplet/trusted-proxy (prod's private address, whose
 // X-Forwarded-For names the client): without it every request through Caddy
@@ -37,7 +40,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const kernelRoot = resolve(root, "../zig-metal-unikernel");
 const webboxRoot = resolve(root, "../zig-webbox");
 const shaleRoot = resolve(root, "../shale");
-const elf = join(root, "zig-out/bin/dogpark.elf");
+const todoRoot = resolve(root, "../roc-webbox");
+const elf = join(root, "zig-out/bin/dogpark-todo.elf");
 export const adminKeyPath = join(homedir(), ".dogpark_admin_key");
 const proxyFile = join(root, "droplet/trusted-proxy");
 /**
@@ -59,7 +63,7 @@ function die(why) {
 /** Each tree compiled into the image, clean, or the override said loudly. */
 function checkTrees() {
   const dirty = [];
-  for (const tree of [root, kernelRoot, webboxRoot, shaleRoot]) {
+  for (const tree of [root, kernelRoot, webboxRoot, shaleRoot, todoRoot]) {
     if (run("git", ["-C", tree, "status", "--porcelain"]).trim()) dirty.push(tree);
   }
   if (dirty.length === 0) return;
@@ -141,14 +145,15 @@ async function main() {
   checkTrees();
   const commit = run("git", ["-C", root, "rev-parse", "--short=12", "HEAD"]).trim();
   const kernelCommit = run("git", ["-C", kernelRoot, "rev-parse", "--short=12", "HEAD"]).trim();
+  const todoCommit = run("git", ["-C", todoRoot, "rev-parse", "--short=12", "HEAD"]).trim();
   const out = resolve(process.argv[2] ?? join(homedir(), "dogpark-images", `dogpark-${commit}.img`));
   mkdirSync(dirname(out), { recursive: true });
 
   const proxy = trustedProxy();
   const key = adminKey();
 
-  console.log("image.mjs: zig build metal");
-  execFileSync("zig", ["build", "metal"], { cwd: root, stdio: "inherit" });
+  console.log("image.mjs: zig build metal-dogpark-todo");
+  execFileSync("zig", ["build", "metal-dogpark-todo"], { cwd: root, stdio: "inherit" });
 
   const work = mkdtempSync(join(tmpdir(), "dogpark-image-"));
   try {
@@ -163,7 +168,7 @@ async function main() {
   }
   run("gzip", ["-k", "-f", "-6", out]);
   const gz = `${out}.gz`;
-  console.log(`image.mjs: dog-park ${commit}, zig-metal-unikernel ${kernelCommit}, trusted proxy ${proxy}, no volume`);
+  console.log(`image.mjs: dog-park ${commit}, roc-webbox ${todoCommit} at /todo, zig-metal-unikernel ${kernelCommit}, trusted proxy ${proxy}, no volume`);
   console.log(`  ${out}  ${mib(out)}  sha256 ${await sha256(out)}`);
   console.log(`  ${gz}  ${mib(gz)}  sha256 ${await sha256(gz)}`);
 

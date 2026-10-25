@@ -188,19 +188,33 @@ pub fn build(b: *std.Build) void {
         }
     }
 
-    // **THE QEMU GATE** (tools/metal_gate.mjs; README, "The QEMU gate"):
-    // dogpark.elf booted under QEMU on a scratch disk, a short session
-    // through the page's code, a reboot on the same disk. Last, before a
-    // deploy; in none of test, check or slow. Its output is not captured
-    // (no expectations: the exit code is the verdict), so the timings show;
-    // `--summary all` gives the build's times beside the run's.
-    const metal_gate = b.addSystemCommand(&.{ "node", "--no-warnings" });
-    metal_gate.addFileArg(b.path("tools/metal_gate.mjs"));
-    metal_gate.setCwd(b.path("."));
-    metal_gate.has_side_effects = true;
-    metal_gate.step.dependOn(metal_step);
-    metal_gate.step.dependOn(&page_wasm_install.step);
-    b.step("metal-gate", "The QEMU gate: dogpark.elf booted twice on one scratch disk, a session through the page code (last, before a deploy; ~10 s warm)").dependOn(&metal_gate.step);
+    // **THE QEMU GATE** (tools/metal_gate.mjs; README, "The QEMU gate"): a
+    // kernel booted under QEMU on a scratch disk, a short session through the
+    // page's code, a reboot on the same disk; once for dogpark.elf, the park
+    // alone, and once for dogpark-todo.elf, the combination
+    // dogpark.lynrummy.com serves (its /todo is the rehearsal's,
+    // droplet/rehearse.mjs). Last, before a deploy; in none of test, check
+    // or slow. Its output is not captured (no expectations: the exit code is
+    // the verdict), so the timings show; `--summary all` gives the build's
+    // times beside the run's.
+    const gate_step = b.step("metal-gate", "The QEMU gate: dogpark.elf and dogpark-todo.elf, each booted twice on one scratch disk, a session through the page code (last, before a deploy; ~20 s warm)");
+    // One machine at a time: the second waits for the first.
+    var gate_before: ?*std.Build.Step = null;
+    for ([_]struct { elf: []const u8, built: *std.Build.Step }{
+        .{ .elf = "zig-out/bin/dogpark.elf", .built = metal_step },
+        .{ .elf = "zig-out/bin/dogpark-todo.elf", .built = combo_metal },
+    }) |k| {
+        const metal_gate = b.addSystemCommand(&.{ "node", "--no-warnings" });
+        metal_gate.addFileArg(b.path("tools/metal_gate.mjs"));
+        metal_gate.addArg(k.elf);
+        metal_gate.setCwd(b.path("."));
+        metal_gate.has_side_effects = true;
+        metal_gate.step.dependOn(k.built);
+        metal_gate.step.dependOn(&page_wasm_install.step);
+        if (gate_before) |s| metal_gate.step.dependOn(s);
+        gate_before = &metal_gate.step;
+        gate_step.dependOn(&metal_gate.step);
+    }
 
     // ── the tests ───────────────────────────────────────────────────────────
 
