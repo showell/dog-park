@@ -50,7 +50,7 @@ check.
    server, as a Shale job that outlives the launch:
 
        shale <<'SHALE'
-       job_start({"busybox", "httpd", "-f", "-p", "9301", "-h", "/home/steve/dogpark-images"}, {log = "scratch:dogpark-images-http.log"})
+       job_start({"busybox", "httpd", "-f", "-p", "9301", "-h", "/home/steve/dogpark-images"}, {log = "scratch:dogpark-images-http.log", want = "file-server: busybox's httpd serves the image to DigitalOcean's import"})
        SHALE
 
    The URL is `http://<the dev box's public address>:9301/dogpark-<commit>.img.gz` (the
