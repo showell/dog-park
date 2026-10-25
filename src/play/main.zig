@@ -20,7 +20,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             std.debug.print("dog-park-play: DOGPARK_INSECURE_COOKIE is \"{s}\": unset it, or set it to yes for plain-http development\n", .{v});
             return error.BadInsecureCookieSetting;
         }
-        @import("app.zig").cookie_mode = .insecure;
+        hosted.insecureCookie();
     }
     try @import("webbox_linux").linux_host.Server(site).run(init, .{
         .name = "dog-park-play",

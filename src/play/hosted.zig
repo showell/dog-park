@@ -8,6 +8,12 @@ const app = @import("app.zig");
 
 pub const site = webbox.site.Site(app);
 
+/// Plain-http development (DOGPARK_INSECURE_COOKIE=yes, which a Linux main
+/// reads): the cookie without `__Host-` and Secure.
+pub fn insecureCookie() void {
+    app.cookie_mode = .insecure;
+}
+
 pub const hosting = struct {
     /// What the application is called, where a host names it (metal's boot
     /// banner: "Dog Park's route table").

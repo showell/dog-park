@@ -159,6 +159,8 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
             std.debug.assert(cells_side <= side);
             const freed = deallocs.load(.monotonic);
             const asked = allocs.load(.monotonic);
+            const was = if (shared) roc_hooks.enter(physics_roc);
+            defer if (shared) roc_hooks.leave(was);
             const r = roc_walk(mode, axis, inc, @intCast(cells_side), before, laid, self.from.toRead(), self.poops.toRead(), self.homes.toRead(), cells.toChange(), self.crits.toChange(), self.depth.toChange(), self.eaten.toChange(), self.moving.toChange());
             if (allocs.load(.monotonic) != asked) std.debug.panic("roc_alloc: Roc asked for memory in a call that returned, last from 0x{x}: a list grown past its room, or a lent list copied (docs/ROC-SPEED.md); `nm` on the archive names the function", .{alloc_from.load(.monotonic)});
             if (deallocs.load(.monotonic) != freed) @panic("roc_dealloc: Roc freed a list the physics lent it (a list kept, or a refcount word moved)");
@@ -173,10 +175,28 @@ pub fn Walk(comptime seen_most: usize, comptime moving_most: usize, comptime poo
     };
 }
 
+/// **ANOTHER ROC APP IN THE BINARY** (roc-webbox's roc_hooks.zig, which the
+/// binary's root then declares, as a webbox combo of Dog Park and the TODO
+/// list does): the root exports the four below and hands Roc's calls to the
+/// app inside its Roc call, so `call` brackets the walk. Alone, as every
+/// build here is, they are exported here.
+const shared = @hasDecl(@import("root"), "roc_hooks");
+const roc_hooks = if (shared) @import("root").roc_hooks else struct {};
+const physics_roc = @This();
+
+comptime {
+    if (!shared) {
+        @export(&roc_alloc, .{ .name = "roc_alloc" });
+        @export(&roc_realloc, .{ .name = "roc_realloc" });
+        @export(&roc_dealloc, .{ .name = "roc_dealloc" });
+        @export(&roc_crashed, .{ .name = "roc_crashed" });
+    }
+}
+
 /// A Roc crash: an overflow, a division by zero, or a `crash` (a slot
 /// that isn't there). The physics' numbers keep it from all of them; one
 /// is a bug, so a panic with Roc's message.
-export fn roc_crashed(bytes: [*]const u8, len: usize) callconv(.c) void {
+pub fn roc_crashed(bytes: [*]const u8, len: usize) callconv(.c) void {
     std.debug.panic("roc crashed: {s}", .{bytes[0..len]});
 }
 
@@ -187,7 +207,7 @@ export fn roc_crashed(bytes: [*]const u8, len: usize) callconv(.c) void {
 /// still gets through.
 var deallocs: std.atomic.Value(usize) = .init(0);
 
-export fn roc_dealloc(ptr: *anyopaque, alignment: usize) callconv(.c) void {
+pub fn roc_dealloc(ptr: *anyopaque, alignment: usize) callconv(.c) void {
     _ = deallocs.fetchAdd(1, .monotonic);
     if (roc_allocator) |a| {
         const base: [*]u8 = @as([*]u8, @ptrCast(ptr)) - header;
@@ -226,7 +246,7 @@ var alloc_from: std.atomic.Value(usize) = .init(0);
 var spare: [4096]u8 align(16) = undefined;
 var spare_used: std.atomic.Value(usize) = .init(0);
 
-pub export fn roc_alloc(len: usize, alignment: usize) callconv(.c) *anyopaque {
+pub fn roc_alloc(len: usize, alignment: usize) callconv(.c) *anyopaque {
     _ = allocs.fetchAdd(1, .monotonic);
     alloc_from.store(@returnAddress(), .monotonic);
     if (roc_allocator) |a| return allocated(a, len, alignment);
@@ -235,7 +255,7 @@ pub export fn roc_alloc(len: usize, alignment: usize) callconv(.c) *anyopaque {
     return @ptrFromInt(std.mem.alignForward(usize, @intFromPtr(&spare) + at, @max(alignment, 1)));
 }
 
-export fn roc_realloc(ptr: *anyopaque, len: usize, alignment: usize) callconv(.c) *anyopaque {
+pub fn roc_realloc(ptr: *anyopaque, len: usize, alignment: usize) callconv(.c) *anyopaque {
     const a = roc_allocator orelse @panic("roc_realloc: Roc grew a list past the room the physics lent it");
     _ = allocs.fetchAdd(1, .monotonic);
     const old: [*]u8 = @ptrCast(ptr);

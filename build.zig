@@ -81,6 +81,23 @@ pub fn build(b: *std.Build) void {
     play_main.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
     linkRoc(roc_lib, play_main, null);
     const play_exe = b.addExecutable(.{ .name = "dog-park-play", .root_module = play_main });
+    // **FOR A COMBINATION** (webbox's combo, with another app beside it):
+    // `dog_park`, the park as a host takes it (hosted.zig), its physics and
+    // Roc linked as the play server's.
+    const dog_park = b.addModule("dog_park", .{
+        .root_source_file = b.path("src/play/hosted.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "webbox", .module = webbox },
+            .{ .name = "host_io", .module = host_io },
+            .{ .name = "shale", .module = shale },
+            .{ .name = "physics_options", .module = physics_mod },
+            .{ .name = "dogpark_build", .module = build_mod },
+        },
+    });
+    dog_park.addAnonymousImport("physics.wasm", .{ .root_source_file = page_wasm });
+    linkRoc(roc_lib, dog_park, null);
     b.installArtifact(play_exe);
     const play_run = b.addRunArtifact(play_exe);
     play_run.addPassthruArgs();
