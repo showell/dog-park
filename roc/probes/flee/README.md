@@ -2,8 +2,7 @@
 
 What it answers: can Roc code run inside Dog Park's physics, on each of
 its three targets, and at what cost? `flee.roc` is one pure function, a
-cow's step away from a dog round the torus, of the kind a later frontier
-might hand to Roc. The hosts call it beside the same function in Zig, check
+cow's step away from a dog round the torus. The hosts call it beside the same function in Zig, check
 that the two agree on every input, and time them. Nothing here is built
 by `zig build`; run it by hand, with the new compiler (`roc` on the PATH).
 
@@ -32,8 +31,7 @@ shared cloud machine whose timings vary by a third run to run):
   bytes to a stripped module: only what is called is kept.
 - **x64elf:** links into a freestanding image. This function's code uses
   no SSE register and checks every add for overflow (a crash, as
-  ReleaseSafe Zig panics). The kernel builds with SSE off and soft float;
-  nothing yet holds a larger Roc function to that.
+  ReleaseSafe Zig panics). The kernel builds with SSE off and soft float.
 - **The host's side** is C symbols only: the app imports `roc_crashed`
   (and, once it allocates, `roc_alloc`, `roc_dealloc`, `roc_realloc`,
   `roc_dbg`, `roc_expect_failed`). Zig 0.16 supplies them; none of Roc's

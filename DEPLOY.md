@@ -2,22 +2,21 @@
 
 One droplet, booted from a custom image this repo builds, with no Linux on
 it, as lynrummy.com's metal droplet is (zig-metal-unikernel's README, "Where
-lynrummy.com runs" and "A deploy"). Prod's Caddy holds HTTPS for
+lynrummy.com runs"). Prod's Caddy holds HTTPS for
 `dogpark.lynrummy.com` and forwards to it over the private network. Prod's
 addresses are in zig-metal-unikernel's `DEPLOY.md`, "The machines"; call its
 public one `<prod>` below.
 
 **One disk, no volume.** The image holds the kernel, the page (`solo/`), the
-admin key and the machine's settings, and Dog Park writes its accounts and
-games onto that same disk. There is no data volume and no recovery-console
-step. **A new image starts Dog Park empty**: every account, game and cookie
-goes with the old one (accepted for now, Steve 2026-10-15).
+admin key, Dog Park's Shale public key and the machine's settings, and Dog
+Park writes its accounts and games onto that same disk. There is no data
+volume and no recovery-console step. **A new image starts Dog Park empty**:
+every account, game and cookie goes with the old one.
 
 **The park and the TODO list.** The image is `dogpark-todo.elf` (`zig build
 metal-dogpark-todo`): the park at `/` and roc-webbox's TODO list at `/todo`,
-a list per visitor (README, "Dog Park beside other apps"; Steve,
-2026-10-25). The list's files go on the same disk, and start over with a new
-image as the park's do.
+a list per visitor (README, "Dog Park beside other apps"). The list's files
+go on the same disk, and start over with a new image as the park's do.
 
 Steps marked **(box-verified)** are checked on the box by the build; the
 rest are clicks or commands on DigitalOcean or prod, which the box cannot
@@ -35,9 +34,9 @@ check.
 
    It builds `zig-out/bin/dogpark-todo.elf`, writes
    `~/dogpark-images/dogpark-<commit>.img` (`<commit>` is 12 characters)
-   and `.img.gz` beside it (1 GiB raw; under 2 MiB gzipped when last
-   measured), prints both sha256s, and then boots the image on QEMU laid out
-   as a droplet (`droplet/rehearse.mjs`): it must end `ready to deploy`.
+   and `.img.gz` beside it (1 GiB raw), prints both sha256s, and then
+   boots the image on QEMU laid out as a droplet (`droplet/rehearse.mjs`):
+   it must end `ready to deploy`.
    - **It refuses** on uncommitted changes in any of the five trees
      (`DOGPARK_IMAGE_DIRTY=1` builds anyway, and says so: an image no
      commit describes), and without `droplet/trusted-proxy` (prod's
@@ -102,30 +101,12 @@ check.
    [`droplet/dogpark.lynrummy.com.caddy`](droplet/dogpark.lynrummy.com.caddy);
    prod's Caddyfile already imports `/etc/caddy/sites/*.caddy`, and defines
    the `access_log` snippet the block imports (angry-gopher's
-   `deploy/Caddyfile`, metal-vmm QUEUE 221; it must be installed first). On
-   prod:
+   `deploy/Caddyfile`; it must be installed first). On prod:
 
        sudoedit /etc/caddy/sites/dogpark.lynrummy.com.caddy    # paste the file; <dogpark-private-address> → <dogpark>
        sudo install -o caddy -g caddy -m 640 /dev/null /var/log/caddy/dogpark-access.log
        sudo caddy validate --config /etc/caddy/Caddyfile
        sudo systemctl reload caddy
-
-   The block, with the address filled in:
-
-       dogpark.lynrummy.com {
-       	encode gzip
-       	request_body {
-       		max_size 1MiB
-       	}
-       	header {
-       		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-       		X-Content-Type-Options "nosniff"
-       		Referrer-Policy "strict-origin-when-cross-origin"
-       		X-Frame-Options "SAMEORIGIN"
-       	}
-       	import access_log dogpark
-       	reverse_proxy <dogpark>:80
-       }
 
    Caddy gets the certificate once step 7's record resolves. The access
    log must exist and be Caddy's before `validate`: validate runs as root
@@ -170,18 +151,11 @@ check.
        shale cookbook:http.shale url=https://dogpark.lynrummy.com/version
 
    Its `commit` (git's short form) must begin the 12-character commit in
-   the image's name. An image built before `/version` existed answers 404;
-   check the image's name on the droplet's page instead.
+   the image's name.
 
-4. Tag the commit served, the next `vN` after the last (`git tag -a vN
-   <commit> -m "..."`, then `git push origin vN`): a release is a tag, as
-   the kernel's are. `v1` is the first image (ab222a2, 2026-10-16), `v2`
-   the one after (5f98101), `v3` the goats and the Roc on metal (9b4067c,
-   2026-10-19), `v4` the levels and the landing's goal (bd07472, 2026-10-20), `v5` the admin
-   page's turns counted as `/version` counts them (816f19a, 2026-10-22), `v6`
-   the words and look said once in Roc, and the game judge (5419352,
-   2026-10-23), `v7` the combination, roc-webbox's TODO list at `/todo`, a
-   list per visitor (ebfc1d4, 2026-10-25).
+4. Tag the commit served, the next `vN` after the last (`git tag -l 'v*'`;
+   `git tag -a vN <commit> -m "..."`, then `git push origin vN`): a release
+   is a tag, as the kernel's are.
 
 The private address stays, so Caddy needs nothing. Accounts, games and
 TODO lists start over.
@@ -200,8 +174,9 @@ TODO lists start over.
 
 - **Partition 1**: `dogpark-todo.elf`, the kernel (zig-metal-unikernel's
   `droplet/app_image.py`, any application's image builder, lays the disk out).
-- **Partition 2**, FAT16, 1 GiB: `solo/`, `auth/_admin_key`, and
-  `zig-metal-unikernel.conf`:
+- **Partition 2**, FAT16: `solo/`, `auth/_admin_key`, `auth/shale.conf`
+  and `auth/shale/sequence` (Dog Park's Shale public key, and a sequence
+  starting at the build's seconds), and `zig-metal-unikernel.conf`:
 
       idle_timeout_ms = 10000
       card = private
@@ -209,8 +184,7 @@ TODO lists start over.
 
   `card = private`: nothing on the internet reaches it, only the private
   network, prod among it. `trusted_proxy` is prod's private address, from
-  `droplet/trusted-proxy` (`cat` it; the kernel's own copy says the same): Caddy's
-  `X-Forwarded-For` is believed from it alone. With no `volume` line and no
-  volume attached, the kernel keeps `data/` and `auth/` on this partition
-  (its `probe/gopher.zig`, "the disks"; its README says what each conf key
-  does). The session secret is made there at the first start.
+  `droplet/trusted-proxy`: Caddy's `X-Forwarded-For` is believed from it
+  alone. With no `volume` line and no volume attached, the kernel keeps
+  `data/` and `auth/` on this partition (its README says what each conf
+  key does). The session secret is made there at the first start.
