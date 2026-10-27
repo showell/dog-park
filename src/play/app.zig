@@ -361,11 +361,7 @@ fn begin(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
             // Counted before the cookie goes, so a crash never hands it out again.
             try players.writeClaimed(io, alloc, data_root, s + 1);
             claimed = s + 1;
-            http.declineExpectation(req);
-            return req.respond("", .{ .status = .see_other, .extra_headers = &.{
-                .{ .name = "location", .value = "/dogpark" },
-                .{ .name = "set-cookie", .value = cookie },
-            } });
+            return http.redirectWith(req, .literal("/dogpark"), .{ .headers = &.{.{ .name = "set-cookie", .value = cookie }} });
         },
     }
 }
