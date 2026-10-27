@@ -42,7 +42,8 @@ back, and it's where you left it.
 
 ## Changing the game in Roc
 
-**If you know Roc, start here.** The game's behaviour is Roc: what the
+**If you know Roc, start here.** (How Roc is written here:
+`<roc-apps>/docs/roc-style.md`.) The game's behaviour is Roc: what the
 world is, where everyone starts, what each critter does about the others,
 and how they all move each moment. Zig is the host: it runs the server,
 the page's WebAssembly and the unikernel, keeps the books (who stands in
