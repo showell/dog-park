@@ -226,7 +226,8 @@ level_lines = |form| {
 			Zon => {
 				var $spots = ""
 				for k in World.kinds {
-					$spots = $spots.concat("            .{\n${points(lv, tag_of(k.name))}            },\n")
+					pts = points(lv, tag_of(k.name))
+					$spots = $spots.concat(if (pts == "") "            .{},\n" else "            .{\n${pts}            },\n")
 				}
 				$out = $out.concat("        .{ .world_tiles = ${lv.world_tiles.to_str()}, .park = .{ .first = ${park_first(lv).to_str()}, .tiles = ${lv.park_tiles.to_str()} }, .spots = .{\n${$spots}        } },\n")
 			}

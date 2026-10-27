@@ -20,7 +20,7 @@ const print = false;
 
 /// The configuration the hashes were recorded under: world.zon and
 /// rules.zon, hashed.
-pub const recorded_under: u64 = 0x2ce5b4ec77ada4f7;
+pub const recorded_under: u64 = 0x6880e1e54b46a669;
 
 /// Steps a recording's test aside under another configuration than the
 /// one it was recorded under, saying which recording.

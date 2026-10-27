@@ -320,6 +320,13 @@ pub fn build(b: *std.Build) void {
     const physics_wasm = b.step("physics-wasm", "The physics' tests on wasm32 in Debug, under node, and its freestanding compile probe");
     units.onWasm(wasi, wasm32, .Debug, fuzz, physics_wasm);
 
+    // **THE ZIG AND ZON ARE AS `zig fmt` LAYS THEM OUT**, in `test`: the
+    // generated .zon too (src/play/world.zon, rules.zon), so a printer in
+    // roc/ must print what `zig fmt` would.
+    const zig_fmt = b.addFmt(.{ .paths = &.{ b.path("build.zig"), b.path("build.zig.zon"), b.path("assets.zon"), b.path("src"), b.path("solo"), b.path("tools"), b.path("test") }, .check = true });
+    b.step("fmt", "`zig fmt --check` over every .zig and .zon, the generated ones too (in `test`)").dependOn(&zig_fmt.step);
+    test_step.dependOn(&zig_fmt.step);
+
     const check = b.step("check", "Before a commit: test, physics-wasm (Debug), and the node tests against a scratch server");
     check.dependOn(test_step);
     check.dependOn(physics_wasm);

@@ -453,7 +453,8 @@ root of every Zig test.
 
 The times are warm, and nothing checks them; a cold cache takes longer.
 
-- **`test`:** every Zig unit test natively, with the seeded fuzz loops at a
+- **`test`:** `zig fmt --check` over every .zig and .zon (the generated
+  world.zon and rules.zon too), every Zig unit test natively, with the seeded fuzz loops at a
   tenth, and the node tests that need no server.
 - **`check`:** `test`, plus `physics-wasm` (the physics' tests compiled to
   wasm32 in Debug and run under node, and its freestanding compile probe),
