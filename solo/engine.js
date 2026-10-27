@@ -302,7 +302,7 @@ export function createEngine({ physics, post, now, wall, setTimer, clearTimer, l
     return true;
   }
 
-  // **THE SUBSCRIPTION** (decision 13): the region's tiles and the display's,
+  // **THE SUBSCRIPTION** (PHYSICS.md, "What the physics sees"): the region's tiles and the display's,
   // written as a view at the next tick when what the page wants changes;
   // and a held for every tile in the view whose critters came this epoch
   // and that isn't held. Only with nothing waiting in the record.

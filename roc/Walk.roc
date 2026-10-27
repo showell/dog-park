@@ -1,4 +1,4 @@
-## THE WALK (docs/PHYSICS.md, decisions 20-25, 30), in Roc: one
+## THE WALK (docs/PHYSICS.md, "The walk"), in Roc: one
 ## pixel-tick's, after the leashed dog's step. Out from the leashed dog
 ## (seen index 0), shortest link first, the kinds that walk only
 ## (Rules.roc's `walks`: dogs, cows and goats), at most
@@ -230,7 +230,7 @@ Walk := [].{
 		}
 	}
 
-	## **ONE PIXEL-TICK** (decision 30): the leashed dog's step `inc` along
+	## **ONE PIXEL-TICK** (PHYSICS.md, "The walk"): the leashed dog's step `inc` along
 	## `axis` (0 x, 1 y; `drag`), then, if it moved, the walk after it, of
 	## the size it moved, and where the poop that came due lands (`lay`):
 	## the dog had walked `before` (Zig's `Board.walked`), and `laid` poops
@@ -280,7 +280,7 @@ Walk := [].{
 		}
 	}
 
-	## **THE HERD POOPS** (decision 29), each `poop_every` the leashed dog
+	## **THE HERD POOPS** (PHYSICS.md, "Poop and chickens"), each `poop_every` the leashed dog
 	## walks (Rules.roc's `poop`, in 256ths), counted as Zig's
 	## `Scene.walkOn` counts it, in 32 bits that stop at their top. A
 	## pixel-tick's walk is under 2 px against a poop each 700, so at most
@@ -443,7 +443,7 @@ Walk := [].{
 	no_kin : U8
 	no_kin = 255
 
-	## **THE LEASHED DOG'S STEP** (decision 30): `inc` along `axis`,
+	## **THE LEASHED DOG'S STEP** (PHYSICS.md, "The walk"): `inc` along `axis`,
 	## stopping just short of pressing into anyone (`sweep`). Stopped by a
 	## chicken, it shoves it with the rest of the step; stopped by a poop,
 	## or by a chicken it can't shove, it slides the step's size sideways,
@@ -864,7 +864,7 @@ Walk := [].{
 		}
 	}
 
-	## **THE VETO, THE NUDGE AND THE SHOVE** (decisions 25, 30): critter
+	## **THE VETO, THE NUDGE AND THE SHOVE** (PHYSICS.md, "The walk"): critter
 	## `i` (a dog or a cow, never the leashed dog) takes `step` whole, or not
 	## at all. Where its square there would overlap kin, they take the same
 	## step with it, and whoever they would overlap is nudged in turn, up to
@@ -1109,7 +1109,7 @@ Walk := [].{
 		}
 	}
 
-	## **THE FORAGE TURN** (decision 31): once a tick, after the drag, when
+	## **THE FORAGE TURN** (PHYSICS.md, "Poop and chickens"): once a tick, after the drag, when
 	## the leashed dog's net move over it, `net`, is more than nothing. Each
 	## critter whose kind forages (Wish.roc's `forage_of`; today the
 	## chickens), in seen order, steps at most its forage's `pace` of `net`
@@ -1282,7 +1282,7 @@ Walk := [].{
 		}
 	}
 
-	## **A FORAGER'S STEP** (decisions 30, 31): seen critter `j` takes
+	## **A FORAGER'S STEP** (PHYSICS.md, "The walk" and "Poop and chickens"): seen critter `j` takes
 	## `step` whole, or not at all. It shoves nobody and has no kin, so any
 	## critter it would overlap vetoes it (`why_chicken` for another
 	## forager, which the sidestep goes round; `why_pressed` for any other),
@@ -1358,7 +1358,7 @@ Walk := [].{
 		$found
 	}
 
-	## **THE FORAGER'S SIDESTEP** (decision 30): `step` (`forage_step`);
+	## **THE FORAGER'S SIDESTEP** (PHYSICS.md, "The walk"): `step` (`forage_step`);
 	## vetoed by a poop or another forager, once more with the step that
 	## goes round it: the axis on which the blocker is farther off zeroed (a
 	## tie zeroes x), on the other its own part kept, or, that part zero,
@@ -1440,7 +1440,7 @@ Walk := [].{
 		$u
 	}
 
-	## **A SHOVE'S SIDEWAYS PART** (decision 30): `step` turned a right
+	## **A SHOVE'S SIDEWAYS PART** (PHYSICS.md, "The walk"): `step` turned a right
 	## angle, toward the side of the stepper's centre line the chicken is on
 	## (`d`, from the stepper to it); a chicken on the line goes to
 	## whichever side is south, or east for a step north or south.

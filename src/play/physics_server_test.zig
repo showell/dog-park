@@ -639,7 +639,7 @@ test "21. thirty unleashed pans, each a view and a held for one tick: no refusal
     try testing.expectEqual(@as(Tick, 0), rig.server.kept.tick);
 }
 
-test "the torus' seam (decision 14): an unleashed view of the world's four corner tiles, named in the world, gets them, and its held is kept" {
+test "the torus' seam (PHYSICS.md, The rules): an unleashed view of the world's four corner tiles, named in the world, gets them, and its held is kept" {
     var rig: Rig = undefined;
     try rig.init(t0);
     defer rig.deinit();
@@ -659,7 +659,7 @@ test "the torus' seam (decision 14): an unleashed view of the world's four corne
     try expectKept(try rig.report(page.body()), 2, 0);
 }
 
-test "the torus' seam (decision 14): a leash at the world's corner views and holds the wrapped region, and its ticks are kept" {
+test "the torus' seam (PHYSICS.md, The rules): a leash at the world's corner views and holds the wrapped region, and its ticks are kept" {
     var rig: Rig = undefined;
     try rig.init(t0);
     defer rig.deinit();

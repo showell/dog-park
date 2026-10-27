@@ -60,7 +60,7 @@
 +		(Sheep, Sheep) => Herd({ inner: 40, outer: 90 })
  	}
  
- 	## **THE FORAGE** (decision 31), a behaviour a kind may have (Wish.roc's
+ 	## **THE FORAGE** (PHYSICS.md, "Poop and chickens"), a behaviour a kind may have (Wish.roc's
 @@ -155,17 +166,17 @@
  expect Rules.is_power_of_two(Rules.poop.slots) and Rules.poop.slots <= 65536
  expect Rules.poop.grid > 0 and Rules.poop.reach % Rules.poop.grid == 0

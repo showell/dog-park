@@ -2,13 +2,16 @@
 
 A small browser game about herding. You leash one dog and drag it through
 a park full of critters, and everything near it reacts. **The goal: herd
-all eight cows into one bunch.**
+all the cows into one bunch.**
 
 ## The game
 
-The park is a checkerboard of grass tiles: 64 dogs of four breeds, 8 cows,
-16 chickens and 4 goats. The world wraps around, top to bottom and side to side
-(a torus), so walking off one edge brings you back on the other.
+The park is a checkerboard of grass tiles. The world wraps around, top to
+bottom and side to side (a torus), so walking off one edge brings you back
+on the other. There are two levels: **Level One**, a small park of 16 dogs
+and 2 cows, and **Level Two**, 64 dogs of four breeds, 8 cows, 16 chickens
+and 4 goats. Win a level to unlock the next; once both are unlocked, a
+button each moves between them, and each level's game is kept apart.
 
 - **Press a dog to leash it, and drag.** Dogs of its breed follow it, in
   herds and chains; other breeds keep their distance. A dog only reacts to
@@ -32,7 +35,7 @@ The park is a checkerboard of grass tiles: 64 dogs of four breeds, 8 cows,
 - **Try to drag a cow, a chicken or a goat,** or walk your dog straight into
   someone, and the park will tell you what it thinks of that.
 - The score at the top counts your biggest herd of cows. **Start over**
-  puts every critter back where the game began.
+  puts every critter back where the level began.
 
 Each player gets their own park, kept on the server: close the tab, come
 back, and it's where you left it.
@@ -48,11 +51,11 @@ change the game without reading the Zig.
 
 The Roc is in `roc/`, roughly in the order to read it:
 
-- **`World.roc`**: the world's numbers. Tile and world sizes, the park in
-  the middle, each kind of critter (`kinds`: its name, its square's size,
-  its emoji, the colour the page draws it in when it has no emoji), the
-  breeds.
-  Change a size here and the whole game follows.
+- **`World.roc`**: the world's numbers. Tile sizes, the levels (each a
+  world and the park in its middle), each kind of critter (`kinds`: its
+  name, its square's size, its emoji, the colour the page draws it in when
+  it has no emoji), the breeds. Change a size here and the whole game
+  follows.
 - **`Layout.roc`**: the park laid out, by a rule per tile (`tile_spots`:
   a dog of each breed in the corners, then a cow or two chickens by the
   tile's colour, and a goat above the chickens on four blue tiles).
@@ -123,7 +126,7 @@ poop the chickens eat as they go, and a packed herd. And
 `zig build walk-judge` runs those drags, and again with steps of uneven
 length, with every pixel-tick of the Roc checked against a plain Zig
 reference that shares none of its code (`src/play/walk_reference.zig`),
-stopping at the first difference; about 11 s once compiled.
+stopping at the first difference.
 
 **A new kind of critter is Roc's alone.** The Zig names no kind: its kinds,
 their sizes, ranks, kin and who is leashed are `roc/World.roc`'s `kinds`,
@@ -132,8 +135,8 @@ and their moves and answers to each other are `roc/Rules.roc`'s `mover` and
 colour, an emoji, a rank, its kin), lay it out in `roc/print_world.roc`, give it its tag,
 its number (`roc/Wish.roc`'s `kind_of`) and its pairs (the compiler lists
 the ones missing), and run `zig build roc`. The page draws a kind by its
-`emoji`, or with none as a square of its colour. The goats came this way.
-`zig build new-kind` proves it again:
+`emoji`, or with none as a square of its colour.
+`zig build new-kind` proves it:
 `test/new_kind/sheep.patch` adds sheep touching nothing but `roc/*.roc`,
 and the same Zig, byte for byte, plays them (`src/play/new_kind_test.zig`
 and the walk's judge).
@@ -141,7 +144,7 @@ and the walk's judge).
 **What isn't Roc yet.** The poops by tile, placing and eating a poop,
 and the independent checks
 (`overlaps`, `onPoops`, the walk's judge), are Zig. The rules
-[docs/PHYSICS.md](docs/PHYSICS.md) gives in full are the spec either way.
+[docs/PHYSICS.md](docs/PHYSICS.md) gives are the spec either way.
 
 ## How it works
 
@@ -154,8 +157,7 @@ record.
 The critters are drawn as text emoji, so each device draws them in its own
 platform's emoji font: the critters look different on an
 iPhone, an Android phone and a desktop. The park and the physics are the
-same everywhere; only the pictures differ. (Safari's 3D billboards kept
-their emoji as saved bitmaps instead; Dog Park doesn't, for now.)
+same everywhere; only the pictures differ.
 
 It is a small web application built on `webbox`, the web-server-in-a-box
 library ([zig-webbox](https://github.com/showell/zig-webbox)). It is meant
@@ -163,8 +165,8 @@ to be the thing a person reads to make their own game: the park, its
 routes, its page and its JavaScript are here, and everything that serves
 them is the library's.
 
-- [docs/PHYSICS.md](docs/PHYSICS.md): the rules, the numbers, and the
-  report the page sends, in full.
+- [docs/PHYSICS.md](docs/PHYSICS.md): the rules, and the report the page
+  sends, in full.
 - `src/play/`: the server and the physics (`physics*.zig`).
 - `solo/`: the page.
 
@@ -172,23 +174,24 @@ them is the library's.
 and up to 5 can play at once. A sixth waits for a turn, which frees 20
 seconds after someone stops dragging (`src/play/players.zig`). The cap of 5
 is small on purpose: [the capacity study](https://github.com/showell/essay-repl-server/blob/master/notes/dog-park-capacity.md) puts about 20 turns held at
-once on a 1 vCPU / 1 GiB droplet. The study is an estimate for that size,
-not a measurement of the deployed droplet.
+once on a 1 vCPU / 1 GiB droplet, an estimate for that size, not a
+measurement of the deployed droplet.
 
 ## Where it runs
 
-**Dog Park is live at https://dogpark.lynrummy.com**, on its own droplet, booted from an image with no Linux on it. The image is the
+**Dog Park is live at https://dogpark.lynrummy.com**, on its own droplet,
+booted from an image with no Linux on it. The image is the
 [zig-metal-unikernel](https://github.com/showell/zig-metal-unikernel)
-kernel with Dog Park built in, the same way lynrummy.com is served.
-Prod's Caddy holds HTTPS and forwards to it over the private network, and
-logs every request (`/var/log/caddy/dogpark-access.log` on prod; angry-gopher's
-`ops/knocks` reads it). The image is built and rehearsed under QEMU on a
-droplet-sized machine. [DEPLOY.md](DEPLOY.md) is the deploy, step by step,
-and a new release, which starts every game over.
+kernel with Dog Park and roc-webbox's TODO list (at `/todo`) built in, the
+same way lynrummy.com is served. Prod's Caddy holds HTTPS and forwards to
+it over the private network, and logs every request
+(`/var/log/caddy/dogpark-access.log` on prod; angry-gopher's `ops/knocks`
+reads it). The image is built and rehearsed under QEMU on a droplet-sized
+machine. [DEPLOY.md](DEPLOY.md) is the deploy, step by step, and a new
+release, which starts every game over.
 
 To see which build the droplet runs: `curl -s
-https://dogpark.lynrummy.com/version` (below). A droplet running an image
-built before `/version` existed answers 404 there.
+https://dogpark.lynrummy.com/version` (below).
 
 ## Running it
 
@@ -210,9 +213,9 @@ Every build needs its sibling checkouts beside this one:
 - `../roc-webbox`, the TODO list the combination mounts ("Dog Park beside
   other apps", below).
 
-They are path dependencies (`build.zig.zon`), and Zig runs a path
-dependency's build at every configure, lazy or not, so even a plain
-`zig build` needs all of them.
+They are path dependencies (this repo's `build.zig.zon`, and the kernel's
+for the SDK), and Zig runs a path dependency's build at every configure,
+lazy or not, so even a plain `zig build` needs all of them.
 
 The tools: zig 0.17 (`build.zig.zon`), Roc (the nightly
 `roc/roc-version` pins, for every build: "Changing the game in Roc",
@@ -241,7 +244,7 @@ page's wasm, so neither can be stale. What differs from Linux:
   Caddy.
 - **Fixed folders:** `data/` and `auth/`.
   - They live on a DigitalOcean volume when one is attached, and on the
-    boot disk otherwise. The first deploy uses the boot disk, so a new
+    boot disk otherwise. The deploy uses the boot disk, so a new
     release starts with no accounts.
   - `solo/` is read from the boot disk, and physics.wasm is compiled in.
 - **Durability:** every write reaches the disk, and the disk is flushed
@@ -255,16 +258,17 @@ page's wasm, so neither can be stale. What differs from Linux:
     zig build metal-gate --summary all
 
 **Run it last, before a Dog Park deploy, never out of habit;** it is in no
-test tier. `tools/metal_gate.mjs` boots dogpark.elf under QEMU on a fresh
-disk, then checks, failing loudly with the step and the guest's log:
+test tier. `tools/metal_gate.mjs` boots `dogpark.elf`, then
+`dogpark-todo.elf` (the deployed combination), each under QEMU on a fresh
+disk, and checks, failing loudly with the step and the guest's log:
 - **Getting in:** the landing page, and Begin Game's Secure cookie.
 - **The page:** it loads, with byte-identical wasm.
 - **A session:** a load, a leash and a drag through the page's own code,
   with every report kept.
 - **The admin page:** it works with the key and refuses without it.
-- **`/version`:** it answers after each boot, and the second boot's
-  `started_ms` is later than the first's. It does not compare the commit it
-  serves with the checkout's.
+- **`/version`:** it names this checkout's commit (so an elf from another
+  build fails by name), and the second boot's `started_ms` is later than
+  the first's.
 - **A background Shale run:** `games.shale` posted, signed, and run while
   a second client is answered, and what it printed.
 - **The guest:** its log has no errors, the log files' names fall in each
@@ -272,8 +276,9 @@ disk, then checks, failing loudly with the step and the guest's log:
 - **A second boot on the same disk:** the cookie still reads, and the game
   is picked up where it was.
 
-Its time is in its step's description (`zig build --help`), measured warm
-on the box.
+It exercises the park only; nothing here tests `/todo` (the image's
+rehearsal, `droplet/rehearse.mjs`, does). Its time is in its step's
+description (`zig build --help`).
 
 ### On Linux, behind Caddy
 
@@ -302,7 +307,7 @@ Linux can serve it too:
   | `DOGPARK_CONFIG` | none: `./data` and `./auth` |
   | `DOGPARK_TRUSTED_PROXY` | 127.0.0.1 |
   | `DOGPARK_KEEPALIVE_MS` | webbox's (a quiet stream's ping window, for tests) |
-  | `DOGPARK_INSECURE_COOKIE` | unset: the cookie is Secure |
+  | `DOGPARK_INSECURE_COOKIE` | unset: the cookie is Secure (`yes` is the only other value) |
 
   Never set `DOGPARK_INSECURE_COOKIE` behind HTTPS.
 - **Caddy:** `reverse_proxy 127.0.0.1:9103` for the site's name. Every
@@ -311,11 +316,13 @@ Linux can serve it too:
 ### What anyone may ask: `/version`
 
 `GET /version` answers small JSON, with no secret and nobody's name: which
-commit serves (`+dirty` for a tree with uncommitted changes), `started_ms`
-(a restart shows as a new one), `now_ms`, the accounts handed out of the most,
-and the turns held now of the most. It is what the [Observatory](https://github.com/showell/observatory) polls
-(metal-vmm QUEUE 228); `curl -s <site>/version` is the quickest way to see
-which build a machine runs.
+commit serves (`+dirty` for a tree with uncommitted changes), the Roc that
+built the physics, `started_ms` (a restart shows as a new one), `now_ms`,
+the accounts handed out of the most, and the turns held now of the most
+(`src/play/app.zig`, `versionText`). It is what the
+[Observatory](https://github.com/showell/observatory) polls;
+`curl -s <site>/version` is the quickest way to see which build a machine
+runs.
 
 ### The operator's pages
 
@@ -358,17 +365,13 @@ write, is refused: Dog Park runs background scripts only.
   last log and log bytes), `trouble.shale` (each game's last hour: reports,
   differs, `req ?`, overlaps, idle drags, stuck, refused lines) and `accounts.shale`
   (accounts against the 80, games started).
-- **The budgets** (`shale.budgets`): 50M steps, an 8 MiB arena, 10,000
-  store reads and 256 MiB read in all, no changes; a slice is at most
-  100,000 steps or one store call, and each call's work is capped (a
-  megabyte a read or scan, 256 entries a walk).
+- **The budgets** are `src/play/shale.zig`'s `budgets`: no changes, and
+  bounds on steps, memory and reads; a slice is at most 100,000 steps or
+  one store call.
 - **Both hosts step it:** Linux on a thread of its own, the metal kernel
-  in its main loop, a slice after each request and slices while idle
-  (zig-metal-unikernel, metal-vmm QUEUE 216); `/admin/host`'s kernel half
-  counts its slices and those over the 50 ms target. The QEMU gate runs
-  `games.shale` in the background while a second client is answered.
-  Parked (Steve): an output ring and a live stream, for a script that must
-  report as it runs.
+  in its main loop, a slice after each request and slices while idle;
+  `/admin/host`'s kernel half counts its slices and those over the 50 ms
+  target. A script reports only when it ends: there is no live output.
 
 ## Dog Park beside other apps (combinations)
 
@@ -380,7 +383,8 @@ under its prefix, with its files in `<data>/<name>` and `<auth>/<name>`.
 Park at `/` live here, in `src/combos/`. `build.zig` exports the park as
 the module `dog_park` (`src/play/hosted.zig`) for them.
 
-**Dog Park + the TODO list** (roc-webbox's, at `/todo`):
+**Dog Park + the TODO list** (roc-webbox's, at `/todo`), what
+dogpark.lynrummy.com serves:
 - `src/combos/dogpark_todo.zig`: the hosted root (`site`, `hosting`,
   `roc_hooks`), which both the Linux main and the kernel host.
 - `src/combos/dogpark_todo_main.zig`: the Linux main.
@@ -409,14 +413,9 @@ the module `dog_park` (`src/play/hosted.zig`) for them.
 - **One Roc.** The list is built with this build's Roc (`-Droc` is passed
   down), so roc-webbox's `roc-version` must name the same nightly as
   `roc/roc-version`; move both pins together.
-- **Testing it:** `zig build check` builds no combination. The QEMU gate
-  boots `zig-out/bin/dogpark.elf` only; to boot the combination's kernel
-  under it, build `metal-dogpark-todo`, copy `dogpark-todo.elf` over
-  `zig-out/bin/dogpark.elf`, and run `node tools/metal_gate.mjs` (not
-  `zig build metal-gate`, which rebuilds dogpark.elf first). The gate
-  exercises the park only; nothing here tests `/todo`.
-- **Not deployed.** `droplet/image.mjs` builds and images `dogpark.elf`
-  alone; dogpark.lynrummy.com serves the park by itself.
+- **Testing it:** `zig build check` builds no combination; the QEMU gate
+  boots `dogpark-todo.elf` after `dogpark.elf`, and the image's rehearsal
+  exercises `/todo`.
 
 **A new combination with Dog Park at `/`:** a root beside
 `dogpark_todo.zig` (its `Mount`, and `roc_hooks` when another app is Roc),
@@ -435,7 +434,7 @@ a purpose:
   protocol; the wrapping world and its tiles; poop and chickens never
   landing anyone on anything;
 - **the app** (`src/play/app.zig`, `admin.zig`, `players.zig`): `/version`'s
-  answer, the admin key, accounts and turns;
+  answer, the admin key, accounts, turns and levels;
 - **the Shale cookbook** (`src/play/shale_tools_test.zig`): each script in
   `tools/shale/` on a fixture store, against golden output;
 - **the node tests** (`tools/test_*.mjs`): the page's modules and engine
@@ -451,14 +450,15 @@ root of every Zig test.
     zig build check          # before a commit, ~14 s
     zig build slow           # the slow tier, ~20 s
 
-The times were measured warm on the box, and nothing checks them; a cold
-cache takes longer.
+The times are warm, and nothing checks them; a cold cache takes longer.
 
 - **`test`:** every Zig unit test natively, with the seeded fuzz loops at a
   tenth, and the node tests that need no server.
 - **`check`:** `test`, plus `physics-wasm` (the physics' tests compiled to
   wasm32 in Debug and run under node, and its freestanding compile probe),
-  and the node tests against a scratch server.
+  the node tests against a scratch server, `roc fmt --check` and
+  `roc-fresh` (each file `zig build roc` writes, compared with the
+  checked-in one).
 - **`slow`:** the full fuzz, the physics' tests on wasm in ReleaseSafe as
   the page is served, and every node test.
 

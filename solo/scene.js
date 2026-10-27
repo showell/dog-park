@@ -43,7 +43,7 @@ export function parkFromViewport(viewport, viewportX, viewportY) {
 // ── tiles and the world ─────────────────────────────────────────────────────
 
 // The world: `world_tiles` by `world_tiles` tiles of `tile_px`, a torus
-// (docs/PHYSICS.md decision 14): its right edge meets its left, its bottom
+// (docs/PHYSICS.md, "The rules"): its right edge meets its left, its bottom
 // its top. The populated park is the `park_tiles` by `park_tiles` tiles in
 // its middle, a cow in each white tile, a ring of empty tiles round it
 // (Steve, 2026-10-15). **THEY ARE THE LEVEL'S** (world.js's `levels`, which
@@ -141,7 +141,7 @@ export function tilesMeeting(parkX, parkY, width, height) {
   return [...out.values()];
 }
 
-// **WHAT THE PAGE SUBSCRIBES** (decision 13): every tile of the world,
+// **WHAT THE PAGE SUBSCRIBES** (PHYSICS.md, "What the physics sees"): every tile of the world,
 // always (Steve, 2026-10-15: "at this scale we would almost be sending the
 // whole world down"), so the page knows every critter whether or not a dog
 // is leashed, and the goal's count is the park's, never what one screen

@@ -1,6 +1,6 @@
 ## THE RULES, as a Roc module: what a critter in the walk does about each
-## moving critter it sees (docs/PHYSICS.md, decisions 21-24), how fast it
-## goes, the chickens' foraging and the herd's poop (decisions 29, 31).
+## moving critter it sees (docs/PHYSICS.md, "The walk"), how fast it
+## goes, the chickens' foraging and the herd's poop (PHYSICS.md, "Poop and chickens").
 ## Two read it: roc/print_rules.roc prints it for the physics' Zig
 ## (src/play/rules.zon), and Wish.roc answers by it inside the physics.
 ## Distances are in whole pixels; "distance" is the larger axis.
@@ -107,7 +107,7 @@ Rules := [].{
 		(Goat, Goat) => Herd({ inner: 35, outer: 120 })
 	}
 
-	## **THE FORAGE** (decision 31), a behaviour a kind may have (Wish.roc's
+	## **THE FORAGE** (PHYSICS.md, "Poop and chickens"), a behaviour a kind may have (Wish.roc's
 	## `forage_of` says which do: today the chickens): once a tick, after
 	## the drag, a forager steps toward the nearest ripe poop it sees within
 	## `sight`; with none, home, when it is more than `home_band` from it. It
@@ -120,7 +120,7 @@ Rules := [].{
 	chickens : Forage
 	chickens = { sight: 500, step: 8, pace: { num: 1, den: 2 }, home_band: 32 }
 
-	## POOP (decision 29): the herd poops each time the leashed dog has walked
+	## POOP (PHYSICS.md, "Poop and chickens"): the herd poops each time the leashed dog has walked
 	## another `every` (each step counted by its larger axis): its deepest dog,
 	## `back` behind itself. Where that spot is taken, the nearest free one on
 	## rings `grid` apart around it, out to `reach`; with none, no poop. The
@@ -130,7 +130,7 @@ Rules := [].{
 	poop : Poop
 	poop = { every: 700, back: 30, reach: 200, grid: 4, slots: 2048 }
 
-	## THE WALK'S LIMITS (decisions 20, 25): one pixel-tick's walk visits
+	## THE WALK'S LIMITS (PHYSICS.md, "The walk"): one pixel-tick's walk visits
 	## at most `most` critters; one step moves at most `nudge_most` together
 	## (the stepper and the kin it nudges) and shoves at most as many
 	## chickens; a wish shorter than `dead_zone` pixels is no step. The
