@@ -166,11 +166,7 @@ pub fn login(req: *Request, mode: players.CookieMode, io: Io, alloc: Alloc, auth
     const given = formField(body, "key") orelse return forbidden(req);
     if (!sameKey(given, key)) return forbidden(req);
     const cookie = try cookieHeader(mode, io, alloc, auth_dir, now);
-    http.declineExpectation(req);
-    return req.respond("", .{ .status = .see_other, .extra_headers = &.{
-        .{ .name = "location", .value = "/admin/game" },
-        .{ .name = "set-cookie", .value = cookie },
-    } });
+    return http.redirectWith(req, .literal("/admin/game"), .{ .headers = &.{.{ .name = "set-cookie", .value = cookie }} });
 }
 
 /// The login form's body, at most.
