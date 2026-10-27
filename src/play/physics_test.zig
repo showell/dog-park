@@ -105,7 +105,7 @@ test "the leashed dog overlapping another: a bump only when the drag shrinks |Δ
     }
 }
 
-// ------------------------------------------ the torus' seam (decision 14)
+// ------------------------------------------ the torus' seam (PHYSICS.md, "The rules")
 
 test "the seam: the leashed dog dragged across x = 0, then y = 0: it wraps on each axis, the line says where" {
     const world = physics.room.world;
@@ -134,7 +134,7 @@ test "the seam: a critter across the corner from the leashed dog is seen, the sh
 test "a bump ends the drag, not the leash: the dog stops just short, the rest of the tick's drag is dropped, the leash comes off let_go_ticks later" {
     // Dog 5 touching the leashed dog's east side: the drag's first pixel
     // presses into it before it can get out of the way (there is no edge
-    // to pin it against on the torus, decision 14).
+    // to pin it against on the torus, PHYSICS.md, "The rules").
     const short = px(mid, mid);
     var b = leashedAt(short);
     b.place(.of(.dog, 5), .{ .x = short.x + 2 * physics.halfOf(.dog), .y = short.y });
@@ -263,7 +263,7 @@ test "a tick's drag moves the leashed dog at most 100 px on each axis" {
     try testing.expectEqual(Point{ .x = physics.px(mid) + physics.cap, .y = physics.px(mid) - physics.cap }, b.of(.dog)[0]);
 }
 
-test "across the seam the drag wraps, and carries on (decision 14: no edge)" {
+test "across the seam the drag wraps, and carries on (PHYSICS.md, The rules: no edge)" {
     var b = leashedAt(px(30, mid));
     const lines = ticked(&b, 1, &.{}, &.{ d(-50, 0), d(0, 20) });
     // 50 px west from 30 px: 20 px short of the world's east side.
@@ -368,7 +368,7 @@ test "the walk: a dog already waiting takes a nearer dog's key (Steve's 172, 176
 }
 
 test "the invariant: seeded drags through the laid-out park, and no two critters the physics sees ever overlap, and none stands on poop, through poops laid, eaten, and chickens shoved" {
-    // The veto keeps it by induction (decisions 22, 30); this is the
+    // The veto keeps it by induction (PHYSICS.md, "The walk"); this is the
     // induction's check over the whole park: drags along a heading that
     // turns now and then, bumps, let-gos and grabs. It runs on until the
     // herd has laid a few poops (so some are ripe) and the drag has shoved
@@ -409,7 +409,7 @@ fn idleChicken(b: *const Board, c: Point, n: u16) bool {
     return true;
 }
 
-test "a cow heeds only its nearest moving critter: a cow within cow_pull, it closes in; a dog, it flees (decision 24)" {
+test "a cow heeds only its nearest moving critter: a cow within cow_pull, it closes in; a dog, it flees (PHYSICS.md, The walk)" {
     // The leashed dog, dragged west, scares cow 0 (140 px off, inside
     // `wary`) west. Cow 1, 70 px west of cow 0 and 210 from the dog, has
     // cow 0 nearest, within `cow_pull`: it closes in, east, at half a dog's
@@ -431,7 +431,7 @@ test "a cow heeds only its nearest moving critter: a cow within cow_pull, it clo
     try testing.expectEqual(px(mid - 210, mid - 350), b.of(.cow)[3]);
 }
 
-test "the nudge (decision 25): a lone dog drives three touching cows west in unison; their pull on each other keeps them together" {
+test "the nudge (PHYSICS.md, The walk): a lone dog drives three touching cows west in unison; their pull on each other keeps them together" {
     // Steve's case (cows 27, 23, 28 beside dog 185): a row of cows, each
     // touching the next. The dog scares the nearest; without the nudge the
     // cow in its way vetoes its step, and that cow, touching its nearest

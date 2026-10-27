@@ -309,7 +309,7 @@ test("21: thirty unleashed pans: no refusal, and one view and one held a tick in
   }
 });
 
-test("the torus' seam (decision 14): a pan to the world's corner subscribes the tiles either side, named in the world; the server sends them, the page holds them, every answer kept", async () => {
+test("the torus' seam (PHYSICS.md, The rules): a pan to the world's corner subscribes the tiles either side, named in the world; the server sends them, the page holds them, every answer kept", async () => {
   const server = await scratchServer();
   try {
     const wire = recording(server);

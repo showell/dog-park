@@ -11,12 +11,12 @@
 //! **Units:** every position is an `i32` count of 256ths of a pixel, in
 //! [0, `world`); every product is `i64`.
 //!
-//! **The torus** (decision 14): a critter leaving one edge enters the
+//! **The torus** (PHYSICS.md, "The rules"): a critter leaving one edge enters the
 //! opposite one. Every centre-to-centre difference goes through `delta`,
 //! which takes the short way round; every move wraps its result back into
 //! the world (`wrapped`).
 //!
-//! **A tick** (decisions 20-31): only while the leashed dog is dragged does
+//! **A tick** (PHYSICS.md, "The walk" and "Poop and chickens"): only while the leashed dog is dragged does
 //! anything move. The drag is cut into pixel-ticks; in each, the leashed
 //! dog takes the step (stopping just short of pressing into anyone, or
 //! shoving a chicken, or sliding around a poop), then the walk moves up to
@@ -190,7 +190,7 @@ pub const Geometry = struct {
     }
 
     /// **THE ONE DIFFERENCE**: from `a` to `b`, per axis, the short way
-    /// round the torus: each axis in [−world/2, world/2) (decision 14).
+    /// round the torus: each axis in [−world/2, world/2) (PHYSICS.md, "The rules").
     /// Every centre-to-centre difference in the physics goes through here.
     pub inline fn delta(g: Geometry, a: Point, b: Point) Point {
         return .{ .x = g.shortWay(b.x - a.x), .y = g.shortWay(b.y - a.y) };
@@ -279,7 +279,7 @@ comptime {
 }
 
 // **THE KNOBS** (docs/PHYSICS.md), tuned by playing. **Distance is the
-// larger axis** (Chebyshev, decision 19): every reach is a square, as the
+// larger axis** (Chebyshev, PHYSICS.md, "The rules"): every reach is a square, as the
 // critters are.
 
 /// The squares, in whole pixels, as the page draws them: the world's
@@ -331,9 +331,9 @@ pub const breeds: comptime_int = world_file.breeds;
 /// walk is sized by (a walk that needed more would be a panic, `roc_alloc`).
 pub const walk_most = rules.rules.limits.most;
 /// **THE NUDGE**: the most critters one step moves together, the stepper
-/// and the kin it nudges (decision 25).
+/// and the kin it nudges (PHYSICS.md, "The walk").
 pub const nudge_most = rules.rules.limits.nudge_most;
-/// **POOP** (decision 29): the herd poops each time the leashed
+/// **POOP** (PHYSICS.md, "Poop and chickens"): the herd poops each time the leashed
 /// dog has walked another `poop_every` (each step counted by its larger
 /// axis): the deepest dog of its breed in that pixel-tick's walk, `poop_back`
 /// behind itself, a square `poop_px` a side (drawn as a circle) that blocks
@@ -545,7 +545,7 @@ pub const Rect = struct {
 };
 
 /// The tiles a rectangle meets, half-open: sharing some of a tile's
-/// interior. On the torus (decision 14) of a level's world, `world_tiles`
+/// interior. On the torus (PHYSICS.md, "The rules") of a level's world, `world_tiles`
 /// a side: `col_lo` and `row_lo` are named in the world, [0,
 /// `world_tiles`), and `col_hi` and `row_hi` count on past its last tile
 /// across the seam (`world_tiles` is tile 0), so `lo..hi` always counts up;
@@ -1128,7 +1128,7 @@ fn playDrag(sc: *Scene, drag: []const Disp) ?Bumped {
     return null;
 }
 
-/// **ONE PIXEL-TICK** (decision 30), in Roc (roc/Walk.roc's `pixel_tick`,
+/// **ONE PIXEL-TICK** (PHYSICS.md, "The walk"), in Roc (roc/Walk.roc's `pixel_tick`,
 /// through `walk`): the leashed dog takes the step, stopping just short of
 /// pressing into anyone; stopped by a chicken it shoves it, by a poop or a
 /// chicken it can't shove it slides sideways, and it bumps when that fails
@@ -1150,7 +1150,7 @@ fn dragStep(sc: *Scene, axis: Axis, inc: i32) ?Bumped {
     return r.bumped;
 }
 
-/// **THE WALK** (decisions 20-22, 31): out from the leashed dog (seen
+/// **THE WALK** (PHYSICS.md, "The walk" and "Poop and chickens"): out from the leashed dog (seen
 /// index 0), shortest link first, the kinds that walk only (roc/Rules.roc's
 /// `walks`: dogs, cows and goats; a chicken takes its
 /// turn after the drag, `chickensTurn`). The leashed dog lines up its
@@ -1234,7 +1234,7 @@ const Stepped = struct { step: Point, walked: u32, poop: ?Laid, bumped: ?Bumped 
 /// A poop the walk laid: its slot, and where (roc/Walk.roc's `Laid`).
 const Laid = struct { slot: u16, at: Point };
 
-/// **RIPE** (decision 31): every poop but the park's newest, the one in
+/// **RIPE** (PHYSICS.md, "Poop and chickens"): every poop but the park's newest, the one in
 /// slot `laid` − 1 (mod `poop_count`; with no poop yet, an empty slot).
 /// A chicken eats only ripe poop, and the newest blocks it.
 pub fn ripe(laid: u32, n: u16) bool {
@@ -1284,7 +1284,7 @@ fn placePoop(sc: *Scene, slot: u16, q: Point) void {
     if (listed) sc.link(slot) else sc.listPoop(slot);
 }
 
-/// **THE CHICKENS' TURN** (decision 31): once a tick, after the drag, and
+/// **THE CHICKENS' TURN** (PHYSICS.md, "Poop and chickens"): once a tick, after the drag, and
 /// only if the leashed dog's net move over it is more than nothing, in Roc
 /// (roc/Walk.roc's `forage_turn`): each critter whose kind forages (today
 /// the chickens, roc/Wish.roc's `forage_of`), by seen index, steps toward

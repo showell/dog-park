@@ -317,7 +317,7 @@ test "the poops by tile: a slot laid anew mid-drag leaves its old tile's list, s
 }
 
 test "the poops by tile: a poop across the world's seam still blocks the leashed dog, which slides" {
-    // Proves `near` takes the short way round (decision 14): the dog at
+    // Proves `near` takes the short way round (PHYSICS.md, "The rules"): the dog at
     // x = 10 px, the poop 20 px west of it (touching: a dog's half and a
     // poop's), at the far side of the world.
     var b = leashedAt(px(10, 1050));

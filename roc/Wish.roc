@@ -1,4 +1,4 @@
-## WHAT A CRITTER WANTS (docs/PHYSICS.md, decisions 21-24), in Roc: its
+## WHAT A CRITTER WANTS (docs/PHYSICS.md, "The walk"), in Roc: its
 ## wish, from the moving critters it sees, by the rules (Rules.roc). The
 ## walk (Walk.roc) takes it for each critter it visits, handing it only
 ## what the arithmetic needs: who each one is to the wisher, and the two

@@ -579,7 +579,7 @@ test("a press is on what was drawn in the mode it is made in", () => {
   assert.equal(pointer.pressedOn({ mode: "overview", objects: overList }, "near", view.x, view.y), null);
 });
 
-// ── across the seam (the torus, docs/PHYSICS.md decision 14) ───────────────
+// ── across the seam (the torus, docs/PHYSICS.md, "The rules") ───────────────
 
 const W = scene.world_px;
 

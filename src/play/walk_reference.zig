@@ -100,7 +100,7 @@ pub fn pixelTick(geo: Geo, crits: []Crit, poops: []const Poop, moving: []u16, de
     if (step.x != 0 or step.y != 0) {
         const w = walk(&t, measure(step));
         res.moving_len = t.moving_len;
-        // **THE POOP DUE** (decision 29): the leashed dog's walk passed
+        // **THE POOP DUE** (PHYSICS.md, "Poop and chickens"): the leashed dog's walk passed
         // another 700 px (its count stops at the top of 32 bits).
         const after: u64 = @min(@as(u64, before) + @as(u64, @intCast(d.walked)), std.math.maxInt(u32));
         const due = after / poop_every - before / poop_every;
@@ -116,7 +116,7 @@ pub fn pixelTick(geo: Geo, crits: []Crit, poops: []const Poop, moving: []u16, de
     return res;
 }
 
-// ── the poop (decision 29) ─────────────────────────────────────────────
+// ── the poop (PHYSICS.md, "Poop and chickens") ─────────────────────────────────────────────
 
 /// Where the poop lands: 30 px behind the pooper, away from its anchor (or,
 /// with none, back along the leashed dog's step), each axis of that vector
