@@ -354,7 +354,7 @@ fn begin(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
     if (req.head.method != .POST) return http.methodNotAllowed(req, .POST);
     const has = try players.slotOfRequest(cookie_mode, io, alloc, req, auth_root, nowUnix(io));
     switch (players.claim(has, claimed)) {
-        .has => return http.redirect(req, "/dogpark"),
+        .has => return http.redirect(req, .literal("/dogpark")),
         .full => return pageBody(req, io, alloc, "full.html", html_type),
         .new => |s| {
             const cookie = try players.cookieHeader(cookie_mode, io, alloc, auth_root, s, nowUnix(io));
@@ -373,7 +373,7 @@ fn begin(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void 
 /// `GET /dogpark`: the game, for a device with an account.
 fn gamePage(req: *std.http.Server.Request, io: Io, alloc: std.mem.Allocator) !void {
     if (req.head.method != .GET) return http.methodNotAllowed(req, .GET);
-    if (try players.slotOfRequest(cookie_mode, io, alloc, req, auth_root, nowUnix(io)) == null) return http.redirect(req, "/");
+    if (try players.slotOfRequest(cookie_mode, io, alloc, req, auth_root, nowUnix(io)) == null) return http.redirect(req, .literal("/"));
     return indexPage(req, io, alloc);
 }
 
