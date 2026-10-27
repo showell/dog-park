@@ -82,19 +82,16 @@ pub fn claim(has: ?Slot, claimed: u8) Claim {
 /// Secure cookie from one), chosen only by `DOGPARK_INSECURE_COOKIE=yes`.
 pub const CookieMode = enum { secure, insecure };
 
-const kind: signed.Kind = .{
+const kind: signed.Kind(Slot) = .{
     .label = "dogpark\n",
     .lifetime_secs = 365 * 24 * 3600,
     .skew_secs = 300,
-    .validId = validSlot,
+    .parse = slotOf,
 };
 
-fn validSlot(id: []const u8) bool {
-    return slotOf(id) != null;
-}
-
 /// A cookie's id: the slot in decimal, in its one spelling (no sign, no
-/// leading zero), below `most_players`.
+/// leading zero), below `most_players`. The kind's parser: a verified
+/// cookie gives its `Slot`, never a string to read again.
 fn slotOf(id: []const u8) ?Slot {
     if (id.len == 0 or id.len > 2 or (id.len > 1 and id[0] == '0')) return null;
     for (id) |c| if (!std.ascii.isDigit(c)) return null;
@@ -103,7 +100,7 @@ fn slotOf(id: []const u8) ?Slot {
     return n;
 }
 
-fn cookieOf(mode: CookieMode) signed_cookie.Cookie {
+fn cookieOf(mode: CookieMode) signed_cookie.Cookie(Slot) {
     return .{ .name = switch (mode) {
         .secure => "__Host-dogpark",
         .insecure => "dogpark",
@@ -114,7 +111,7 @@ fn cookieOf(mode: CookieMode) signed_cookie.Cookie {
 /// no secret to read it with.
 pub fn slotOfRequest(mode: CookieMode, io: Io, alloc: std.mem.Allocator, req: *std.http.Server.Request, auth_dir: []const u8, now: i64) !?Slot {
     return switch (try signed_cookie.read(cookieOf(mode), io, alloc, req, auth_dir, now)) {
-        .verified => |v| slotOf(v.id),
+        .verified => |v| v.id,
         .none, .no_secret, .invalid => null,
     };
 }

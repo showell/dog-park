@@ -59,18 +59,21 @@ fn sameKey(a: []const u8, b: []const u8) bool {
 
 // ── the cookie ──────────────────────────────────────────────────────────────
 
-const admin_kind: signed.Kind = .{
+const admin_kind: signed.Kind(Admin) = .{
     .label = "dogpark-admin\n",
     .lifetime_secs = 30 * 24 * 3600,
     .skew_secs = 300,
-    .validId = isAdminId,
+    .parse = adminOf,
 };
 
-fn isAdminId(id: []const u8) bool {
-    return std.mem.eql(u8, id, "admin");
+/// The one id an admin cookie carries.
+const Admin = enum { admin };
+
+fn adminOf(id: []const u8) ?Admin {
+    return if (std.mem.eql(u8, id, "admin")) .admin else null;
 }
 
-fn cookieOf(mode: players.CookieMode) signed_cookie.Cookie {
+fn cookieOf(mode: players.CookieMode) signed_cookie.Cookie(Admin) {
     return .{ .name = switch (mode) {
         .secure => "__Host-dogpark-admin",
         .insecure => "dogpark-admin",
