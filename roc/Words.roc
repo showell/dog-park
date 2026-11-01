@@ -1,9 +1,7 @@
 ## THE GAME'S WORDS, said once: what the park says when a critter only a
 ## dog moves is pressed, when the leashed dog bumps into something, and how
-## the score and the levels read. Two read it: roc/print_page.roc, which
-## prints them for the page (solo/words.js, which solo/quips.js and
-## solo/scene.js read), and roc/native.roc, the game on roc-ray, which draws
-## them without their emoji (its font has none).
+## the score and the levels read. roc/print_page.roc prints them for the
+## page (solo/words.js, which solo/quips.js and solo/scene.js read).
 ##
 ## A template's `{name}` is filled in where it is said (`fill`).
 Words := [].{

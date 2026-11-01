@@ -1,7 +1,7 @@
 ## WHERE EVERY CRITTER STANDS when a level's park starts afresh, in whole
 ## pixels. Two read it: roc/print_world.roc, which prints it for the physics' Zig
-## and the page, and roc/native.roc, the game on roc-ray, which lays its
-## park out with it.
+## and the page, and roc/Game.roc, the game's tick the game judge plays,
+## which lays its park out with it.
 import World
 
 Layout := [].{

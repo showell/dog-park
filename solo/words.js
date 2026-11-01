@@ -1,7 +1,6 @@
 // THE GAME'S WORDS for the page, printed by roc/print_page.roc (`zig build
 // roc`) from roc/Words.roc: do not edit; edit that and print it again.
-// The game on roc-ray says the same (roc/native.roc). A template's `{name}`
-// is filled in where it is said.
+// A template's `{name}` is filled in where it is said.
 export const press_lines = {
   cow: [
     "Moo means no. 🐄 Cows only move for dogs.",

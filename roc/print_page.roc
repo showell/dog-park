@@ -1,5 +1,5 @@
-## THE PAGE'S WORDS AND LOOK, in Roc: roc/Words.roc and roc/Look.roc, which
-## the game on roc-ray reads too, printed for the page. `zig build roc`
+## THE PAGE'S WORDS AND LOOK, in Roc: roc/Words.roc and roc/Look.roc,
+## printed for the page. `zig build roc`
 ## runs it twice and checks in what it prints:
 ##
 ## - `roc roc/print_page.roc -- words`: solo/words.js, which solo/quips.js
@@ -37,8 +37,7 @@ words : Str
 words =
 	\\// THE GAME'S WORDS for the page, printed by roc/print_page.roc (`zig build
 	\\// roc`) from roc/Words.roc: do not edit; edit that and print it again.
-	\\// The game on roc-ray says the same (roc/native.roc). A template's `{name}`
-	\\// is filled in where it is said.
+	\\// A template's `{name}` is filled in where it is said.
 	\\export const press_lines = ${js_table(Words.press_lines)};
 	\\export const any_line = ${js_str(Words.any_line)};
 	\\export const persistent = ${Words.persistent.to_str()};
@@ -55,7 +54,7 @@ look : Str
 look =
 	\\// HOW THE GAME LOOKS AND FEELS, for the page, printed by roc/print_page.roc
 	\\// (`zig build roc`) from roc/Look.roc: do not edit; edit that and print it
-	\\// again. The game on roc-ray looks the same (roc/native.roc).
+	\\// again.
 	\\export const dog_looks = ${js_list(Look.dog_looks)};
 	\\export const tile_even = ${js_str(Look.css(Look.tile_even))};
 	\\export const tile_odd = ${js_str(Look.css(Look.tile_odd))};

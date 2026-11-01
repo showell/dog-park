@@ -1,6 +1,6 @@
 //! **THE GAME'S TICK IN ROC, JUDGED** (`-Dgame-judge`, `zig build
-//! game-judge`): roc/Game.roc's tick, the one the game on roc-ray plays
-//! (roc/native.roc), run beside this physics' every tick on a copy of the
+//! game-judge`): roc/Game.roc's tick, the whole tick written again in Roc,
+//! run beside this physics' every tick on a copy of the
 //! board, and every critter's place, every dog's walked count, the poops,
 //! the poops laid and the leash compared after it. It panics at the first
 //! difference. The tick crosses as roc/game.roc's `roc_game_tick`, the

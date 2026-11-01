@@ -37,7 +37,7 @@ const roc = @import("roc_physics.zig");
 const grid = @import("grid.zig");
 const walk_reference = @import("walk_reference.zig");
 /// **THE GAME JUDGE** (-Dgame-judge, roc_game.zig): roc/Game.roc's whole
-/// tick, the one the game on roc-ray plays, run beside each `tick` and
+/// tick, a second rendering of this one in Roc, run beside each `tick` and
 /// compared; compiled only into the judged bench.
 const game_judge = @import("physics_options").game_judge;
 const roc_game = if (game_judge) @import("roc_game.zig") else struct {};

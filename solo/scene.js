@@ -21,8 +21,8 @@ export const drawn_kinds = ["dog", "cow", "chicken"];
 export const chicken_emoji = emojiOf("chicken");
 // How the page looks (each breed's emoji, the park's colours, the herd's
 // reach) and what it says: roc/Look.roc's and roc/Words.roc's, printed into
-// look.js and words.js (`zig build roc`); the game on roc-ray reads the
-// same Roc. A dog's poop is a little brown circle, under every critter;
+// look.js and words.js (`zig build roc`). A dog's poop is a little brown
+// circle, under every critter;
 // dog n has look n mod `breeds`, one look each.
 import { dog_looks, poop_fill, tile_even, tile_odd, ring_in_hand, ring_kept, herd_link_px } from "./look.js";
 import { number_words, won_two, won_all } from "./words.js";

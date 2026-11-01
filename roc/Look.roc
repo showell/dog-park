@@ -3,8 +3,8 @@
 ## one herd, and how forgiving a press on a small critter is. Two read it:
 ## roc/print_page.roc, which prints it for the page (solo/look.js, which
 ## solo/scene.js, solo/pointer.js and solo/quips.js read), and
-## roc/native.roc, the game on roc-ray. Each kind's own emoji and colour
-## are World.roc's.
+## roc/Game.roc, the game's tick the game judge plays, for the herd's
+## reach. Each kind's own emoji and colour are World.roc's.
 import World
 
 Look := [].{

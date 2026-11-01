@@ -24,7 +24,7 @@ export function pressedCritter(viewport, x, y, cows, chickens, others = []) {
 }
 
 // The lines, the bump lines and the park's remarks are roc/Words.roc's,
-// printed into words.js (`zig build roc`); the game on roc-ray says the same.
+// printed into words.js (`zig build roc`).
 const lines = press_lines;
 const fill = (template, kind) => template.replace("{kind}", kind);
 

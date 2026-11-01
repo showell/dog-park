@@ -373,8 +373,8 @@ pub fn build(b: *std.Build) void {
     b.step("walk-judge", "Run the bench's `-- lines` with every Roc walk judged against the plain Zig reference (src/play/walk_reference.zig)").dependOn(&judged_run.step);
 
     // **THE GAME JUDGE**: the same workload with every tick also played by
-    // roc/Game.roc's tick, the one the game on roc-ray plays (roc/native.roc),
-    // and the boards compared after it (src/play/roc_game.zig); it passes
+    // roc/Game.roc's tick (the whole tick written again in Roc), and the
+    // boards compared after it (src/play/roc_game.zig); it passes
     // only if nothing differed (a difference panics).
     const game_bench = b.addExecutable(.{ .name = "physics_bench_game", .root_module = b.createModule(.{
         .root_source_file = b.path("src/play/physics_bench.zig"),

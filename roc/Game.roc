@@ -5,7 +5,8 @@
 ## `pixel_tick`, the walk and the wish in it), lent the critters as the
 ## Zig lends them: the leashed dog first, then the kinds by rank, each in
 ## kind-number order, keyed as the walk starts; the poops by tile, each in
-## slot order. roc/native.roc plays it; nothing judges it against the Zig yet.
+## slot order. `zig build game-judge` plays it beside the Zig's every tick
+## and compares the boards (src/play/roc_game.zig, through roc/game.roc).
 import Layout
 import Look
 import Walk

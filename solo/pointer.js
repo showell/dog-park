@@ -17,7 +17,7 @@ import { hit } from "./blit.js";
 // edge) `band_px` inward. Deeper in the band, faster. The speeds are a
 // tick's: 28 and 224 px a second, the 7/15 and 56/15 px a frame they were
 // at 60 Hz, now the same at any frame rate. The numbers are roc/Look.roc's
-// (look.js), which the game on roc-ray reads too.
+// (look.js).
 import { band_px, slowest_px_per_tick, fastest_px_per_tick } from "./look.js";
 export { band_px, slowest_px_per_tick, fastest_px_per_tick };
 

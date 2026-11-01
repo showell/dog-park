@@ -1,6 +1,6 @@
 // HOW THE GAME LOOKS AND FEELS, for the page, printed by roc/print_page.roc
 // (`zig build roc`) from roc/Look.roc: do not edit; edit that and print it
-// again. The game on roc-ray looks the same (roc/native.roc).
+// again.
 export const dog_looks = ["🐕", "🐩", "🦮", "🐕‍🦺"];
 export const tile_even = "#ffffff";
 export const tile_odd = "#eaf3fc";
