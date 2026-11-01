@@ -464,7 +464,8 @@ Walk := [].{
 			go_around(s, park2, axis, inc - by, inc.abs(), bump)
 		}
 		{ cells: c3, crits: k3 } = park3
-		k4 = put(k3, 0, { ..get_c(k3, 0), kin: me.kin })
+		me3 = get_c(k3, 0)
+		k4 = put(k3, 0, { ..me3, kin: me.kin })
 		{
 			bump: if (went) no_bump else bump,
 			park: { cells: c3, crits: k4 },
