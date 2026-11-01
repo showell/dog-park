@@ -36,11 +36,6 @@ const rules = @import("rules.zig");
 const roc = @import("roc_physics.zig");
 const grid = @import("grid.zig");
 const walk_reference = @import("walk_reference.zig");
-/// **THE GAME JUDGE** (-Dgame-judge, roc_game.zig): roc/Game.roc's whole
-/// tick, a second rendering of this one in Roc, run beside each `tick` and
-/// compared; compiled only into the judged bench.
-const game_judge = @import("physics_options").game_judge;
-const roc_game = if (game_judge) @import("roc_game.zig") else struct {};
 const walk_judge = @import("physics_options").walk_judge;
 
 /// **THE KINDS OF CRITTER** are the world's (world.zon's `kinds`, which
@@ -1098,11 +1093,9 @@ pub fn run(b: *Board, t: Tick, begun: Begun, drag: []const Disp, out: *Lines) vo
 /// The inputs, then the tick: the whole tick for a caller that needn't
 /// point at a refused input.
 pub fn tick(b: *Board, t: Tick, humans: []const Human, drag: []const Disp, out: *Lines) ?Refusal {
-    const before: if (game_judge) Board else void = if (game_judge) b.* else {};
     var begun: Begun = .{};
     for (humans) |h| if (input(b, &begun, h)) |r| return r;
     run(b, t, begun, drag, out);
-    if (game_judge) roc_game.judge(&before, t, humans, drag, b);
     return null;
 }
 
