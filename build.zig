@@ -411,7 +411,8 @@ pub fn build(b: *std.Build) void {
         .{ "roc/print_page.roc", "words", "solo/words.js" },
         .{ "roc/print_page.roc", "look", "solo/look.js" },
     }) |out| {
-        const roc_run = b.addSystemCommand(&.{ roc, out[0], "--", out[1] });
+        // The word goes bare: `roc app.roc -- w` hands the app `--` too.
+        const roc_run = b.addSystemCommand(&.{ roc, out[0], out[1] });
         roc_run.setCwd(b.path("."));
         roc_run.addFileInput(b.path(out[0]));
         // Every module a printer may import: a printer's own list drifted
