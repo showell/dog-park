@@ -82,11 +82,6 @@ The Roc is in `roc/`, roughly in the order to read it:
   sidestep). This is the hot path, written for speed: numbers in its
   loops rather than tags, and each list owned by one variable
   (`docs/ROC-SPEED.md` says why). Read it last.
-- **`Game.roc`**: a board and one whole tick of it in Roc, as the Zig has
-  them (the drag, the chickens' turn, the let-go timer, over `Walk.roc`'s
-  walk). The game itself doesn't run it: `zig build game-judge` plays every
-  tick of the bench's drags and the physics' tests by `Game.roc` beside the
-  Zig and compares the boards (`src/play/roc_game.zig`).
 
 **To change something and see it:**
 

@@ -1,10 +1,9 @@
 ## HOW THE GAME LOOKS AND FEELS, said once: each breed's emoji, the park's
 ## colours, the edge bands' sizes and speeds, how near cows must be to be
-## one herd, and how forgiving a press on a small critter is. Two read it:
-## roc/print_page.roc, which prints it for the page (solo/look.js, which
-## solo/scene.js, solo/pointer.js and solo/quips.js read), and
-## roc/Game.roc, the game's tick the game judge plays, for the herd's
-## reach. Each kind's own emoji and colour are World.roc's.
+## one herd, and how forgiving a press on a small critter is.
+## roc/print_page.roc reads it and prints it for the page (solo/look.js,
+## which solo/scene.js, solo/pointer.js and solo/quips.js read). Each
+## kind's own emoji and colour are World.roc's.
 import World
 
 Look := [].{

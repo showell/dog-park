@@ -54,8 +54,7 @@ expect World.levels.keep_if(|lv| lv.world_tiles == world_tiles and lv.park_tiles
 px : I64 -> I64
 px = |n| n * 256
 
-## The park's layout is roc/Layout.roc's, which roc/Game.roc lays its park
-## out with too.
+## The park's layout is roc/Layout.roc's.
 Kind : Layout.Kind
 
 Spot : Layout.Spot
