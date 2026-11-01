@@ -67,7 +67,7 @@ The Roc is in `roc/`, roughly in the order to read it:
   cow is pressed, the bump lines, the score and the win) and how it looks
   and feels (each breed's emoji, the park's colours, the edge bands, the
   herd's reach). **`print_page.roc`** prints them for the page
-  (`solo/words.js`, `solo/look.js`); the native game reads them directly.
+  (`solo/words.js`, `solo/look.js`).
 - **`Rules.roc`**: what a critter does about each critter it sees moving.
   A rule is `Ignore`, `Keep(distance)`, `Herd({ inner, outer })` or
   `Close(distance)`; `rule` says one for every pair of kinds, a `match`
@@ -82,14 +82,11 @@ The Roc is in `roc/`, roughly in the order to read it:
   sidestep). This is the hot path, written for speed: numbers in its
   loops rather than tags, and each list owned by one variable
   (`docs/ROC-SPEED.md` says why). Read it last.
-- **`Game.roc`** and **`native.roc`**: the game on its own, as a native
-  program on [roc-ray](https://github.com/lukewilliamboswell/roc-ray) (a
-  sibling checkout): `Game.roc` is a board and one tick of it in Roc, as the
-  Zig has them, and `native.roc` plays it as the page does, with no server.
-  `.github/workflows/native.yml` builds it for Windows and photographs a
-  frame of it. `zig build game-judge` plays every tick of the bench's
-  drags and the physics' tests by `Game.roc` beside the Zig and compares
-  the boards (`src/play/roc_game.zig`).
+- **`Game.roc`**: a board and one whole tick of it in Roc, as the Zig has
+  them (the drag, the chickens' turn, the let-go timer, over `Walk.roc`'s
+  walk). The game itself doesn't run it: `zig build game-judge` plays every
+  tick of the bench's drags and the physics' tests by `Game.roc` beside the
+  Zig and compares the boards (`src/play/roc_game.zig`).
 
 **To change something and see it:**
 
@@ -101,9 +98,7 @@ The Roc is in `roc/`, roughly in the order to read it:
 PATH or named with `-Droc=<path>`: it builds the physics from `roc/` into
 its cache, and stops, saying so, if there is no Roc or another one.
 `roc version` must print exactly the pin. roc-webbox's `tools/get_roc.sh`
-installs it (the two pins are one, for the combination). CI installs it with
-`roc-lang/setup-roc` and the pin as its nightly
-(`.github/workflows/native.yml`).
+installs it (the two pins are one, for the combination).
 `/version` says the Roc that built the physics, and the physics hash covers
 the pin, so moving it is a new version of the physics.
 `zig build roc` rewrites the checked-in `src/play/world.zon`,
