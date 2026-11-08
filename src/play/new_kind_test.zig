@@ -55,7 +55,6 @@ test "a new kind, made in Roc alone: laid out, walked with the herds, never over
         if (was.x != now.x or was.y != now.y) moved += 1;
     }
     try testing.expect(moved > 0 and sheep_lines > 0);
-    std.debug.print("the new kind: {d} sheep, {d} moved, {d} sheep lines over {d} ticks, no overlaps\n", .{ physics.countOf(sheep), moved, sheep_lines, t });
 
     // On the wire a sheep is `sheep N`, read back as itself.
     var buf: [64]u8 = undefined;
