@@ -89,11 +89,13 @@ The Roc is in `roc/`, roughly in the order to read it:
     zig build roc-test   # Roc's own expects, and `roc fmt --check roc`
     zig build play       # serve the game on port 9103; open it and drag a dog
 
-**Every build needs `roc`**, the nightly `roc/roc-version` pins, on the
-PATH or named with `-Droc=<path>`: it builds the physics from `roc/` into
-its cache, and stops, saying so, if there is no Roc or another one.
-`roc version` must print exactly the pin. roc-webbox's `tools/get_roc.sh`
-installs it (the two pins are one, for the combination).
+**Every build needs `roc`**, the nightly `roc/roc-version` pins: it builds
+the physics from `roc/` into its cache. The build finds it itself at
+`~/tools/roc-<pin>/roc` (else `roc` on the PATH; `-Droc=<path>` overrides
+both), and stops, saying so, if there is no Roc or another one: `roc
+version` must print exactly the pin, so a PATH holding an older Roc is
+refused, not used. roc-webbox's `tools/get_roc.sh` installs it there (the
+two pins are one, for the combination).
 `/version` says the Roc that built the physics, and the physics hash covers
 the pin, so moving it is a new version of the physics.
 `zig build roc` rewrites the checked-in `src/play/world.zon`,

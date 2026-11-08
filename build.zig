@@ -394,8 +394,8 @@ pub fn build(b: *std.Build) void {
     linkRoc(roc_lib, server_bench_mod, null);
     const server_bench = b.addExecutable(.{ .name = "physics_server_bench", .root_module = server_bench_mod });
     // **THE WORLD AND ITS RULES, FROM ROC** (src/play/world.zig,
-    // src/play/rules.zig): roc/print_world.roc and roc/print_rules.roc run with `roc`
-    // (on the PATH, or -Droc=<path>), what they print written to the files
+    // src/play/rules.zig): roc/print_world.roc and roc/print_rules.roc run with
+    // the pinned Roc (`rocCompiler`), what they print written to the files
     // the physics imports (world.zon, rules.zon) and the page reads
     // (solo/world.js). Not in any tier: only a change to a .roc file needs
     // it; the tests hold the checked-in files to the original world, rules
@@ -531,20 +531,29 @@ const roc_inputs = [_][]const u8{ "roc/physics.roc", "roc/Wish.roc", "roc/Walk.r
 /// is new archives, so judge them (the physics hash covers this file).
 const roc_pin = std.mem.trim(u8, @embedFile("roc/roc-version"), " \n");
 
-/// The Roc compiler: -Droc=<path> (from the build root), or `roc` on the
-/// PATH. **Every build needs one, and the pinned one** (`roc_pin`): with
-/// none, or another, the build stops here, while it is configured, saying
-/// so.
+/// The Roc compiler: -Droc=<path> (from the build root) when given; else
+/// `~/tools/roc-<pin>/roc`, where ../roc-webbox/tools/get_roc.sh installs
+/// it; else `roc` on the PATH. **Every build needs one, and the pinned one**
+/// (`roc_pin`): with none, or another, the build stops here, while it is
+/// configured, saying so. The PATH's `roc` is never trusted for being there.
 fn rocCompiler(b: *std.Build) []const u8 {
-    const named = b.option([]const u8, "roc", "the Roc compiler (default: `roc` on the PATH); every build needs one, the version roc/roc-version pins") orelse "roc";
-    const none = "Dog Park's physics is built from Roc, and there is no Roc compiler at `{s}`: put Roc {s} (roc/roc-version) on the PATH (../roc-webbox/tools/get_roc.sh installs it), or name it with -Droc=<path>";
-    const found = if (std.mem.indexOfScalar(u8, named, '/') == null)
-        b.findProgram(.{ .names = &.{named} }) orelse std.process.fatal(none, .{ named, roc_pin })
-    else
-        b.root.root_dir.handle.realPathFileAlloc(b.graph.io, named, b.allocator) catch std.process.fatal(none, .{ named, roc_pin });
+    const named = b.option([]const u8, "roc", "the Roc compiler (default: ~/tools/roc-<pin>/roc, else `roc` on the PATH); every build needs one, the version roc/roc-version pins");
+    const none = "Dog Park's physics is built from Roc {s} (roc/roc-version), and there is no Roc compiler at {s}: install it with ../roc-webbox/tools/get_roc.sh (into ~/tools/roc-{s}/roc), or name it with -Droc=<path>";
+    const io = b.graph.io;
+    const found = if (named) |n|
+        (if (std.mem.indexOfScalar(u8, n, '/') == null)
+            b.findProgram(.{ .names = &.{n} }) orelse std.process.fatal(none, .{ roc_pin, b.fmt("`{s}` on the PATH", .{n}), roc_pin })
+        else
+            b.root.root_dir.handle.realPathFileAlloc(io, n, b.allocator) catch std.process.fatal(none, .{ roc_pin, b.fmt("`{s}`", .{n}), roc_pin }))
+    else blk: {
+        const home = b.graph.environ_map.get("HOME") orelse std.process.fatal("Dog Park's physics needs Roc {s}, and there is no HOME to find ~/tools/roc-{s}/roc in: name it with -Droc=<path>", .{ roc_pin, roc_pin });
+        const pinned = b.fmt("{s}/tools/roc-{s}/roc", .{ home, roc_pin });
+        break :blk b.root.root_dir.handle.realPathFileAlloc(io, pinned, b.allocator) catch
+            b.findProgram(.{ .names = &.{"roc"} }) orelse std.process.fatal(none, .{ roc_pin, b.fmt("{s}, nor `roc` on the PATH", .{pinned}), roc_pin });
+    };
     const said = std.mem.trim(u8, b.run(&.{ found, "version" }), " \n");
     const version = if (std.mem.lastIndexOfScalar(u8, said, ' ')) |i| said[i + 1 ..] else said;
-    if (!std.mem.eql(u8, version, roc_pin)) std.process.fatal("Dog Park's physics is pinned to Roc {s} (roc/roc-version), and `{s}` is {s}: put the pinned one on the PATH (../roc-webbox/tools/get_roc.sh) or name it with -Droc=<path>, or move the pin on purpose (a new Roc is new archives: judge them)", .{ roc_pin, found, version });
+    if (!std.mem.eql(u8, version, roc_pin)) std.process.fatal("Dog Park's physics is pinned to Roc {s} (roc/roc-version), and `{s}` is {s}: install the pinned one with ../roc-webbox/tools/get_roc.sh (into ~/tools/roc-{s}/roc, which every build finds itself), or name it with -Droc=<path>, or move the pin on purpose (a new Roc is new archives: judge them)", .{ roc_pin, found, version, roc_pin });
     return found;
 }
 

@@ -4,9 +4,10 @@
 # test/new_kind/sheep.patch there, which may touch roc/*.roc and nothing
 # else, print the sheep world (`zig build roc`; each build builds its Roc), and run
 # src/play/new_kind_test.zig and the walk's judge against the same Zig.
-# Usage: tools/new_kind.sh [roc]
+# Usage: tools/new_kind.sh [roc]   (default: the one build.zig finds,
+# ~/tools/roc-<pin>/roc; it refuses any other version)
 set -eu
-roc=${1:-roc}
+roc=${1:+-Droc=$1}
 here=$(pwd)
 patch_file="$here/test/new_kind/sheep.patch"
 # Roc's files only: a patch that needs the Zig changed proves nothing.
@@ -31,7 +32,7 @@ cd "$copy"
 patch -p1 --quiet < "$patch_file"
 # The Zig is this checkout's, byte for byte.
 for f in $(cd "$here" && ls src/play/*.zig); do cmp -s "$here/$f" "$f" || { echo "new_kind: $f differs after the patch" >&2; exit 1; }; done
-zig build -Droc="$roc" roc
-zig build -Droc="$roc" new-kind-test
-zig build -Droc="$roc" walk-judge
+zig build $roc roc
+zig build $roc new-kind-test
+zig build $roc walk-judge
 echo "new_kind: the sheep world's test and the walk's judge pass on this checkout's Zig"

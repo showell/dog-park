@@ -29,7 +29,7 @@ check.
    ../roc-webbox), and pushed (nothing checks that):
 
        cd ~/showell_repos/dog-park
-       zig build metal-gate            # the QEMU gate (README), on dogpark.elf and dogpark-todo.elf; needs the pinned roc (roc/roc-version) on the PATH
+       zig build metal-gate            # the QEMU gate (README), on dogpark.elf and dogpark-todo.elf; needs the pinned roc (roc/roc-version) at ~/tools/roc-<pin>/roc
        node droplet/image.mjs
 
    It builds `zig-out/bin/dogpark-todo.elf`, writes
