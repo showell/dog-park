@@ -433,7 +433,12 @@ pub fn build(b: *std.Build) void {
     // against the same Zig (tools/new_kind.sh). The test alone, in this world,
     // does not compile: it has no sheep.
     const fourth_test = b.step("new-kind-test", "The new kind's test, in the sheep world zig build new-kind makes (in this world, with no sheep, it does not compile, saying so)");
-    fourth_test.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = units.module("src/play/new_kind_test.zig", target, optimize, fuzz) })).step);
+    // Its own test alone: the physics' tests it imports belong to this
+    // world, and the golden runs fail in the sheep world, as they should.
+    fourth_test.dependOn(&b.addRunArtifact(b.addTest(.{
+        .root_module = units.module("src/play/new_kind_test.zig", target, optimize, fuzz),
+        .filters = &.{"a new kind, made in Roc alone"},
+    })).step);
     const fourth = b.addSystemCommand(&.{ "sh", "tools/new_kind.sh", roc });
     fourth.setCwd(b.path("."));
     fourth.has_side_effects = true;
