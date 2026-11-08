@@ -1,0 +1,261 @@
+//! The test runner every Zig test here is built with (build.zig, `testRunner`):
+//! std's (lib/compiler/test_runner.zig, Zig 0.17), less its fuzzing, with
+//! three differences. A skipped test (`error.SkipZigTest`) fails; a test
+//! binary with no named tests in it fails, so a filter that matches nothing
+//! is caught (a filter never drops an unnamed `test { ... }`, so those are
+//! not counted); and `--tests=N` fails a binary that holds other than N
+//! named tests, for a filter meant to pick out exactly those. In the build
+//! runner's summary a skip counts as a failure.
+const builtin = @import("builtin");
+
+const std = @import("std");
+const Io = std.Io;
+const testing = std.testing;
+const panic = std.debug.panic;
+
+pub const std_options: std.Options = .{
+    .logFn = log,
+};
+
+var log_err_count: usize = 0;
+var fba: std.heap.FixedBufferAllocator = .init(&fba_buffer);
+var fba_buffer: [8192]u8 = undefined;
+var stdin_buffer: [4096]u8 = undefined;
+var stdout_buffer: [4096]u8 = undefined;
+var stdin_reader: Io.File.Reader = undefined;
+var stdout_writer: Io.File.Writer = undefined;
+const runner_threaded_io: Io = Io.Threaded.global_single_threaded.io();
+
+pub fn main(init: std.process.Init.Minimal) void {
+    const args = init.args.toSlice(fba.allocator()) catch |err| panic("unable to parse command line args: {t}", .{err});
+
+    var listen = false;
+    var expected: ?usize = null;
+    for (args[1..]) |arg| {
+        if (std.mem.eql(u8, arg, "--listen=-")) {
+            listen = true;
+        } else if (std.mem.startsWith(u8, arg, "--seed=")) {
+            testing.random_seed = std.fmt.parseUnsigned(u32, arg["--seed=".len..], 0) catch
+                @panic("unable to parse --seed command line argument");
+        } else if (std.mem.startsWith(u8, arg, "--cache-dir=")) {
+            // Only fuzzing uses it, and this runner does not fuzz.
+        } else if (std.mem.startsWith(u8, arg, "--tests=")) {
+            expected = std.fmt.parseUnsigned(usize, arg["--tests=".len..], 10) catch
+                @panic("unable to parse --tests command line argument");
+        } else {
+            panic("unrecognized command line argument: {s}", .{arg});
+        }
+    }
+
+    checkCount(expected);
+    if (listen) {
+        return mainServer(init) catch |err| panic("internal test runner failure: {t}", .{err});
+    } else {
+        return mainTerminal(init);
+    }
+}
+
+/// Exits, saying why, when the binary holds no tests, or not the `--tests`
+/// count: either way the tests meant to run did not.
+fn checkCount(expected: ?usize) void {
+    var named: usize = 0;
+    for (builtin.test_functions) |t| named += @intFromBool(isNamed(t.name));
+    if (expected) |want| {
+        if (named != want) {
+            std.debug.print("{d} named tests were compiled in, and --tests={d} wants exactly that many: does the test filter still name the test?\n", .{ named, want });
+            for (builtin.test_functions) |t| std.debug.print("  {s}\n", .{t.name});
+            std.process.exit(1);
+        }
+    } else if (named == 0) {
+        std.debug.print("no named tests were compiled in: a test filter that matches nothing, or a root that imports no tests\n", .{});
+        std.process.exit(1);
+    }
+}
+
+/// Whether a test has a name (`test "..."` or `test decl`): Zig names an
+/// unnamed `test { ... }` `<file>.test_<n>`, and a filter never drops one,
+/// so they say nothing about what a filter matched.
+fn isNamed(name: []const u8) bool {
+    const last = name[if (std.mem.lastIndexOfScalar(u8, name, '.')) |i| i + 1 else 0..];
+    if (!std.mem.startsWith(u8, last, "test_") or last.len == "test_".len) return true;
+    for (last["test_".len..]) |c| if (!std.ascii.isDigit(c)) return true;
+    return false;
+}
+
+fn mainServer(init: std.process.Init.Minimal) !void {
+    stdin_reader = .initStreaming(.stdin(), runner_threaded_io, &stdin_buffer);
+    stdout_writer = .initStreaming(.stdout(), runner_threaded_io, &stdout_buffer);
+    var server: std.zig.Server = .{
+        .in = &stdin_reader.interface,
+        .out = &stdout_writer.interface,
+    };
+    try server.serveStringMessage(.zig_version, builtin.zig_version_string);
+
+    while (true) {
+        const hdr = try server.receiveMessage();
+        switch (hdr.tag) {
+            .exit => {
+                return std.process.exit(0);
+            },
+            .query_test_metadata => {
+                var sa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
+                defer if (sa.deinit() != 0) @panic("internal test runner memory leak");
+                const gpa = sa.allocator();
+
+                var string_bytes: std.ArrayList(u8) = .empty;
+                defer string_bytes.deinit(gpa);
+                try string_bytes.append(gpa, 0); // Reserve 0 for null.
+
+                const test_fns = builtin.test_functions;
+                const names = try gpa.alloc(u32, test_fns.len);
+                defer gpa.free(names);
+                const expected_panic_msgs = try gpa.alloc(u32, test_fns.len);
+                defer gpa.free(expected_panic_msgs);
+
+                for (test_fns, names, expected_panic_msgs) |test_fn, *name, *expected_panic_msg| {
+                    name.* = @intCast(string_bytes.items.len);
+                    try string_bytes.ensureUnusedCapacity(gpa, test_fn.name.len + 1);
+                    string_bytes.appendSliceAssumeCapacity(test_fn.name);
+                    string_bytes.appendAssumeCapacity(0);
+                    expected_panic_msg.* = 0;
+                }
+
+                try server.serveTestMetadata(.{
+                    .names = names,
+                    .expected_panic_msgs = expected_panic_msgs,
+                    .string_bytes = string_bytes.items,
+                });
+            },
+
+            .run_test => {
+                testing.environ = init.environ;
+                testing.allocator_instance = .init(std.heap.page_allocator, .{
+                    .canary = 0xc3a701ba,
+                    .check_write_after_free = true,
+                });
+                testing.io_instance = .init(testing.allocator, .{
+                    .argv0 = .init(init.args),
+                    .environ = init.environ,
+                });
+                log_err_count = 0;
+                const index = try server.receiveBody_u32();
+                const test_fn = builtin.test_functions[index];
+
+                try server.serveStringMessage(.test_started, &.{});
+
+                const TestResults = std.zig.Server.Message.TestResults;
+                const status: TestResults.Status = if (test_fn.func()) |v| s: {
+                    v;
+                    break :s .pass;
+                } else |err| switch (err) {
+                    error.SkipZigTest => s: {
+                        std.debug.print("skipped, and a skip fails here\n", .{});
+                        break :s .fail;
+                    },
+                    else => s: {
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpErrorReturnTrace(trace);
+                        }
+                        break :s .fail;
+                    },
+                };
+                testing.io_instance.deinit();
+                const leak_count = testing.allocator_instance.deinit();
+                try server.serveTestResults(.{
+                    .index = index,
+                    .flags = .{
+                        .status = status,
+                        .fuzz = false,
+                        .log_err_count = std.math.lossyCast(
+                            @FieldType(TestResults.Flags, "log_err_count"),
+                            log_err_count,
+                        ),
+                        .leak_count = std.math.lossyCast(
+                            @FieldType(TestResults.Flags, "leak_count"),
+                            leak_count,
+                        ),
+                    },
+                });
+            },
+
+            else => {
+                std.debug.print("unsupported message: {x}\n", .{@backingInt(hdr.tag)});
+                std.process.exit(1);
+            },
+        }
+    }
+}
+
+/// Without the build runner (the wasm32-wasi tests, under node): a line a
+/// test, then "All N tests passed." or the counts; a skip is a failure.
+fn mainTerminal(init: std.process.Init.Minimal) void {
+    const test_fn_list = builtin.test_functions;
+    var ok_count: usize = 0;
+    var fail_count: usize = 0;
+    var leaks: usize = 0;
+    for (test_fn_list, 0..) |test_fn, i| {
+        testing.allocator_instance = .init(std.heap.page_allocator, .{
+            .canary = 0xc3a701ba,
+            .check_write_after_free = true,
+        });
+        testing.io_instance = .init(testing.allocator, .{
+            .argv0 = .init(init.args),
+            .environ = init.environ,
+        });
+        defer {
+            testing.io_instance.deinit();
+            if (testing.allocator_instance.deinit() != 0) leaks += 1;
+        }
+        testing.log_level = .warn;
+        testing.environ = init.environ;
+
+        std.debug.print("{d}/{d} {s}...", .{ i + 1, test_fn_list.len, test_fn.name });
+        if (test_fn.func()) |_| {
+            ok_count += 1;
+            std.debug.print("OK\n", .{});
+        } else |err| switch (err) {
+            error.SkipZigTest => {
+                fail_count += 1;
+                std.debug.print("SKIP, and a skip fails here\n", .{});
+            },
+            else => {
+                fail_count += 1;
+                std.debug.print("FAIL ({t})\n", .{err});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpErrorReturnTrace(trace);
+                }
+            },
+        }
+    }
+    if (ok_count == test_fn_list.len) {
+        std.debug.print("All {d} tests passed.\n", .{ok_count});
+    } else {
+        std.debug.print("{d} passed; {d} failed.\n", .{ ok_count, fail_count });
+    }
+    if (log_err_count != 0) {
+        std.debug.print("{d} errors were logged.\n", .{log_err_count});
+    }
+    if (leaks != 0) {
+        std.debug.print("{d} tests leaked memory.\n", .{leaks});
+    }
+    if (leaks != 0 or log_err_count != 0 or fail_count != 0) {
+        std.process.exit(1);
+    }
+}
+
+pub fn log(
+    comptime message_level: std.log.Level,
+    comptime scope: @EnumLiteral(),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    if (@backingInt(message_level) <= @backingInt(std.log.Level.err)) {
+        log_err_count +|= 1;
+    }
+    if (@backingInt(message_level) <= @backingInt(testing.log_level)) {
+        std.debug.print(
+            "[" ++ @tagName(scope) ++ "] (" ++ @tagName(message_level) ++ "): " ++ format ++ "\n",
+            args,
+        );
+    }
+}

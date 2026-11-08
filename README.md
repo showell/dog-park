@@ -439,6 +439,12 @@ a purpose:
 A test that no longer proves anything goes. `src/play/all_tests.zig` is the
 root of every Zig test.
 
+Every Zig test is built with `tools/test_runner.zig`, std's runner but
+stricter: a skipped test (`error.SkipZigTest`) fails, and so does a test
+binary with no named tests in it, such as one whose filter matches
+nothing. `new-kind-test` passes it `--tests=1`, so its filter must pick out
+exactly its one test. Skips count as failures in the build summary.
+
     zig build physics-test   # the physics' tests alone, natively: the fastest
     zig build test           # after every edit, ~4 s
     zig build check          # before a commit, ~14 s

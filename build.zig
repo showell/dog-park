@@ -237,14 +237,14 @@ pub fn build(b: *std.Build) void {
             m.addImport("shale", u.shale);
             m.addImport("host_io", u.host_io);
             m.addAnonymousImport("physics.wasm", .{ .root_source_file = u.page_wasm });
-            return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m })).step;
+            return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m, .test_runner = testRunner(u.b) })).step;
         }
 
         /// The physics' tests alone (physics_all_tests.zig): no webbox, no
         /// page wasm to build first.
         fn physics(u: @This(), size: Fuzz) *std.Build.Step {
             const m = u.module("src/play/physics_all_tests.zig", u.target, u.optimize, size);
-            return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m })).step;
+            return &u.b.addRunArtifact(u.b.addTest(.{ .root_module = m, .test_runner = testRunner(u.b) })).step;
         }
 
         /// The physics' tests compiled to wasm32-wasi and run under node,
@@ -262,15 +262,15 @@ pub fn build(b: *std.Build) void {
             probe.entry = .disabled;
             probe.rdynamic = true;
             step.dependOn(&probe.step);
-            const tests = u.b.addTest(.{ .root_module = u.module("src/play/physics_all_tests.zig", wasi_target, opt, size) });
+            const tests = u.b.addTest(.{ .root_module = u.module("src/play/physics_all_tests.zig", wasi_target, opt, size), .test_runner = testRunner(u.b) });
             const run = nodeCommand(u.b);
             // WASI is experimental in node, and says so on every run: that
             // one warning, by its exact words, is passed over
             // (tools/lib/warnings_fail.mjs); any other fails the run.
             run.addFileArg(u.b.path("tools/run_wasi.mjs"));
             run.addArtifactArg(tests);
-            // "All N tests passed." and nothing else: a skip ("N passed;
-            // M skipped; 0 failed.") fails here, a failure on the exit code.
+            // "All N tests passed.": the runner (tools/test_runner.zig)
+            // fails a skip, and a binary with no tests, on its exit code.
             run.expectStdErrMatch(" tests passed.");
             run.expectExitCode(0);
             run.has_side_effects = true;
@@ -435,10 +435,15 @@ pub fn build(b: *std.Build) void {
     const fourth_test = b.step("new-kind-test", "The new kind's test, in the sheep world zig build new-kind makes (in this world, with no sheep, it does not compile, saying so)");
     // Its own test alone: the physics' tests it imports belong to this
     // world, and the golden runs fail in the sheep world, as they should.
-    fourth_test.dependOn(&b.addRunArtifact(b.addTest(.{
+    // `--tests=1`: the filter picks out that one named test, and a filter
+    // that matches none, or more, fails (tools/test_runner.zig).
+    const fourth_run = b.addRunArtifact(b.addTest(.{
         .root_module = units.module("src/play/new_kind_test.zig", target, optimize, fuzz),
         .filters = &.{"a new kind, made in Roc alone"},
-    })).step);
+        .test_runner = testRunner(b),
+    }));
+    fourth_run.addArg("--tests=1");
+    fourth_test.dependOn(&fourth_run.step);
     const fourth = b.addSystemCommand(&.{ "sh", "tools/new_kind.sh", roc });
     fourth.setCwd(b.path("."));
     fourth.has_side_effects = true;
@@ -466,6 +471,14 @@ pub fn build(b: *std.Build) void {
     check.dependOn(roc_test_step);
     check.dependOn(roc_fresh);
     b.step("physics-server-bench", "Time a 16-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
+}
+
+/// The runner every Zig test is built with: std's, except that a skipped
+/// test fails, and so does a binary with no tests (a filter that matches
+/// nothing). It speaks the build runner's protocol, so the summary keeps
+/// its counts.
+fn testRunner(b: *std.Build) std.Build.Step.Compile.TestRunner {
+    return .{ .path = b.path("tools/test_runner.zig"), .mode = .server };
 }
 
 /// A step that fails, naming `checked_in`, unless it is byte for byte
