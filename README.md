@@ -107,8 +107,9 @@ after its last item, and `roc fmt` lays it out one item a line.
 
 **To know a change is right:** `zig build check` runs every Zig test, the
 physics compiled to WebAssembly, and the page's tests. The Zig tests hold
-the Roc to recordings of today's game (the golden runs), which step aside,
-saying so, when the world or the rules change. A change that should leave
+the Roc to recordings of today's game (the golden runs), which fail,
+saying so, when the world or the rules change: record them anew with
+`physics_golden_test.zig`'s `print`. A change that should leave
 behaviour alone (a refactor, a speed-up) keeps
 `zig build physics-bench -- lines` the same, byte for byte: its 14,800
 lines are every move of a full drag with each dog leashed in turn (on
@@ -214,8 +215,8 @@ above), and node for the node tests. Any
 world and rules that fit their types will play: Zig refuses at compile
 time only what the physics can't take (a critter outside the world, a park
 past its edge, poop slots not a power of two). The golden runs (today's
-game, recorded) step aside under another configuration, saying so;
-record them anew with `physics_golden_test.zig`'s `print`. The
+game, recorded) fail under another configuration, saying so; record
+them anew with `physics_golden_test.zig`'s `print`. The
 QEMU gate and the image also need qemu with KVM, sgdisk, mtools and
 fsck.fat, and python3 (zig-metal-unikernel's `droplet/app_image.py`).
 

@@ -6,9 +6,9 @@
 //!
 //! **THEY ARE THE CONFIGURATION'S**: recorded under one world and one set
 //! of rules (world.zon, rules.zon, whose hash is `recorded_under`). With
-//! another, the game is another game, and they step aside, saying so; a
-//! new configuration records its own with `print`. A change meant to
-//! change the physics itself records new ones too, with its reason.
+//! another, the game is another game, and they fail, saying so; a new
+//! configuration records its own with `print`. A change meant to change
+//! the physics itself records new ones too, with its reason.
 
 const std = @import("std");
 const physics = @import("physics.zig");
@@ -22,12 +22,12 @@ const print = false;
 /// rules.zon, hashed.
 pub const recorded_under: u64 = 0x6880e1e54b46a669;
 
-/// Steps a recording's test aside under another configuration than the
-/// one it was recorded under, saying which recording.
-pub fn recordedOrSkip(what: []const u8) error{SkipZigTest}!void {
+/// Fails a recording's test under another configuration than the one it
+/// was recorded under, saying which recording.
+pub fn recordedUnder(what: []const u8) error{NotTheRecordedConfiguration}!void {
     if (configuration() == recorded_under) return;
-    std.debug.print("{s} steps aside: world.zon or rules.zon is not the configuration it was recorded under\n", .{what});
-    return error.SkipZigTest;
+    std.debug.print("{s}: world.zon or rules.zon is not the configuration it was recorded under: record it anew\n", .{what});
+    return error.NotTheRecordedConfiguration;
 }
 
 pub fn configuration() u64 {
@@ -84,10 +84,7 @@ fn played(dog: u16, n_ticks: physics.Tick) u64 {
 }
 
 test "the golden runs: under the configuration they were recorded for, eight drags and a long one come out as recorded" {
-    if (!print and configuration() != recorded_under) {
-        std.debug.print("the golden runs step aside: world.zon or rules.zon is not the configuration they were recorded under (record anew with `print`)\n", .{});
-        return error.SkipZigTest;
-    }
+    if (!print) try recordedUnder("the golden runs (record anew with `print`)");
     var got: [dogs.len + 1]u64 = undefined;
     for (dogs, got[0..dogs.len]) |dog, *h| h.* = played(dog, ticks);
     got[dogs.len] = played(0, long_ticks);

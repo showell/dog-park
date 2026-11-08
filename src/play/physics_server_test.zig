@@ -929,7 +929,7 @@ fn post(io: std.Io, alloc: std.mem.Allocator, hub: *webbox.bus.Hub, path: []cons
 }
 
 test "the worked example through POST /report: the doc's report in, req 4 kept 1043 out, byte for byte; and a body past 64 KiB is a 413" {
-    try @import("physics_golden_test.zig").recordedOrSkip("the worked example (docs/PHYSICS.md)");
+    try @import("physics_golden_test.zig").recordedUnder("the worked example (docs/PHYSICS.md)");
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

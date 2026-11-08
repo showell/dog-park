@@ -5,20 +5,18 @@
 //! build roc` there, then this). The Zig is these same files, byte for
 //! byte; only world.zon, rules.zon and the Roc built are the sheep
 //! world's. In this repository's own world there are no sheep, and it
-//! steps aside.
+//! does not compile, saying so.
 
 const std = @import("std");
 const physics = @import("physics.zig");
 const wire = @import("physics_wire.zig");
 const testing = std.testing;
 
-const has_sheep = @hasField(physics.Kind, "sheep");
+comptime {
+    if (!@hasField(physics.Kind, "sheep")) @compileError("this world has no sheep: the new kind's test runs only in the sheep world `zig build new-kind` makes");
+}
 
 test "a new kind, made in Roc alone: laid out, walked with the herds, never overlapping, and written and read on the wire by its name" {
-    if (!has_sheep) {
-        std.debug.print("the new kind's test steps aside: this world has no sheep (zig build new-kind makes one)\n", .{});
-        return error.SkipZigTest;
-    }
     const sheep: physics.Kind = @field(physics.Kind, "sheep");
     try testing.expectEqual(@as(usize, 5), physics.kind_count);
     try testing.expect(physics.countOf(sheep) > 0);
