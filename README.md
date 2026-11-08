@@ -108,7 +108,7 @@ To break a long record, list, call or lambda's arguments, put a comma
 after its last item, and `roc fmt` lays it out one item a line.
 
 **To know a change is right:** `zig build check` runs every Zig test, the
-physics compiled to WebAssembly, and the page's tests. The Zig tests hold
+physics compiled to WebAssembly, the page's tests, and Roc's expects. The Zig tests hold
 the Roc to recordings of today's game (the golden runs), which fail,
 saying so, when the world or the rules change: record them anew with
 `physics_golden_test.zig`'s `print`. A change that should leave
@@ -448,12 +448,13 @@ The times are warm, and nothing checks them; a cold cache takes longer.
 
 - **`test`:** `zig fmt --check` over every .zig and .zon (the generated
   world.zon and rules.zon too), every Zig unit test natively, with the seeded fuzz loops at a
-  tenth, and the node tests that need no server.
+  tenth, and the node tests that need no server. A node test fails on a
+  skip or a todo, not only on its exit code.
 - **`check`:** `test`, plus `physics-wasm` (the physics' tests compiled to
   wasm32 in Debug and run under node, and its freestanding compile probe),
-  the node tests against a scratch server, `roc fmt --check` and
-  `roc-fresh` (each file `zig build roc` writes, compared with the
-  checked-in one).
+  the node tests against a scratch server, `roc-test` (Roc's expects and
+  `roc fmt --check`) and `roc-fresh` (each file `zig build roc` writes,
+  compared with the checked-in one).
 - **`slow`:** the full fuzz, the physics' tests on wasm in ReleaseSafe as
   the page is served, and every node test.
 

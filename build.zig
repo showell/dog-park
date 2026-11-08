@@ -265,8 +265,8 @@ pub fn build(b: *std.Build) void {
             const tests = u.b.addTest(.{ .root_module = u.module("src/play/physics_all_tests.zig", wasi_target, opt, size) });
             const run = nodeCommand(u.b);
             // WASI is experimental in node, and says so on every run: that
-            // one warning, by its type, is not a failure here.
-            run.addArg("--disable-warning=ExperimentalWarning");
+            // one warning, by its exact words, is passed over
+            // (tools/lib/warnings_fail.mjs); any other fails the run.
             run.addFileArg(u.b.path("tools/run_wasi.mjs"));
             run.addArtifactArg(tests);
             // "All N tests passed." and nothing else: a skip ("N passed;
@@ -330,7 +330,7 @@ pub fn build(b: *std.Build) void {
     b.step("fmt", "`zig fmt --check` over every .zig and .zon, the generated ones too (in `test`)").dependOn(&zig_fmt.step);
     test_step.dependOn(&zig_fmt.step);
 
-    const check = b.step("check", "Before a commit: test, physics-wasm (Debug), and the node tests against a scratch server");
+    const check = b.step("check", "Before a commit: test, physics-wasm (Debug), the node tests against a scratch server, roc-test and roc-fresh");
     check.dependOn(test_step);
     check.dependOn(physics_wasm);
     for (node_server) |f| check.dependOn(nodeTest(b, f));
@@ -443,10 +443,12 @@ pub fn build(b: *std.Build) void {
     fourth.setCwd(b.path("."));
     fourth.has_side_effects = true;
     b.step("new-kind", "A new kind made in Roc alone: sheep.patch on a copy, its world built, the same Zig judged with it (needs roc; -Droc=<path>)").dependOn(&fourth.step);
-    // Roc's own tests of the world, the rules, the wish and the walk
-    // (`expect`s).
-    const roc_test_step = b.step("roc-test", "Roc's own tests: roc/print_world.roc, roc/Rules.roc, roc/Wish.roc and roc/Walk.roc's expects (needs roc; -Droc=<path>)");
-    for ([_][]const u8{ "roc/print_world.roc", "roc/Rules.roc", "roc/Wish.roc", "roc/Walk.roc" }) |f| {
+    // Roc's own tests of the world, the rules, the wish, the walk and the
+    // page's words and look (`expect`s), in `check`. `roc test` runs the
+    // expects of the modules a file imports too, so print_page.roc carries
+    // Words.roc's and Look.roc's.
+    const roc_test_step = b.step("roc-test", "Roc's own tests: roc/print_world.roc, roc/Rules.roc, roc/Wish.roc, roc/Walk.roc and roc/print_page.roc's expects, with those of the modules they import (needs roc; -Droc=<path>)");
+    for ([_][]const u8{ "roc/print_world.roc", "roc/Rules.roc", "roc/Wish.roc", "roc/Walk.roc", "roc/print_page.roc" }) |f| {
         const run = b.addSystemCommand(&.{ roc, "test", f });
         run.setCwd(b.path("."));
         run.addFileInput(b.path(f));
@@ -461,7 +463,7 @@ pub fn build(b: *std.Build) void {
     roc_fmt.setCwd(b.path("."));
     roc_fmt.has_side_effects = true;
     roc_test_step.dependOn(&roc_fmt.step);
-    check.dependOn(&roc_fmt.step);
+    check.dependOn(roc_test_step);
     check.dependOn(roc_fresh);
     b.step("physics-server-bench", "Time a 16-tick report through POST /report (ReleaseSafe)").dependOn(&b.addRunArtifact(server_bench).step);
 }
@@ -476,7 +478,8 @@ fn fresh(b: *std.Build, made: std.Build.LazyPath, checked_in: []const u8) *std.B
     return &cmp.step;
 }
 
-/// One node test file, run after the install, its exit code the verdict.
+/// One node test file, run after the install, its exit code and its
+/// summary the verdict (`nodeRun`).
 fn nodeTest(b: *std.Build, file: []const u8) *std.Build.Step {
     const run = nodeRun(b, file);
     run.step.dependOn(b.getInstallStep());
@@ -491,12 +494,15 @@ fn nodeCommand(b: *std.Build) *std.Build.Step.Run {
     return run;
 }
 
-/// A node test file, its exit code the verdict; what it needs built first
-/// is the caller's to add.
+/// A node test file (node:test, whose summary is TAP), its exit code the
+/// verdict, and a skip or a todo fails it: node:test passes over both with
+/// exit code 0. What it needs built first is the caller's to add.
 fn nodeRun(b: *std.Build, file: []const u8) *std.Build.Step.Run {
     const run = nodeCommand(b);
     run.addFileArg(b.path(file));
     run.setCwd(b.path("."));
+    run.expectStdOutMatch("\n# skipped 0\n");
+    run.expectStdOutMatch("\n# todo 0\n");
     run.expectExitCode(0);
     run.has_side_effects = true;
     return run;
