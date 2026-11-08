@@ -204,7 +204,7 @@ pub fn build(b: *std.Build) void {
         .{ .elf = "zig-out/bin/dogpark.elf", .built = metal_step },
         .{ .elf = "zig-out/bin/dogpark-todo.elf", .built = combo_metal },
     }) |k| {
-        const metal_gate = b.addSystemCommand(&.{ "node", "--no-warnings" });
+        const metal_gate = nodeCommand(b);
         metal_gate.addFileArg(b.path("tools/metal_gate.mjs"));
         metal_gate.addArg(k.elf);
         metal_gate.setCwd(b.path("."));
@@ -263,12 +263,15 @@ pub fn build(b: *std.Build) void {
             probe.rdynamic = true;
             step.dependOn(&probe.step);
             const tests = u.b.addTest(.{ .root_module = u.module("src/play/physics_all_tests.zig", wasi_target, opt, size) });
-            const run = u.b.addSystemCommand(&.{ "node", "--no-warnings" });
+            const run = nodeCommand(u.b);
+            // WASI is experimental in node, and says so on every run: that
+            // one warning, by its type, is not a failure here.
+            run.addArg("--disable-warning=ExperimentalWarning");
             run.addFileArg(u.b.path("tools/run_wasi.mjs"));
             run.addArtifactArg(tests);
-            // "All N tests passed." or "N passed; M skipped; 0 failed.": a
-            // skip passes; a failure fails on the exit code.
-            run.expectStdErrMatch(" passed");
+            // "All N tests passed." and nothing else: a skip ("N passed;
+            // M skipped; 0 failed.") fails here, a failure on the exit code.
+            run.expectStdErrMatch(" tests passed.");
             run.expectExitCode(0);
             run.has_side_effects = true;
             step.dependOn(&run.step);
@@ -427,9 +430,9 @@ pub fn build(b: *std.Build) void {
     // repository with test/new_kind/sheep.patch (roc/*.roc only) applied,
     // its world and rules printed there by `zig build roc` (its physics'
     // Roc built by each build there), and src/play/new_kind_test.zig run
-    // against the same Zig (tools/new_kind.sh). The test alone, in this world, steps
-    // aside: it has no goats.
-    const fourth_test = b.step("new-kind-test", "The new kind's test against this checkout's world (it steps aside without a sheep; zig build new-kind makes one)");
+    // against the same Zig (tools/new_kind.sh). The test alone, in this world,
+    // does not compile: it has no sheep.
+    const fourth_test = b.step("new-kind-test", "The new kind's test, in the sheep world zig build new-kind makes (in this world, with no sheep, it does not compile, saying so)");
     fourth_test.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = units.module("src/play/new_kind_test.zig", target, optimize, fuzz) })).step);
     const fourth = b.addSystemCommand(&.{ "sh", "tools/new_kind.sh", roc });
     fourth.setCwd(b.path("."));
@@ -475,10 +478,18 @@ fn nodeTest(b: *std.Build, file: []const u8) *std.Build.Step {
     return &run.step;
 }
 
+/// `node`, with tools/lib/warnings_fail.mjs preloaded: a warning fails the
+/// run.
+fn nodeCommand(b: *std.Build) *std.Build.Step.Run {
+    const run = b.addSystemCommand(&.{"node"});
+    run.addPrefixedFileArg("--import=", b.path("tools/lib/warnings_fail.mjs"));
+    return run;
+}
+
 /// A node test file, its exit code the verdict; what it needs built first
 /// is the caller's to add.
 fn nodeRun(b: *std.Build, file: []const u8) *std.Build.Step.Run {
-    const run = b.addSystemCommand(&.{ "node", "--no-warnings" });
+    const run = nodeCommand(b);
     run.addFileArg(b.path(file));
     run.setCwd(b.path("."));
     run.expectExitCode(0);
