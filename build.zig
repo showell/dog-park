@@ -462,7 +462,7 @@ pub fn build(b: *std.Build) void {
     }
     // **THE ROC IS AS `roc fmt` LAYS IT OUT**, in `check` and `roc-test`. A
     // long line is broken by a trailing comma after its last item, which
-    // `roc fmt` lays out one item a line (shale's cookbook/roc/roc_commas.shale
+    // `roc fmt` lays out one item a line (shale's cookbook/roc/wrap_long_lines.shale
     // does it), never by hand: `roc fmt` joins those back.
     const roc_fmt = b.addSystemCommand(&.{ roc, "fmt", "--check", "roc" });
     roc_fmt.setCwd(b.path("."));

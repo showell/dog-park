@@ -148,7 +148,7 @@ check.
    attached", and the restore has already wiped Dog Park's disk.
 3. Step 9's smoke test again, and the commit:
 
-       shale cookbook:http.shale url=https://dogpark.lynrummy.com/version
+       shale cookbook:fetch_page.shale url=https://dogpark.lynrummy.com/version
 
    Its `commit` (git's short form) must begin the 12-character commit in
    the image's name.
